@@ -1,0 +1,40 @@
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local SQLite Databases & WAL files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Captured Local Media
+backend/storage/audio/
+backend/db/seed_snapshots/*.tmp
+
+# Node / Nuxt Frontend
+node_modules/
+.nuxt/
+.output/
+dist/
+.nitro/
+.cache/
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
