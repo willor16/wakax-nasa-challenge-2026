@@ -21,7 +21,12 @@ from enum import IntEnum
 DEFAULT_QUIET_START = "22:00"
 DEFAULT_QUIET_END = "06:00"
 
-# z-score limits for personal drift (absolute value).
+# z-score limits for personal drift (absolute value), following statistical
+# process control: 2 SD "warning limits" and 3 SD "action limits".
+# References: Shewhart W.A., Economic Control of Quality of Manufactured Product
+# (1931); Westgard J.O. et al., "A multi-rule Shewhart chart for quality control
+# in clinical chemistry", Clinical Chemistry 27(3):493-501 (1981), rules 1-2s/1-3s.
+# A minimum of 3 baseline samples is required before drift is trusted.
 Z_INFO = 2.0
 Z_WARNING = 3.0
 MIN_BASELINE_SAMPLES = 3
