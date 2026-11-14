@@ -3,6 +3,10 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineNuxtConfig({
   compatibilityDate: '2026-11-01',
   ssr: false,
+  devServer: {
+    host: '0.0.0.0',
+    port: 3000,
+  },
   future: {
     compatibilityVersion: 4,
   },
@@ -41,12 +45,11 @@ export default defineNuxtConfig({
   i18n: {
     defaultLocale: 'en',
     strategy: 'no_prefix',
-    langDir: 'locales',
     locales: [
       {
         code: 'en',
         name: 'English',
-        file: 'en.json',
+        file: 'en.ts',
       },
     ],
   },

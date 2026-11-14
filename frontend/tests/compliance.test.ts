@@ -39,7 +39,8 @@ describe('SpaceScan UI & Regulatory Compliance', () => {
   it('contains zero forbidden entities or internal tech jargon in UI files', () => {
     const uiFiles = [
       ...collectFiles(APP_DIR, '.vue'),
-      join(APP_DIR, 'locales/en.json'),
+      join(APP_DIR, 'locales/en.ts'),
+      join(FRONTEND_ROOT, 'i18n/locales/en.ts'),
     ]
     const restrictedEntities = [atob('bmFzYQ=='), atob('Y2hpbmE=')]
     const entityPattern = new RegExp(`\\b(${restrictedEntities.join('|')})\\b`, 'i')

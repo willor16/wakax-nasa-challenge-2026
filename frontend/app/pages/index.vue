@@ -1,5 +1,7 @@
 <script setup lang="ts">
-await navigateTo('/login')
+definePageMeta({
+  redirect: '/login',
+})
 </script>
 
 <template>
