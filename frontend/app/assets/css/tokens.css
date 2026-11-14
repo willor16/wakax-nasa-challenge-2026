@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+:root {
+  /* === OFFICIAL 6-COLOR PALETTE === */
+  --color-bg-base: #001524;
+  --color-surface-card: #15616D;
+  --color-text-primary: #FFECD1;
+  --color-status-ok: #2AEF4B;
+  --color-navy-accent: #000C5C;
+  --color-status-critical: #D5110B;
+
+  /* === SUPPORT TONAL DERIVATIVES (SAME CHROMATIC FAMILY) === */
+  --color-bg-top: #00101C;
+  --color-bg-bottom: #062838;
+  --color-surface-inset: rgba(4, 30, 46, 0.72);
+  --color-border-card: rgba(21, 97, 109, 0.78);
+  --color-border-hi: #25899B;
+  --color-rem-accent: #2994A6;
+  --color-navy-edge: #263BB0;
+  --color-text-secondary: #F2DEC0;
+  --color-text-muted: #C8B69C;
+  --color-text-dim: #968976;
+
+  /* === DYNAMIC CABIN SURFACES (MUTATE IN CRITICAL ALERT MODE) === */
+  --horizon-glow-core: rgba(21, 97, 109, 0.86);
+  --horizon-glow-mid: rgba(12, 67, 80, 0.58);
+  --upper-glow: rgba(21, 97, 109, 0.34);
+  --window-frame-stroke: var(--color-border-card);
+}
+
+/* CRITICAL CABIN MODE: toggled via document.documentElement.dataset.cabinMode = 'critical' */
+:root[data-cabin-mode="critical"] {
+  --horizon-glow-core: rgba(122, 22, 18, 0.88);
+  --horizon-glow-mid: rgba(61, 18, 24, 0.60);
+  --upper-glow: rgba(213, 17, 11, 0.26);
+  --window-frame-stroke: rgba(213, 17, 11, 0.85);
+}
+
+@theme {
+  --color-cabin-bg: var(--color-bg-base);
+  --color-cabin-card: var(--color-surface-card);
+  --color-cabin-inset: var(--color-surface-inset);
+  --color-cabin-text: var(--color-text-primary);
+  --color-cabin-ice: var(--color-text-secondary);
+  --color-cabin-muted: var(--color-text-muted);
+  --color-cabin-ok: var(--color-status-ok);
+  --color-cabin-navy: var(--color-navy-accent);
+  --color-cabin-navy-edge: var(--color-navy-edge);
+  --color-cabin-crit: var(--color-status-critical);
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+.cockpit-canvas {
+  background-color: var(--color-bg-base);
+  background-image:
+    radial-gradient(66% 52% at 50% 86%, var(--horizon-glow-core) 0%, var(--horizon-glow-mid) 38%, rgba(3, 31, 47, 0.28) 74%, transparent 100%),
+    radial-gradient(55% 32% at 50% 12%, var(--upper-glow) 0%, transparent 100%),
+    linear-gradient(180deg, var(--color-bg-top) 0%, var(--color-bg-base) 52%, var(--color-bg-bottom) 100%);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-item-active {
+  background: linear-gradient(180deg, rgba(0, 12, 92, 0.30) 0%, rgba(0, 12, 92, 0.52) 100%);
+  border: 1.3px solid rgba(38, 59, 176, 0.82);
+}
+
+.hologram-shell {
+  filter: drop-shadow(0 0 12px rgba(42, 239, 75, 0.22));
+}
+
+.hologram-scanline::after {
+  content: "";
+  position: absolute;
+  inset-inline: 12%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(42, 239, 75, 0.65), transparent);
+  animation: scan-sweep 4.5s ease-in-out infinite;
+}
+
+@keyframes scan-sweep {
+  0%, 100% {
+    top: 10%;
+    opacity: 0.25;
+  }
+  50% {
+    top: 88%;
+    opacity: 0.85;
+  }
+}
