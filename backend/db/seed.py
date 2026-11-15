@@ -1,27 +1,14 @@
 """Pre-flight and offline snapshot database seeder for SpaceScan."""
 
-import hashlib
 import json
-import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app.auth_utils import hash_pin
 from app.config import DB_PATH, SCHEMA_PATH, SEED_SNAPSHOT_PATH
 from app.db import init_db, open_connection
 from app.services.contracts import evaluate_alerts
-
-
-def hash_pin(pin: str) -> str:
-    """Hash a 4-digit PIN using Argon2id (with stdlib scrypt fallback if unbundled)."""
-    try:
-        from argon2 import PasswordHasher
-
-        return PasswordHasher().hash(pin)
-    except ImportError:
-        salt = secrets.token_hex(16)
-        digest = hashlib.scrypt(pin.encode("utf-8"), salt=salt.encode("utf-8"), n=16384, r=8, p=1)
-        return f"scrypt${salt}${digest.hex()}"
 
 
 def seed_database(

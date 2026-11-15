@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import AUDIO_STORAGE_DIR, STATIC_SPA_DIR
 from app.db import init_db
-from app.routers import auth, measurements, system
+from app.routers import auth, crew, measurements, system
 
 
 @asynccontextmanager
@@ -42,6 +42,7 @@ app.add_middleware(
 
 app.include_router(system.router)
 app.include_router(auth.router)
+app.include_router(crew.router)
 app.include_router(measurements.router)
 
 if STATIC_SPA_DIR.exists():

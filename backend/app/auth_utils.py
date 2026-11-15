@@ -1,14 +1,27 @@
-"""Cryptographic PIN verification and JWT session utilities."""
+"""Cryptographic PIN verification, hashing, and JWT session utilities."""
 
 import hashlib
 import hmac
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 from app.config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET
+
+
+def hash_pin(pin: str) -> str:
+    """Hash a 4-digit PIN using Argon2id (with stdlib scrypt fallback if unbundled)."""
+    try:
+        from argon2 import PasswordHasher
+
+        return PasswordHasher().hash(pin)
+    except ImportError:
+        salt = secrets.token_hex(16)
+        digest = hashlib.scrypt(pin.encode("utf-8"), salt=salt.encode("utf-8"), n=16384, r=8, p=1)
+        return f"scrypt${salt}${digest.hex()}"
 
 
 def verify_pin(pin: str, stored_hash: str) -> bool:
@@ -66,3 +79,13 @@ def get_current_crew(authorization: str | None = Header(default=None)) -> dict[s
         )
     token = authorization.removeprefix("Bearer ").strip()
     return decode_access_token(token)
+
+
+def require_operator(claims: dict[str, Any] = Depends(get_current_crew)) -> dict[str, Any]:
+    """Ensure the authenticated crew member holds the OPERATOR role for user admin."""
+    if claims.get("role") != "OPERATOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operator role required for crew administration.",
+        )
+    return claims

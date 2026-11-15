@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { isAuthenticated, cabinMode, unreadAlerts } = useSession()
+const { activeCrew, isAuthenticated, cabinMode, unreadAlerts } = useSession()
 const route = useRoute()
 
 const utcClock = ref('')
@@ -45,6 +45,20 @@ onUnmounted(() => {
           {{ utcClock || '00:00:00 UTC' }}
         </span>
       </div>
+
+      <NuxtLink
+        v-if="isAuthenticated && activeCrew?.role === 'OPERATOR'"
+        to="/crew-management"
+        class="h-8 px-3 rounded-[4px] border flex items-center gap-1.5 text-[11px] font-semibold transition-colors"
+        :class="
+          route.path === '/crew-management'
+            ? 'menu-item-active text-cabin-text'
+            : 'bg-cabin-inset border-cabin-card/65 text-cabin-muted hover:text-cabin-text'
+        "
+      >
+        <Icon name="spacescan:profile" class="w-3.5 h-3.5" />
+        <span>Crew Admin</span>
+      </NuxtLink>
 
       <NuxtLink
         v-if="isAuthenticated"
