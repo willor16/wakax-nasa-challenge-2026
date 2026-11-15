@@ -1,4 +1,4 @@
-"""Validation and FTS5 tests for the Dev 3 medical guide seed (D3-04 prep)."""
+"""Validation and search tests for the medical guide and kit seed (D3-06)."""
 
 import base64
 import json
@@ -7,7 +7,14 @@ from pathlib import Path
 
 from app.config import SCHEMA_PATH, SEED_SNAPSHOT_PATH
 from app.db import open_connection
-from app.services.wiki_seed import REQUIRED_KEYS, STEP_KEYS, load_wiki_articles, read_articles
+from app.services.wiki_seed import (
+    REQUIRED_KEYS,
+    STEP_KEYS,
+    load_medical_kit,
+    load_wiki_articles,
+    read_articles,
+    read_kit,
+)
 from db.seed import seed_database
 
 # Restricted entities are stored encoded so the codebase never names them.
@@ -40,12 +47,13 @@ def test_guide_articles_have_required_fields() -> None:
 
 def test_guide_articles_match_figma_drawers_and_filters() -> None:
     for article in read_articles():
-        assert article["drawer_code"] in FIGMA_DRAWERS, article["id"]
         assert article["category_en"] in FIGMA_CATEGORIES, article["id"]
+    for article in _all_articles():
+        assert article["drawer_code"] in FIGMA_DRAWERS, article["id"]
 
 
 def test_steps_have_heading_and_detail() -> None:
-    for article in read_articles():
+    for article in _all_articles():
         steps = article["steps_json"]
         assert 3 <= len(steps) <= 5, article["id"]
         for step in steps:
@@ -73,8 +81,14 @@ def test_guide_covers_required_topics() -> None:
 def test_load_is_idempotent_and_searchable(temp_db_path: Path) -> None:
     seed_database(db_path=temp_db_path, schema_path=SCHEMA_PATH, snapshot_path=SEED_SNAPSHOT_PATH)
     with open_connection(temp_db_path) as conn:
-        assert load_wiki_articles(conn) == 3
+        # seed.py already loads the guide articles and the kit.
+        assert conn.execute("SELECT COUNT(*) FROM wiki_articles").fetchone()[0] == 7
         assert load_wiki_articles(conn) == 0
+        assert load_medical_kit(conn) == 0
+        source = conn.execute(
+            "SELECT source_en FROM wiki_articles WHERE id = 'wiki-trauma-01'"
+        ).fetchone()[0]
+        assert source.startswith("World Health Organization")
         rows = conn.execute(
             """
             SELECT a.id FROM wiki_articles_fts AS f
@@ -84,3 +98,18 @@ def test_load_is_idempotent_and_searchable(temp_db_path: Path) -> None:
             ("bleeding",),
         ).fetchall()
     assert [r["id"] for r in rows] == ["wiki-bleeding-01"]
+
+
+def test_kit_matches_screen_14() -> None:
+    kit = read_kit()
+    assert {d["code"] for d in kit["drawers"]} == FIGMA_DRAWERS
+    drawers = {d["code"] for d in kit["drawers"]}
+    slots = [i["slot_code"] for i in kit["items"]]
+    assert len(slots) == len(set(slots))
+    assert all(i["drawer_code"] in drawers for i in kit["items"])
+    b2 = [i["name_en"] for i in kit["items"] if i["drawer_code"] == "DRAWER B2"]
+    assert b2[:3] == [
+        "Digital Acoustic Stethoscope", "Handheld Capnograph", "Glucose & Urine Strips",
+    ]
+    text = json.dumps(kit, ensure_ascii=False)
+    assert not BANNED.search(text) and not NON_ASCII.search(text)
