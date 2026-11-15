@@ -22,6 +22,7 @@ from app.routers import (
     sleep,
     streaks,
     system,
+    vision,
 )
 from app.services.comms_service import run_outbox_scheduler_tick
 from app.services.scheduled_checks import run_scheduled_checks_tick
@@ -64,6 +65,7 @@ app.include_router(auth.router)
 app.include_router(crew.router)
 app.include_router(profile.router)
 app.include_router(sleep.router)
+app.include_router(vision.router)
 app.include_router(measurements.router)
 app.include_router(streaks.router)
 app.include_router(comms.router)
