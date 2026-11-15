@@ -21,7 +21,7 @@ import httpx
 from app.services.alert_engine import CARE_STEPS
 
 LLM_URL = os.environ.get("SPACESCAN_LLM_URL", "http://127.0.0.1:11434")
-LLM_MODEL = os.environ.get("SPACESCAN_LLM_MODEL", "qwen2.5:3b")
+LLM_MODEL = os.environ.get("SPACESCAN_LLM_MODEL", "llama3.2:3b")
 LLM_TIMEOUT_SEC = float(os.environ.get("SPACESCAN_LLM_TIMEOUT", "20"))
 
 # Words that must never reach the screen: restricted entities (kept encoded so

@@ -5,9 +5,6 @@ export const ARENA_DURATION_MS = 120_000
 export const ARENA_MIN_DELAY_MS = 3_000
 export const ARENA_MAX_DELAY_MS = 7_000
 export const ARENA_RESPONSE_WINDOW_MS = 1_500
-export const ARENA_PLANNED_TRIALS = Math.round(
-  ARENA_DURATION_MS / ((ARENA_MIN_DELAY_MS + ARENA_MAX_DELAY_MS) / 2),
-)
 export const FALSE_START_MS = 100
 export const LAPSE_MS = 500
 export const REACTION_TARGET_MS = 300
@@ -52,7 +49,7 @@ export function formatClock(ms: number): string {
 }
 
 /** Hours and minutes between sleep onset and wake time, crossing midnight. */
-export function sleepDuration(onset: string, wake: string): string | null {
+export function sleepDuration(onset: string, wake: string): { hours: number, minutes: string } | null {
   const parse = (v: string) => {
     const match = /^(\d{2}):(\d{2})$/.exec(v)
     return match ? Number(match[1]) * 60 + Number(match[2]) : null
@@ -61,7 +58,7 @@ export function sleepDuration(onset: string, wake: string): string | null {
   const b = parse(wake)
   if (a === null || b === null) return null
   const minutes = (b - a + 1440) % 1440
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m asleep`
+  return { hours: Math.floor(minutes / 60), minutes: String(minutes % 60).padStart(2, '0') }
 }
 
 // ------------------------------------------------------------- profile ---
@@ -70,10 +67,10 @@ export interface PsychProfile {
   crew_id: string
   latest_state: { mood_state: string | null, recorded_at_utc: string, wellbeing_index: number } | null
   scales: {
-    mood: { value: number, range: [number, number], label: string }
+    mood: { value: number, range: [number, number], range_source?: string, label: string }
     stress_index: { value: number, target_below: number, label: string }
     isolation: { value: number, target_below: number, label: string }
-    motivation: { value: number, range: [number, number], label: string }
+    motivation: { value: number, range: [number, number], range_source?: string, label: string }
   } | null
   trend: { day: string, mood: number, calmness: number }[]
   optimal_zone: [number, number]
@@ -92,15 +89,17 @@ export interface PsychProfile {
   } | null
 }
 
-const STATE_TEXT: Record<string, { title: string, detail: string }> = {
-  CALM: { title: 'CALM', detail: 'Emotional stability within your personal baseline.' },
-  FOCUSED: { title: 'FOCUSED', detail: 'Clear focus and steady energy for the shift.' },
-  TIRED: { title: 'TIRED', detail: 'Low energy today. Protect your next rest period.' },
-  STRESSED: { title: 'STRESSED', detail: 'Pressure is high today. Short breaks and a talk with the crew help.' },
+const MOOD_STATES = ['CALM', 'FOCUSED', 'TIRED', 'STRESSED']
+
+/** Locale key (under ``mind.profile.states``) for the latest mood state. */
+export function stateKey(state: string | null | undefined): string {
+  return state && MOOD_STATES.includes(state) ? state : 'NONE'
 }
 
-export function stateText(state: string | null | undefined): { title: string, detail: string } {
-  return STATE_TEXT[state ?? ''] ?? { title: 'NO CHECK-IN YET', detail: 'Log a daily check-in in Data Capture.' }
+/** Locale key (under ``mind.profile``) for where a scale's reference range comes from. */
+export function rangeKey(source: string | undefined): string {
+  if (source === 'BASELINE') return 'baseline'
+  return source === 'RECENT' ? 'recentRange' : 'optimalRange'
 }
 
 /** Position (0-100%) of a 1-5 value on a slider track. */
@@ -120,7 +119,11 @@ export function missionDay(dayIso: string, launchIso: string): string {
   return `D${Math.floor((day - launch) / 86400000) + 1}`
 }
 
-export function buildMoodTrendOption(profile: PsychProfile, launchIso: string) {
+export function buildMoodTrendOption(
+  profile: PsychProfile,
+  launchIso: string,
+  names: { mood: string, calmness: string },
+) {
   const ok = token('--color-status-ok', '#2AEF4B')
   const rem = token('--color-rem-accent', '#2994A6')
   const navyEdge = token('--color-navy-edge', '#263BB0')
@@ -137,7 +140,7 @@ export function buildMoodTrendOption(profile: PsychProfile, launchIso: string) {
     yAxis: { type: 'value', min: 1, max: 5, interval: 1 },
     series: [
       {
-        name: 'Mood',
+        name: names.mood,
         type: 'line',
         data: profile.trend.map(t => t.mood),
         symbolSize: 7,
@@ -150,7 +153,7 @@ export function buildMoodTrendOption(profile: PsychProfile, launchIso: string) {
         },
       },
       {
-        name: 'Calmness',
+        name: names.calmness,
         type: 'line',
         data: profile.trend.map(t => t.calmness),
         symbol: 'none',

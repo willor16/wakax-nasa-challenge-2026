@@ -1,5 +1,6 @@
 """Tests for the onboard anomaly models, assistant guidance and physician review (D3-04/05)."""
 
+import base64
 import json
 from pathlib import Path
 
@@ -98,6 +99,10 @@ GOOD = {
     "steps": [{"title": f"Step {i}", "detail": "Do this calmly."} for i in range(1, 5)],
     "cited_article_ids": ["wiki-vision-01", "wiki-unknown"],
 }
+# A sentence in another language, kept encoded so the code base stays English only.
+NOT_ENGLISH = base64.b64decode(
+    "TGVjdHVyYXMgZnVlcmEgZGUgcmFuZ28gc2Vnw7puIGVsIG3DqWRpY28u"
+).decode()
 
 
 def test_valid_answer_is_used_and_trimmed() -> None:
@@ -111,7 +116,7 @@ def test_valid_answer_is_used_and_trimmed() -> None:
     {**GOOD, "steps": GOOD["steps"][:2]},                          # too few steps
     {**GOOD, "summary": "Our neural model flagged this."},         # internal tech word
     {**GOOD, "cited_article_ids": ["wiki-other"]},                  # nothing valid cited
-    {**GOOD, "summary": "Lecturas fuera de rango según el médico."},  # not English
+    {**GOOD, "summary": NOT_ENGLISH},                               # not English
 ])
 def test_invalid_answers_fall_back(bad: dict) -> None:
     guidance = llm.generate_guidance(FINDING, ARTICLES, "vision", client=_client(_answer(bad)))
@@ -174,7 +179,9 @@ def test_scan_review_and_promotion_flow(conn) -> None:
     assert alert["message_en"].endswith("Physician note: Repeat the eye scan tomorrow morning.")
     case = search_articles(conn, "validated case")
     assert case[0]["id"] == result["guide_article_id"]
-    assert case[0]["escalation_en"] == "Repeat the eye scan tomorrow morning."
+    # The guide is open to everyone: the note about this crew member stays out of it.
+    assert "tomorrow morning" not in json.dumps(case[0])
+    assert case[0]["escalation_en"].startswith("Escalate to onboard physician")
     assert list_diagnoses(conn, viewer_id="ID-01", viewer_role="PILOT")[0]["id"] == diagnosis["id"]
 
     with pytest.raises(ReviewError):
@@ -199,9 +206,15 @@ def test_api_permissions(temp_db_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     seed_database(db_path=temp_db_path, schema_path=SCHEMA_PATH, snapshot_path=SEED_SNAPSHOT_PATH)
     with TestClient(fastapi_app) as client:
         pilot, operator, doctor = (_headers(client, c) for c in ("ID-01", "ID-02", "ID-03"))
+        # A crew member may start a scan but gets no finding before the review.
         scan = client.post("/api/v1/diagnosis/anomalies", json={}, headers=pilot)
         assert scan.status_code == 200
-        diagnosis = scan.json()["diagnosis"]
+        assert scan.json() == {"finding": None, "diagnosis": None, "repeated": False,
+                               "sent_for_review": True}
+        seen = client.post("/api/v1/diagnosis/anomalies", json={"crew_id": "ID-01"},
+                           headers=doctor)
+        assert seen.json()["repeated"] is True
+        diagnosis = seen.json()["diagnosis"]
         assert diagnosis["guidance_source"] == "fallback"
 
         assert client.post("/api/v1/diagnosis/anomalies", json={"crew_id": "ID-01"},

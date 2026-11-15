@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import type { AdvisoryItem, CheckItem } from '../app/utils/notifications'
+import { beforeAll, describe, expect, it } from 'vitest'
+import type { AdvisoryItem, CheckItem, Translate } from '../app/utils/notifications'
+import { loadTranslate } from './helpers/locale'
 import {
   captureRoute,
   defaultSelection,
@@ -13,6 +14,11 @@ import {
 } from '../app/utils/notifications'
 
 const NOW = new Date('2026-11-15T14:32:00Z')
+let t: Translate
+
+beforeAll(async () => {
+  t = await loadTranslate()
+})
 
 function advisory(overrides: Partial<AdvisoryItem> = {}): AdvisoryItem {
   return {
@@ -43,19 +49,19 @@ const check: CheckItem = {
 
 describe('Notifications screen helpers', () => {
   it('labels cards like the design', () => {
-    expect(itemLabel(advisory(), NOW)).toBe('CRITICAL ADVISORY · 12 MIN AGO')
-    expect(itemLabel(advisory({ severity: 'WARNING', created_at_utc: '2026-11-15T11:00:00Z' }), NOW))
+    expect(itemLabel(advisory(), NOW, t)).toBe('CRITICAL ADVISORY · 12 MIN AGO')
+    expect(itemLabel(advisory({ severity: 'WARNING', created_at_utc: '2026-11-15T11:00:00Z' }), NOW, t))
       .toBe('WARNING · 3 H AGO')
-    expect(itemLabel(advisory({ severity: 'INFO', created_at_utc: '2026-11-14T09:05:00Z' }), NOW))
+    expect(itemLabel(advisory({ severity: 'INFO', created_at_utc: '2026-11-14T09:05:00Z' }), NOW, t))
       .toBe('ADVISORY · 09:05 UTC')
-    expect(itemLabel(check, NOW)).toBe('SCHEDULED · TOMORROW 07:30 UTC')
+    expect(itemLabel(check, NOW, t)).toBe('SCHEDULED · TOMORROW 07:30 UTC')
   })
 
   it('formats due times for checks', () => {
-    expect(dueLabel('2026-11-15T19:30:00Z', NOW)).toBe('TODAY 19:30 UTC')
-    expect(dueLabel('2026-11-15T09:00:00Z', NOW)).toBe('OVERDUE · 09:00 UTC')
-    expect(dueLabel('2026-11-21T14:00:00Z', NOW)).toBe('NOV 21 · 14:00 UTC')
-    expect(timeAgo('2026-11-15T14:32:20Z', NOW)).toBe('JUST NOW')
+    expect(dueLabel('2026-11-15T19:30:00Z', NOW, t)).toBe('TODAY 19:30 UTC')
+    expect(dueLabel('2026-11-15T09:00:00Z', NOW, t)).toBe('OVERDUE · 09:00 UTC')
+    expect(dueLabel('2026-11-21T14:00:00Z', NOW, t)).toBe('NOV 21 · 14:00 UTC')
+    expect(timeAgo('2026-11-15T14:32:20Z', NOW, t)).toBe('JUST NOW')
   })
 
   it('keeps advisory and check ids apart and picks tones', () => {

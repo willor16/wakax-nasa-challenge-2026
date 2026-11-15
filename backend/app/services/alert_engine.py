@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.services.alert_rules import (
     Baseline,
@@ -19,9 +19,13 @@ from app.services.alert_rules import (
     build_alert_texts,
     decide,
     is_role_focus,
+    parse_utc,
 )
 
 Step = dict[str, str]
+# A repeat reading this close to an open alert of the same metric is the
+# follow-up the care steps ask for, not a new event.
+REPEAT_WINDOW = timedelta(hours=6)
 
 
 def _step(title: str, detail: str) -> Step:
@@ -157,8 +161,37 @@ def _guide_article_id(conn: sqlite3.Connection, group: str) -> str | None:
     return article_id if found else None
 
 
+def _has_open_alert(conn: sqlite3.Connection, crew_id: str, metric_key: str,
+                    severity: Severity, recorded_at_utc: str) -> bool:
+    """True when an unconfirmed alert of this metric already says as much or more.
+
+    The care steps ask the crew to measure again shortly after an alert. A
+    repeat reading taken within ``REPEAT_WINDOW`` that is still out of range must
+    not stack a copy of the same advisory; a worse reading (higher severity) or
+    a reading later in the day still raises a new one.
+    """
+    rows = conn.execute(
+        """
+        SELECT a.severity, m.recorded_at_utc FROM alerts AS a
+        JOIN measurements AS m ON m.id = a.measurement_id
+        WHERE a.crew_id = ? AND m.metric_key = ? AND a.acknowledged_at_utc IS NULL
+        """,
+        (crew_id, metric_key),
+    ).fetchall()
+    taken = parse_utc(recorded_at_utc)
+    return any(
+        Severity[r["severity"]] >= severity
+        and abs(taken - parse_utc(r["recorded_at_utc"])) <= REPEAT_WINDOW
+        for r in rows
+    )
+
+
 def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[int]:
-    """Evaluate a stored measurement and insert at most one alert. Returns new alert ids."""
+    """Evaluate a stored measurement and insert at most one alert. Returns new alert ids.
+
+    Nothing is inserted while a recent open alert of the same metric already
+    covers this severity.
+    """
     row = conn.execute(
         """
         SELECT
@@ -203,6 +236,9 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
         role_focus=is_role_focus(row["role"], row["metric_key"]),
     )
     if decision is None:
+        return []
+    if _has_open_alert(conn, row["crew_id"], row["metric_key"], decision.severity,
+                       row["recorded_at_utc"]):
         return []
 
     title, message = build_alert_texts(

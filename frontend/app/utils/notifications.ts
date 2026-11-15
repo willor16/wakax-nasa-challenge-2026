@@ -45,6 +45,9 @@ export interface NotificationsResponse {
 
 export type Tone = 'critical' | 'warning' | 'info' | 'scheduled'
 
+/** Text lookup from the locale file; every word shown on screen comes through it. */
+export type Translate = (key: string, params?: Record<string, unknown>) => string
+
 export function itemKey(item: NotificationItem): string {
   return `${item.kind}-${item.id}`
 }
@@ -53,12 +56,6 @@ export function itemTone(item: NotificationItem): Tone {
   if (item.kind === 'SCHEDULED') return 'scheduled'
   if (item.severity === 'CRITICAL') return 'critical'
   return item.severity === 'WARNING' ? 'warning' : 'info'
-}
-
-const SEVERITY_LABEL: Record<Severity, string> = {
-  CRITICAL: 'CRITICAL ADVISORY',
-  WARNING: 'WARNING',
-  INFO: 'ADVISORY',
 }
 
 function parseUtc(isoUtc: string): Date {
@@ -70,13 +67,13 @@ function hhmm(date: Date): string {
 }
 
 /** "12 MIN AGO", "3 H AGO", "14:00 UTC" (earlier days). */
-export function timeAgo(isoUtc: string, now: Date): string {
+export function timeAgo(isoUtc: string, now: Date, t: Translate): string {
   const then = parseUtc(isoUtc)
   const minutes = Math.max(0, Math.floor((now.getTime() - then.getTime()) / 60000))
-  if (minutes < 1) return 'JUST NOW'
-  if (minutes < 60) return `${minutes} MIN AGO`
-  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} H AGO`
-  return `${hhmm(then)} UTC`
+  if (minutes < 1) return t('notifications.time.justNow')
+  if (minutes < 60) return t('notifications.time.minutesAgo', { n: minutes })
+  if (minutes < 24 * 60) return t('notifications.time.hoursAgo', { n: Math.floor(minutes / 60) })
+  return t('notifications.time.clock', { time: hhmm(then) })
 }
 
 function dayIndex(date: Date): number {
@@ -84,20 +81,26 @@ function dayIndex(date: Date): number {
 }
 
 /** "TODAY 19:30 UTC", "TOMORROW 07:30 UTC", "OVERDUE · 14:00 UTC", "NOV 21 · 14:00 UTC". */
-export function dueLabel(isoUtc: string, now: Date): string {
+export function dueLabel(isoUtc: string, now: Date, t: Translate): string {
   const due = parseUtc(isoUtc)
-  if (due.getTime() < now.getTime()) return `OVERDUE · ${hhmm(due)} UTC`
+  const time = hhmm(due)
+  if (due.getTime() < now.getTime()) return t('notifications.due.overdue', { time })
   const days = dayIndex(due) - dayIndex(now)
-  if (days === 0) return `TODAY ${hhmm(due)} UTC`
-  if (days === 1) return `TOMORROW ${hhmm(due)} UTC`
+  if (days === 0) return t('notifications.due.today', { time })
+  if (days === 1) return t('notifications.due.tomorrow', { time })
   const month = due.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase()
-  return `${month} ${due.getUTCDate()} · ${hhmm(due)} UTC`
+  return t('notifications.due.date', { month, day: due.getUTCDate(), time })
 }
 
 /** Small caps line above each card title, as on the design. */
-export function itemLabel(item: NotificationItem, now: Date): string {
-  if (item.kind === 'SCHEDULED') return `SCHEDULED · ${dueLabel(item.due_at_utc, now)}`
-  return `${SEVERITY_LABEL[item.severity]} · ${timeAgo(item.created_at_utc, now)}`
+export function itemLabel(item: NotificationItem, now: Date, t: Translate): string {
+  if (item.kind === 'SCHEDULED') {
+    return t('notifications.label.scheduled', { due: dueLabel(item.due_at_utc, now, t) })
+  }
+  return t('notifications.label.advisory', {
+    severity: t(`notifications.severity.${item.severity}`),
+    ago: timeAgo(item.created_at_utc, now, t),
+  })
 }
 
 /** Card subtitle: the advisory message, or what to measure for a check. */

@@ -40,16 +40,25 @@ def _require_physician(claims: dict) -> None:
 
 @router.post("/diagnosis/anomalies")
 def scan_for_anomalies(body: ScanIn, claims: Crew) -> dict:
-    """Scan one crew member (yourself; the physician may scan anyone)."""
+    """Scan one crew member (yourself; the physician may scan anyone).
+
+    Only the physician receives the finding. Other crew members are told the
+    scan ran; they see the result once the physician has reviewed it.
+    """
     crew_id = body.crew_id or claims["sub"]
+    is_physician = claims.get("role") == "PHYSICIAN"
     if crew_id != claims["sub"]:
         _require_physician(claims)
     with open_connection() as conn:
+        conn.execute("PRAGMA busy_timeout = 5000;")
         if conn.execute("SELECT 1 FROM crew_members WHERE id = ?", (crew_id,)).fetchone() is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Crew not found.")
         result = scan_crew_member(conn, crew_id)
         conn.commit()
-    return result
+    if not is_physician:
+        return {"finding": None, "diagnosis": None, "repeated": False,
+                "sent_for_review": result["diagnosis"] is not None}
+    return {**result, "sent_for_review": result["diagnosis"] is not None}
 
 
 @router.get("/diagnosis")
@@ -80,5 +89,6 @@ def review(diagnosis_id: int, body: ReviewIn, claims: Crew) -> dict:
 def run_anomaly_scan_tick() -> None:
     """APScheduler job: scan the whole crew."""
     with open_connection() as conn:
+        conn.execute("PRAGMA busy_timeout = 5000;")
         scan_all(conn)
         conn.commit()

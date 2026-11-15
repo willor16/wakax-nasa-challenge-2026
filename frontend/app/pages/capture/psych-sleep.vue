@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { psychCheckinSchema } from '~/schemas/mind'
-import { ARENA_PLANNED_TRIALS, formatClock, sleepDuration } from '~/utils/mind'
+import { formatClock, sleepDuration } from '~/utils/mind'
 
 type MoodState = 'CALM' | 'FOCUSED' | 'TIRED' | 'STRESSED'
 type ScaleKey = 'mood' | 'stress' | 'isolation' | 'motivation'
@@ -11,14 +11,15 @@ const arena = useReactionArena()
 const moodStates: MoodState[] = ['CALM', 'FOCUSED', 'TIRED', 'STRESSED']
 const scaleKeys: ScaleKey[] = ['mood', 'stress', 'isolation', 'motivation']
 
-const form = reactive({
-  moodState: 'CALM' as MoodState,
-  mood: 4,
-  stress: 2,
-  isolation: 1,
-  motivation: 5,
-  sleepOnsetUtc: '22:00',
-  wakeUtc: '06:00',
+// Nothing is chosen in advance, so a saved check-in is always the crew member's own answer.
+const form = reactive<{ moodState: MoodState | null, sleepOnsetUtc: string, wakeUtc: string } & Record<ScaleKey, number | null>>({
+  moodState: null,
+  mood: null,
+  stress: null,
+  isolation: null,
+  motivation: null,
+  sleepOnsetUtc: '',
+  wakeUtc: '',
 })
 const formErrors = ref<Record<string, string>>({})
 const saving = ref(false)
@@ -57,8 +58,8 @@ async function saveCheckin() {
         stress: d.stress,
         isolation: d.isolation,
         motivation: d.motivation,
-        sleep_onset_utc: d.sleepOnsetUtc,
-        wake_utc: d.wakeUtc,
+        sleep_onset_utc: d.sleepOnsetUtc || null,
+        wake_utc: d.wakeUtc || null,
       },
     })
     savedIndex.value = res.wellbeing_index
@@ -108,12 +109,7 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col gap-[18px] flex-1">
-    <div class="flex items-start justify-between gap-3">
-      <CaptureSubnavBar />
-      <span class="h-8 px-4 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/80 text-[10.5px] font-bold tracking-[0.05em] inline-flex items-center">
-        {{ $t('mind.capture.feeds') }}
-      </span>
-    </div>
+    <CaptureSubnavBar />
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-[18px] flex-1">
       <ShellHudWindow
@@ -149,7 +145,15 @@ onMounted(() => {
           >
             <span class="flex flex-col">
               <span class="text-[12px] font-bold text-cabin-text">{{ $t(`mind.capture.scales.${key}`) }}</span>
-              <span class="text-[10px] text-cabin-ok">{{ $t('mind.capture.selected', { value: form[key] }) }}</span>
+              <span
+                v-if="formErrors[key]"
+                class="text-[10px] text-cabin-crit"
+              >{{ $t(formErrors[key]) }}</span>
+              <span
+                v-else
+                class="text-[10px]"
+                :class="form[key] === null ? 'text-cabin-muted' : 'text-cabin-ok'"
+              >{{ form[key] === null ? $t('mind.capture.notSelected') : $t('mind.capture.selected', { value: form[key] }) }}</span>
             </span>
             <span
               class="flex gap-2"
@@ -194,12 +198,15 @@ onMounted(() => {
               <span
                 v-if="formErrors.sleepOnsetUtc"
                 class="text-[10.5px] text-cabin-crit"
-              >{{ formErrors.sleepOnsetUtc }}</span>
+              >{{ $t(formErrors.sleepOnsetUtc) }}</span>
             </label>
             <label class="flex flex-col gap-1">
               <span class="flex justify-between text-[9.8px] font-bold tracking-[0.05em] text-cabin-muted">
                 {{ $t('mind.capture.wakeTime') }}
-                <span class="font-mono font-normal">{{ asleep }}</span>
+                <span
+                  v-if="asleep"
+                  class="font-mono font-normal"
+                >{{ $t('mind.capture.asleep', asleep) }}</span>
               </span>
               <span class="relative">
                 <input
@@ -215,7 +222,7 @@ onMounted(() => {
               <span
                 v-if="formErrors.wakeUtc"
                 class="text-[10.5px] text-cabin-crit"
-              >{{ formErrors.wakeUtc }}</span>
+              >{{ $t(formErrors.wakeUtc) }}</span>
             </label>
           </div>
 
@@ -254,7 +261,7 @@ onMounted(() => {
         <div class="flex flex-col gap-3 h-full">
           <div class="relative rounded-[4px] border border-cabin-card bg-cabin-inset h-[250px] select-none">
             <span class="absolute top-3 left-3 font-mono text-[10px] text-cabin-muted">
-              {{ $t('mind.capture.trial', { n: arena.summary.value.trials, total: ARENA_PLANNED_TRIALS, elapsed: formatClock(arena.elapsedMs.value) }) }}
+              {{ $t('mind.capture.trial', { n: arena.summary.value.trials, elapsed: formatClock(arena.elapsedMs.value) }) }}
             </span>
             <span class="absolute top-3 right-3 text-[10px] font-bold text-cabin-ok">
               {{ $t('mind.capture.tapGreen') }}

@@ -1,18 +1,24 @@
 <script setup lang="ts">
 import VChart from 'vue-echarts'
 import type { PsychProfile } from '~/utils/mind'
-import { buildMoodTrendOption, scalePercent, stateText } from '~/utils/mind'
+import { buildMoodTrendOption, rangeKey, scalePercent, stateKey } from '~/utils/mind'
 
 const { authHeaders, isAuthenticated } = useSession()
+const { t } = useI18n()
 
 const profile = ref<PsychProfile | null>(null)
 const launchUtc = ref('2026-10-01T00:00:00Z')
 const loading = ref(true)
 const loadFailed = ref(false)
 
-const state = computed(() => stateText(profile.value?.latest_state?.mood_state))
+const state = computed(() => {
+  const key = stateKey(profile.value?.latest_state?.mood_state)
+  return { title: t(`mind.profile.states.${key}.title`), detail: t(`mind.profile.states.${key}.detail`) }
+})
 const logTime = computed(() => profile.value?.latest_state?.recorded_at_utc.slice(11, 16) ?? '--:--')
-const chartOption = computed(() => (profile.value ? buildMoodTrendOption(profile.value, launchUtc.value) : null))
+const chartOption = computed(() => (profile.value
+  ? buildMoodTrendOption(profile.value, launchUtc.value, { mood: t('mind.profile.moodScore'), calmness: t('mind.profile.calmness') })
+  : null))
 const lastTrend = computed(() => profile.value?.trend.at(-1) ?? null)
 const reactionOk = computed(() => {
   const r = profile.value?.reaction
@@ -118,10 +124,10 @@ onMounted(() => {
 
           <div
             v-for="row in [
-              { key: 'mood', value: profile.scales.mood.value, max: 5, label: profile.scales.mood.label, hint: $t('mind.profile.baseline', { low: profile.scales.mood.range[0], high: profile.scales.mood.range[1] }), pct: scalePercent(profile.scales.mood.value) },
+              { key: 'mood', value: profile.scales.mood.value, max: 5, label: profile.scales.mood.label, hint: $t(`mind.profile.${rangeKey(profile.scales.mood.range_source)}`, { low: profile.scales.mood.range[0], high: profile.scales.mood.range[1] }), pct: scalePercent(profile.scales.mood.value) },
               { key: 'stress', value: profile.scales.stress_index.value, max: 100, label: profile.scales.stress_index.label, hint: $t('mind.profile.target', { value: profile.scales.stress_index.target_below }), pct: profile.scales.stress_index.value },
               { key: 'isolation', value: profile.scales.isolation.value, max: 5, label: profile.scales.isolation.label, hint: $t('mind.profile.target', { value: profile.scales.isolation.target_below }), pct: scalePercent(profile.scales.isolation.value) },
-              { key: 'motivation', value: profile.scales.motivation.value, max: 5, label: profile.scales.motivation.label, hint: $t('mind.profile.baseline', { low: profile.scales.motivation.range[0], high: profile.scales.motivation.range[1] }), pct: scalePercent(profile.scales.motivation.value) },
+              { key: 'motivation', value: profile.scales.motivation.value, max: 5, label: profile.scales.motivation.label, hint: $t(`mind.profile.${rangeKey(profile.scales.motivation.range_source)}`, { low: profile.scales.motivation.range[0], high: profile.scales.motivation.range[1] }), pct: scalePercent(profile.scales.motivation.value) },
             ]"
             :key="row.key"
             class="flex flex-col gap-2"
@@ -166,7 +172,7 @@ onMounted(() => {
               class="absolute top-1 right-4 z-10 flex gap-4 text-[9.8px] font-semibold"
             >
               <span class="inline-flex items-center gap-1.5"><i class="w-2 h-2 rounded-full bg-cabin-ok" />{{ $t('mind.profile.moodScore') }} ({{ lastTrend.mood }} / 5)</span>
-              <span class="inline-flex items-center gap-1.5"><i class="w-2 h-2 rounded-full bg-cabin-card" />{{ $t('mind.profile.calmness') }} ({{ lastTrend.calmness }} / 5)</span>
+              <span class="inline-flex items-center gap-1.5"><i class="w-2 h-2 rounded-full bg-[var(--color-rem-accent)]" />{{ $t('mind.profile.calmness') }} ({{ lastTrend.calmness }} / 5)</span>
             </span>
             <ClientOnly>
               <VChart

@@ -51,7 +51,8 @@ def test_reaction_scoring_follows_vigilance_task_rules() -> None:
     assert result.false_starts == 1
     assert result.reaction_ms == pytest.approx((250 * 16 + 300 + 620) / 18, abs=0.1)
     assert result.accuracy_pct == pytest.approx(100 * 17 / 19, abs=0.1)
-    assert result.attention_score == pytest.approx(100 * (1 - 2 / 18), abs=0.1)
+    # Errors over valid stimuli plus false starts (Basner & Dinges 2011).
+    assert result.attention_score == pytest.approx(100 * (1 - 2 / 19), abs=0.1)
 
 
 def test_misses_and_too_early_answers() -> None:
@@ -115,6 +116,39 @@ def test_profile_builds_trend_scales_and_reaction(conn) -> None:
     reaction = profile["reaction"]
     assert reaction["reaction_ms"] == 250.0
     assert reaction["lapses"] == 1 and reaction["trials_total"] == 18
+
+
+def test_scale_labels_compare_today_with_earlier_days(conn) -> None:
+    conn.execute("DELETE FROM psych_tests WHERE crew_id = 'ID-02'")
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=UTC)
+
+    def log(day: int, mood: int, motivation: int, stage: str | None = None) -> None:
+        saved = save_checkin(conn, "ID-02", mood_state=None, mood=mood, stress=2, isolation=1,
+                             motivation=motivation, recorded_at_utc=f"2026-11-{day}T08:00:00Z")
+        if stage:
+            conn.execute("UPDATE psych_tests SET mission_stage = ? WHERE id = ?",
+                         (stage, saved["id"]))
+
+    # A first check-in has nothing earlier: it is read against the optimal zone.
+    log(12, 3, 4)
+    first = psych_profile(conn, "ID-02", now=now)["scales"]
+    assert first["mood"]["range_source"] == "OPTIMAL_ZONE"
+    assert first["mood"]["label"] == "Low" and first["motivation"]["label"] == "Positive"
+
+    # Later days are read against the days before them, never against themselves.
+    log(13, 4, 4)
+    log(15, 2, 5)
+    recent = psych_profile(conn, "ID-02", now=now)["scales"]
+    assert recent["mood"]["range"] == (3.0, 4.0) and recent["mood"]["range_source"] == "RECENT"
+    assert recent["mood"]["label"] == "Low"
+    assert recent["motivation"]["label"] == "High"
+
+    # Pre-flight check-ins, when they exist, are the personal baseline.
+    log(10, 2, 5, stage="LAUNCH")
+    baseline = psych_profile(conn, "ID-02", now=now)["scales"]
+    assert baseline["mood"]["range"] == (2.0, 2.0)
+    assert baseline["mood"]["range_source"] == "BASELINE"
+    assert baseline["mood"]["label"] == "Positive"
 
 
 def test_profile_without_data_is_empty_not_an_error(conn) -> None:

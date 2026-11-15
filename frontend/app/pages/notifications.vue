@@ -12,6 +12,7 @@ import {
 } from '~/utils/notifications'
 
 const { activeCrew, authHeaders, isAuthenticated, unreadAlerts } = useSession()
+const { t } = useI18n()
 
 const view = ref<NotificationView>('all')
 const data = ref<NotificationsResponse | null>(null)
@@ -209,7 +210,7 @@ onUnmounted(() => {
               @click="selectedKey = itemKey(item)"
             >
               <span class="text-[9.8px] font-bold tracking-[0.06em] text-cabin-muted">
-                {{ itemLabel(item, now) }}
+                {{ itemLabel(item, now, t) }}
               </span>
               <span class="text-[13px] font-bold text-cabin-text">{{ item.title_en }}</span>
               <span class="text-[11.5px] text-cabin-muted">{{ itemDetail(item) }}</span>
@@ -253,7 +254,7 @@ onUnmounted(() => {
               <template v-if="selected.kind === 'ADVISORY'">{{ selected.message_en }}</template>
               <template v-else>
                 {{ selected.detail_en }}
-                {{ $t('notifications.checkSummary', { due: dueLabel(selected.due_at_utc, now) }) }}
+                {{ $t('notifications.checkSummary', { due: dueLabel(selected.due_at_utc, now, t) }) }}
               </template>
             </span>
           </div>

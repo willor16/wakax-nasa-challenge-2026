@@ -134,7 +134,7 @@ onMounted(load)
               @click="selectedId = item.id"
             >
               <span class="text-[9.8px] font-bold tracking-[0.06em] text-cabin-muted">
-                {{ $t('notifications.reviews.label', { name: item.crew_name.toUpperCase(), strength: strengthLabel(item.anomaly_score), ago: timeAgo(item.created_at_utc, now) }) }}
+                {{ $t('notifications.reviews.label', { name: item.crew_name.toUpperCase(), strength: strengthLabel(item.anomaly_score, t), ago: timeAgo(item.created_at_utc, now, t) }) }}
               </span>
               <span class="text-[13px] font-bold text-cabin-text">{{ item.pattern_label_en }}</span>
               <span class="text-[11.5px] text-cabin-muted">{{ item.llm_summary_en }}</span>
@@ -162,7 +162,7 @@ onMounted(load)
       >
         <div class="rounded-[4px] border border-cabin-card bg-cabin-card/20 px-4 py-3 flex flex-col gap-1">
           <span class="text-[10px] font-bold tracking-[0.06em] text-cabin-ok">
-            {{ sourceLabel(selected.guidance_source) }} · {{ selected.crew_name.toUpperCase() }}
+            {{ sourceLabel(selected.guidance_source, t) }} · {{ selected.crew_name.toUpperCase() }}
           </span>
           <span class="text-[12.5px] text-cabin-text">{{ selected.llm_summary_en }}</span>
           <ul class="mt-1 flex flex-col gap-0.5">
@@ -171,7 +171,7 @@ onMounted(load)
               :key="metric.metric_key"
               class="font-mono text-[10.5px] text-cabin-muted"
             >
-              {{ metricLine(metric) }}
+              {{ metricLine(metric, t) }}
             </li>
           </ul>
         </div>

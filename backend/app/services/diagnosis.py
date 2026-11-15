@@ -95,6 +95,7 @@ def scan_crew_member(conn: sqlite3.Connection, crew_id: str, *, models: Models |
                      client: httpx.Client | None = None) -> dict:
     """Run the networks; store a PENDING_REVIEW finding when something stands out."""
     ensure_diagnosis_columns(conn)
+    conn.commit()  # nothing stays locked while the assistant writes its answer
     finding = detect(conn, crew_id, models=models)
     result = {"finding": asdict(finding), "diagnosis": None, "repeated": False}
     if not finding.is_anomaly or finding.pattern is None:
@@ -141,8 +142,17 @@ def scan_crew_member(conn: sqlite3.Connection, crew_id: str, *, models: Models |
 
 
 def scan_all(conn: sqlite3.Connection, **kwargs) -> list[dict]:
+    """Scan every active crew member, saving after each one.
+
+    The assistant can take many seconds per finding; committing between crew
+    members keeps the database free for new readings in the meantime.
+    """
     crew = [r[0] for r in conn.execute("SELECT id FROM crew_members WHERE is_active = 1")]
-    return [scan_crew_member(conn, crew_id, **kwargs) for crew_id in crew]
+    results = []
+    for crew_id in crew:
+        results.append(scan_crew_member(conn, crew_id, **kwargs))
+        conn.commit()
+    return results
 
 
 def list_diagnoses(conn: sqlite3.Connection, *, viewer_id: str, viewer_role: str,
@@ -188,8 +198,7 @@ def _notify_crew(conn: sqlite3.Connection, diagnosis: dict, notes: str | None, s
     return int(cursor.lastrowid)
 
 
-def _promote_to_guide(conn: sqlite3.Connection, diagnosis: dict, notes: str | None,
-                      stamp: str) -> str:
+def _promote_to_guide(conn: sqlite3.Connection, diagnosis: dict, stamp: str) -> str:
     ensure_guide_schema(conn)
     primary = get_article(conn, (diagnosis["cited_article_ids"] or [""])[0])
     article_id = f"wiki-case-{diagnosis['id']}"
@@ -206,7 +215,9 @@ def _promote_to_guide(conn: sqlite3.Connection, diagnosis: dict, notes: str | No
             f"Validated Case: {diagnosis['pattern_label_en']}",
             primary["drawer_code"] if primary else "DRAWER B2",
             json.dumps(diagnosis["preventive_steps"]),
-            notes or (primary["escalation_en"] if primary else "Call the crew physician."),
+            # The guide is open to everyone on board: physician notes about one
+            # crew member stay in the private advisory, never in the article.
+            primary["escalation_en"] if primary else "Call the crew physician.",
             diagnosis["id"],
             stamp,
             stamp,
@@ -242,5 +253,5 @@ def review_diagnosis(conn: sqlite3.Connection, diagnosis_id: int, physician_id: 
     if decision in ("APPROVED", "PROMOTED_TO_GUIDE"):
         outcome["alert_id"] = _notify_crew(conn, diagnosis, notes, stamp)
     if decision == "PROMOTED_TO_GUIDE":
-        outcome["guide_article_id"] = _promote_to_guide(conn, diagnosis, notes, stamp)
+        outcome["guide_article_id"] = _promote_to_guide(conn, diagnosis, stamp)
     return {**get_diagnosis(conn, diagnosis_id), **outcome}

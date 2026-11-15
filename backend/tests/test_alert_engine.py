@@ -95,6 +95,7 @@ def test_quiet_hours_come_from_mission_settings(conn) -> None:
     conn.execute(
         "UPDATE mission SET quiet_hours_start_utc = '01:00', quiet_hours_end_utc = '05:00'"
     )
+    conn.execute("UPDATE alerts SET acknowledged_at_utc = ? WHERE id = ?", (NIGHT, deferred["id"]))
     awake = _alert(conn, _measure(conn, "ID-04", "hydration_ml", 2000, NIGHT)[0])
     assert awake["is_quiet_deferred"] == 0
 
@@ -107,6 +108,30 @@ def test_cabin_air_links_its_protocol_and_unlinked_groups_stay_empty(conn) -> No
     water = _alert(conn, _measure(conn, "ID-01", "hydration_ml", 1500)[0])
     assert water["wiki_article_id"] is None
     assert json.loads(water["recommended_actions_json"]) == CARE_STEPS["hydration"]
+
+
+def test_repeated_reading_does_not_stack_the_same_alert(conn) -> None:
+    conn.execute("UPDATE alerts SET acknowledged_at_utc = ? WHERE crew_id = 'ID-04'", (DAY,))
+    first = _measure(conn, "ID-04", "hydration_ml", 2000)
+    assert len(first) == 1 and _alert(conn, first[0])["severity"] == "WARNING"
+    assert _measure(conn, "ID-04", "hydration_ml", 2050) == []      # same level: no copy
+    assert _measure(conn, "ID-04", "resting_hr_bpm", 140) != []     # another metric: its own
+    # Still low late that day (outside the repeat window): the crew is told again.
+    assert len(_measure(conn, "ID-04", "hydration_ml", 2000, "2026-11-15T21:00:00Z")) == 1
+    conn.execute("UPDATE alerts SET acknowledged_at_utc = ? WHERE crew_id = 'ID-04'", (DAY,))
+    first = _measure(conn, "ID-04", "hydration_ml", 2000)
+
+    # Once confirmed, a reading that is still out of range raises a new alert.
+    conn.execute("UPDATE alerts SET acknowledged_at_utc = ? WHERE id = ?", (DAY, first[0]))
+    assert len(_measure(conn, "ID-04", "hydration_ml", 2000)) == 1
+
+
+def test_worse_reading_raises_a_new_alert(conn) -> None:
+    conn.execute("UPDATE alerts SET acknowledged_at_utc = ? WHERE crew_id = 'ID-03'", (DAY,))
+    mild = _alert(conn, _measure(conn, "ID-03", "optic_sheath_left_mm", 4.55)[0])
+    assert mild["severity"] == "INFO"
+    worse = _alert(conn, _measure(conn, "ID-03", "optic_sheath_left_mm", 5.9)[0])
+    assert worse["severity"] == "CRITICAL"
 
 
 def test_every_catalog_metric_has_care_steps(conn) -> None:
