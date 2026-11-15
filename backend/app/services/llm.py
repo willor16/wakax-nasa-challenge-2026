@@ -29,8 +29,11 @@ def _local_url(url: str) -> str:
 
 
 LLM_URL = _local_url(os.environ.get("SPACESCAN_LLM_URL", "http://127.0.0.1:11434"))
-LLM_MODEL = os.environ.get("SPACESCAN_LLM_MODEL", "llama3.2:3b")
-LLM_TIMEOUT_SEC = float(os.environ.get("SPACESCAN_LLM_TIMEOUT", "20"))
+# Open-weight model run by the local model server. The large model writes the clearest
+# guidance; on smaller hardware set SPACESCAN_LLM_MODEL=llama3.2:3b (about 2 GB).
+LLM_MODEL = os.environ.get("SPACESCAN_LLM_MODEL", "gpt-oss:120b")
+# The first answer also loads the model into memory, which can take about half a minute.
+LLM_TIMEOUT_SEC = float(os.environ.get("SPACESCAN_LLM_TIMEOUT", "90"))
 
 # Words that must never reach the screen: restricted names (listed in the data
 # file ``db/seed_snapshots/screen_word_filter.json``, never in code) and
@@ -49,7 +52,9 @@ MAX_SUMMARY = 400
 
 SYSTEM_PROMPT = (
     "You assist the physician of a spaceflight crew. Write in plain, calm English for "
-    "astronauts, without technology names or code words. Use only the protocols provided. "
+    "astronauts, without technology names or code words. Every step must restate one of the "
+    "protocol steps provided, keeping its meaning; never add an action that is not listed "
+    "and never suggest switching off air, fans or life support. "
     "Answer with JSON only: {\"summary\": string (max 2 sentences), \"steps\": "
     "[{\"title\": string (max 8 words), \"detail\": string (1 sentence)}] with exactly 3 "
     "steps, \"cited_article_ids\": [ids from the protocols list]}. Do not diagnose disease; "
@@ -67,8 +72,17 @@ class Guidance:
     issues: list[str] = field(default_factory=list)
 
 
+# Typographic marks some models use, written the plain way so the text stays simple English.
+_PLAIN_MARKS = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-",
+    "\u2011": "-", "\u2010": "-", "\u2212": "-", "\u2026": "...", "\u00a0": " ", "\u202f": " ",
+    "\u2009": " ", "\u2265": ">=", "\u2264": "<=", "\u00b7": "-", "\u2022": "-", "\u00d7": "x",
+})
+
+
 def _clean(text: object, limit: int) -> str:
-    return re.sub(r"\s+", " ", str(text or "")).strip()[:limit]
+    plain = str(text or "").translate(_PLAIN_MARKS)
+    return re.sub(r"\s+", " ", plain).strip()[:limit]
 
 
 def build_prompt(finding: dict, articles: list[dict]) -> str:
@@ -79,7 +93,8 @@ def build_prompt(finding: dict, articles: list[dict]) -> str:
     ) or "no single reading stands out"
     protocols = "\n".join(
         f"- id={a['id']} | {a['title_en']} | steps: "
-        + " / ".join(s["title_en"] for s in a["steps"])
+        + " / ".join(f"{s['title_en']}: {s['detail_en']}" if s.get("detail_en") else s["title_en"]
+                     for s in a["steps"])
         + f" | call the physician when: {a['escalation_en']}"
         for a in articles
     )
@@ -87,12 +102,19 @@ def build_prompt(finding: dict, articles: list[dict]) -> str:
         f"Pattern found today: {finding['pattern_label_en']}.\n"
         f"Readings that stand out: {metrics}.\n"
         f"Protocols you may cite:\n{protocols}\n"
+        "Choose the 3 listed steps that fit these readings best and restate them simply. "
         "Write the JSON answer now."
     )
 
 
-def validate(answer: dict, allowed_ids: set[str]) -> tuple[Guidance | None, list[str]]:
-    """Check a raw model answer; return cleaned guidance or the reasons it failed."""
+def validate(answer: dict, allowed_ids: set[str], default_id: str | None = None
+             ) -> tuple[Guidance | None, list[str]]:
+    """Check a raw model answer; return cleaned guidance or the reasons it failed.
+
+    Small local models often leave out the citation list. The answer was grounded only
+    on the protocols provided, so a missing list is credited to the main protocol
+    (``default_id``); a list that names protocols that were not provided is rejected.
+    """
     issues: list[str] = []
     if not isinstance(answer, dict):
         return None, ["answer is not an object"]
@@ -118,7 +140,10 @@ def validate(answer: dict, allowed_ids: set[str]) -> tuple[Guidance | None, list
     cited = [str(i) for i in (raw_cited if isinstance(raw_cited, list) else [])
              if str(i) in allowed_ids]
     if allowed_ids and not cited:
-        issues.append("no valid protocol cited")
+        if not raw_cited and default_id in allowed_ids:
+            cited = [default_id]
+        else:
+            issues.append("no valid protocol cited")
     text = " ".join([summary, *(s["title_en"] + " " + s["detail_en"] for s in steps)])
     if not text.isascii():
         issues.append("non-English characters")
@@ -163,7 +188,8 @@ def generate_guidance(finding: dict, articles: list[dict], group: str,
                 response = http.post(f"{LLM_URL}/api/generate", json=payload)
         response.raise_for_status()
         answer = json.loads(response.json()["response"])
-        guidance, issues = validate(answer, {a["id"] for a in articles})
+        guidance, issues = validate(answer, {a["id"] for a in articles},
+                                    primary["id"] if primary else None)
         if guidance:
             return guidance
         result = fallback(finding, group, primary)

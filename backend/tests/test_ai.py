@@ -125,6 +125,20 @@ def test_invalid_answers_fall_back(bad: dict) -> None:
     assert len(guidance.steps) == 3
 
 
+def test_typographic_marks_are_written_plainly() -> None:
+    fancy = {**GOOD, "summary": "Sheath \u2265 5.8 mm \u2014 repeat the scan\u2019s reading\u2026"}
+    guidance = llm.generate_guidance(FINDING, ARTICLES, "vision", client=_client(_answer(fancy)))
+    assert guidance.source == "assistant"
+    assert guidance.summary_en == "Sheath >= 5.8 mm - repeat the scan's reading..."
+
+
+def test_missing_citation_is_credited_to_the_main_protocol() -> None:
+    answer = {key: value for key, value in GOOD.items() if key != "cited_article_ids"}
+    guidance = llm.generate_guidance(FINDING, ARTICLES, "vision", client=_client(_answer(answer)))
+    assert guidance.source == "assistant" and not guidance.issues
+    assert guidance.cited_article_ids == ["wiki-vision-01"]
+
+
 def test_unreachable_assistant_falls_back() -> None:
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
