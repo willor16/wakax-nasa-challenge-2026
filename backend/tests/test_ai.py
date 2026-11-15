@@ -129,6 +129,21 @@ def test_unreachable_assistant_falls_back() -> None:
     assert "Eye pressure and optic nerve changes" in guidance.summary_en
 
 
+def test_own_connection_is_closed_after_each_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[httpx.Client] = []
+    real_client = httpx.Client
+
+    def tracking_client(*args, **kwargs) -> httpx.Client:
+        client = real_client(*args, transport=httpx.MockTransport(_answer(GOOD)), **kwargs)
+        opened.append(client)
+        return client
+
+    monkeypatch.setattr(llm.httpx, "Client", tracking_client)
+    guidance = llm.generate_guidance(FINDING, ARTICLES, "vision")
+    assert guidance.source == "assistant"
+    assert len(opened) == 1 and opened[0].is_closed
+
+
 def test_pattern_info_points_to_existing_guide(conn) -> None:
     ids = {r["id"] for r in search_articles(conn)}
     assert {info["article"] for info in PATTERN_INFO.values()} <= ids

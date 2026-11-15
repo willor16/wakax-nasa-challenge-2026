@@ -141,8 +141,12 @@ def generate_guidance(finding: dict, articles: list[dict], group: str,
         "options": {"temperature": 0.2},
     }
     try:
-        http = client or httpx.Client(timeout=LLM_TIMEOUT_SEC)
-        response = http.post(f"{LLM_URL}/api/generate", json=payload)
+        if client is not None:
+            response = client.post(f"{LLM_URL}/api/generate", json=payload)
+        else:
+            # Own client: closed right after the call so no connection stays open.
+            with httpx.Client(timeout=LLM_TIMEOUT_SEC) as http:
+                response = http.post(f"{LLM_URL}/api/generate", json=payload)
         response.raise_for_status()
         answer = json.loads(response.json()["response"])
         guidance, issues = validate(answer, {a["id"] for a in articles})
