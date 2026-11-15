@@ -1,213 +1,166 @@
 <script setup lang="ts">
+// 05 · Astronaut Profile · Psychological (read-only): mood scales, 14-day trend, reaction test.
 import VChart from 'vue-echarts'
-import ProfileSubnavBar from '~/components/profile/ProfileSubnavBar.vue'
-import type { PsychProfile } from '~/utils/mind'
-import { buildMoodTrendOption, rangeKey, scalePercent, stateKey } from '~/utils/mind'
+import { moodTrendOption } from '~/utils/charts'
+import { formatTime } from '~/utils/format'
 
-const { authHeaders, isAuthenticated } = useSession()
-const { t } = useI18n()
-
-const profile = ref<PsychProfile | null>(null)
-const launchUtc = ref('2026-10-01T00:00:00Z')
-const loading = ref(true)
-const loadFailed = ref(false)
-
-const state = computed(() => {
-  const key = stateKey(profile.value?.latest_state?.mood_state)
-  return { title: t(`mind.profile.states.${key}.title`), detail: t(`mind.profile.states.${key}.detail`) }
-})
-const logTime = computed(() => profile.value?.latest_state?.recorded_at_utc.slice(11, 16) ?? '--:--')
-const chartOption = computed(() => (profile.value
-  ? buildMoodTrendOption(profile.value, launchUtc.value, { mood: t('mind.profile.moodScore'), calmness: t('mind.profile.calmness') })
-  : null))
-const lastTrend = computed(() => profile.value?.trend.at(-1) ?? null)
-const reactionOk = computed(() => {
-  const r = profile.value?.reaction
-  return !!r && r.reaction_ms !== null && r.reaction_ms < r.reaction_target_ms
-    && r.accuracy_pct >= r.accuracy_target_pct
-})
-const moodOk = computed(() => {
-  const s = profile.value?.scales
-  return !!s && s.stress_index.label === 'Low' && s.isolation.label === 'Low' && s.mood.label !== 'Low'
-})
-const ringStyle = computed(() => {
-  const r = profile.value?.reaction
-  const share = r?.reaction_ms ? Math.min(1, r.reaction_ms / 500) : 0
-  return { background: `conic-gradient(var(--color-status-ok) ${share * 270}deg, transparent 0)` }
-})
-
-async function load() {
-  loading.value = true
-  loadFailed.value = false
-  try {
-    const [p, mission] = await Promise.all([
-      $fetch<PsychProfile>('/api/v1/psych/profile', { headers: authHeaders() }),
-      $fetch<{ mission: { launch_utc: string } | null }>('/api/v1/mission').catch(() => null),
-    ])
-    profile.value = p
-    if (mission?.mission?.launch_utc) launchUtc.value = mission.mission.launch_utc
-  }
-  catch {
-    loadFailed.value = true
-  }
-  finally {
-    loading.value = false
-  }
+interface Scale { value: number, range?: [number, number], target_below?: number, label: string }
+interface PsychProfile {
+  latest_state: { mood_state: string | null, recorded_at_utc: string, wellbeing_index: number } | null
+  scales: { mood: Scale, stress_index: Scale, isolation: Scale, motivation: Scale } | null
+  trend: { day_label: string, mood: number, calmness: number }[]
+  optimal_zone: [number, number]
+  stability_pct: number
+  reaction: null | { reaction_ms: number | null, reaction_target_ms: number, accuracy_pct: number
+    accuracy_target_pct: number, attention_score: number, lapses: number, trials_total: number
+    valid_responses: number }
 }
 
-onMounted(() => {
-  if (!isAuthenticated.value) {
-    void navigateTo('/login')
-    return
-  }
-  void load()
+const { api } = useApi()
+const { data, loading, error, refresh } = useResource(() => api<PsychProfile>('/psych/profile'), 60_000)
+
+const STATES: Record<string, { title: string, detail: string }> = {
+  CALM: { title: 'Calm & Focused', detail: 'Emotional stability and crew cohesion within optimal personal baseline.' },
+  FOCUSED: { title: 'Focused', detail: 'Alert and engaged; keep regular breaks between demanding tasks.' },
+  TIRED: { title: 'Tired', detail: 'Rest is the priority today; plan lighter tasks and an early rest period.' },
+  STRESSED: { title: 'Under Strain', detail: 'Stress is above the usual level; the crew physician is available to talk.' },
+}
+const state = computed(() => STATES[data.value?.latest_state?.mood_state ?? ''] ?? null)
+const scalesOk = computed(() => {
+  const s = data.value?.scales
+  return !!s && s.stress_index.label === 'Low' && s.isolation.label === 'Low' && s.mood.label !== 'Low'
 })
+const reactionOk = computed(() => {
+  const r = data.value?.reaction
+  return !!r && r.reaction_ms !== null && r.reaction_ms < r.reaction_target_ms && r.accuracy_pct >= r.accuracy_target_pct
+})
+
+usePageHeader(() => ({
+  title: 'Astronaut Profile · Psychological',
+  status: data.value?.scales
+    ? { text: scalesOk.value ? 'Stable' : 'Support Advised', tone: scalesOk.value ? 'ok' : 'critical' }
+    : null,
+}))
+
+const rows = computed(() => {
+  const s = data.value?.scales
+  if (!s) return []
+  const range = (scale: Scale) => (scale.range ? `Personal baseline: ${scale.range[0].toFixed(1)}–${scale.range[1].toFixed(1)}` : '')
+  return [
+    { label: 'Overall Mood', ref: range(s.mood), value: s.mood.value.toFixed(1), max: '/ 5', pill: s.mood.label,
+      pct: (s.mood.value - 1) / 4, band: s.mood.range ? [(s.mood.range[0] - 1) / 4, (s.mood.range[1] - 1) / 4] : null,
+      good: s.mood.label !== 'Low' },
+    { label: 'Stress Index', ref: `Target range: < ${s.stress_index.target_below}`, value: String(s.stress_index.value),
+      max: '/ 100', pill: s.stress_index.label, pct: s.stress_index.value / 100,
+      band: [0.1, (s.stress_index.target_below ?? 40) / 100], good: s.stress_index.label === 'Low' },
+    { label: 'Isolation', ref: `Target range: < ${s.isolation.target_below}`, value: s.isolation.value.toFixed(1),
+      max: '/ 5', pill: s.isolation.label, pct: (s.isolation.value - 1) / 4,
+      band: [0.08, ((s.isolation.target_below ?? 2.5) - 1) / 4], good: s.isolation.label === 'Low' },
+    { label: 'Motivation', ref: range(s.motivation), value: s.motivation.value.toFixed(1), max: '/ 5',
+      pill: s.motivation.label === 'Positive' ? 'High' : s.motivation.label, pct: (s.motivation.value - 1) / 4,
+      band: s.motivation.range ? [(s.motivation.range[0] - 1) / 4, (s.motivation.range[1] - 1) / 4] : null,
+      good: s.motivation.label !== 'Low' },
+  ]
+})
+const chart = computed(() => (data.value?.trend.length ? moodTrendOption(data.value.trend, data.value.optimal_zone) : null))
+const lastTrend = computed(() => data.value?.trend.at(-1) ?? null)
 </script>
 
 <template>
-  <div class="flex flex-col gap-[18px] flex-1">
-    <ProfileSubnavBar :show-stage-filter="false" />
-
-    <p
-      v-if="loadFailed"
-      class="rounded-[4px] border border-cabin-crit bg-cabin-inset px-4 py-3 text-[12px]"
-    >
-      {{ $t('mind.profile.loadError') }}
-    </p>
-
-    <div class="grid grid-cols-1 lg:grid-cols-[1fr_1.45fr] gap-[18px] flex-1">
+  <div class="page">
+    <ShellProfileTabs />
+    <UiStateNote v-if="!data" :loading="loading" :error="error" @retry="refresh()" />
+    <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-        :title="$t('mind.profile.results')"
-        icon="profile"
-        :tag-text="moodOk ? $t('mind.profile.optimal') : $t('mind.profile.attention')"
-        :tag-tone="moodOk ? 'reference' : 'warn'"
-      >
-        <p
-          v-if="!loading && !profile?.scales"
-          class="text-[12.5px] text-cabin-muted"
-        >
-          {{ $t('mind.profile.noData') }}
-        </p>
-        <div
-          v-else-if="profile?.scales"
-          class="flex flex-col gap-6"
-        >
-          <div class="rounded-[4px] border border-cabin-card bg-cabin-card/20 border-l-[3px] border-l-cabin-ok px-4 py-3 flex items-start justify-between gap-3">
-            <span class="flex flex-col gap-1">
-              <span class="text-[10px] font-bold tracking-[0.06em] text-cabin-ok">
-                {{ $t('mind.profile.latest', { state: state.title }) }}
+class="w-[613px]" title="Behavioral & Mood Results" icon="profile"
+                      :tag-text="data.scales ? (scalesOk ? 'OPTIMAL' : 'SUPPORT') : 'NO DATA'"
+                      :tag-tone="data.scales && !scalesOk ? 'critical' : 'reference'" flush>
+        <UiStateNote v-if="!data.scales" empty="No daily check-in logged yet. Use Capture · Psych, Motor & Sleep." />
+        <div v-else class="flex-1 flex flex-col px-[23px] pt-[20px] pb-[14px]">
+          <div class="tile-hi relative h-[82px] shrink-0 pl-[20px] pr-[18px] flex flex-col justify-center">
+            <span class="absolute left-0 top-[10px] bottom-[10px] w-[3px] rounded-full" :class="scalesOk ? 'bg-cabin-ok' : 'bg-cabin-crit'" />
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-bold tracking-[0.04em] uppercase" :class="scalesOk ? 'text-cabin-ok' : 'text-cabin-text'">
+                Latest daily state<template v-if="state"> · {{ state.title }}</template>
               </span>
-              <span class="text-[12px] text-cabin-text">{{ state.detail }}</span>
-            </span>
-            <span class="shrink-0 h-[22px] px-3 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/70 font-mono text-[9.8px] font-semibold inline-flex items-center">
-              {{ $t('mind.profile.logTime', { time: logTime }) }}
-            </span>
-          </div>
-
-          <div
-            v-for="row in [
-              { key: 'mood', value: profile.scales.mood.value, max: 5, label: profile.scales.mood.label, hint: $t(`mind.profile.${rangeKey(profile.scales.mood.range_source)}`, { low: profile.scales.mood.range[0], high: profile.scales.mood.range[1] }), pct: scalePercent(profile.scales.mood.value) },
-              { key: 'stress', value: profile.scales.stress_index.value, max: 100, label: profile.scales.stress_index.label, hint: $t('mind.profile.target', { value: profile.scales.stress_index.target_below }), pct: profile.scales.stress_index.value },
-              { key: 'isolation', value: profile.scales.isolation.value, max: 5, label: profile.scales.isolation.label, hint: $t('mind.profile.target', { value: profile.scales.isolation.target_below }), pct: scalePercent(profile.scales.isolation.value) },
-              { key: 'motivation', value: profile.scales.motivation.value, max: 5, label: profile.scales.motivation.label, hint: $t(`mind.profile.${rangeKey(profile.scales.motivation.range_source)}`, { low: profile.scales.motivation.range[0], high: profile.scales.motivation.range[1] }), pct: scalePercent(profile.scales.motivation.value) },
-            ]"
-            :key="row.key"
-            class="flex flex-col gap-2"
-          >
-            <div class="flex items-end justify-between gap-3">
-              <span class="flex flex-col">
-                <span class="text-[12.5px] font-bold text-cabin-text">{{ $t(`mind.profile.${row.key}`) }}</span>
-                <span class="text-[10px] text-cabin-muted">{{ row.hint }}</span>
-              </span>
-              <span class="flex items-center gap-3">
-                <span class="text-[20px] font-bold text-cabin-text">{{ row.value }} <span class="text-[11px] text-cabin-muted">/ {{ row.max }}</span></span>
-                <span class="h-[22px] px-3 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/70 text-[9.8px] font-semibold inline-flex items-center">
-                  {{ row.label }}
-                </span>
-              </span>
+              <UiStatusPill>{{ formatTime(data.latest_state?.recorded_at_utc) }} UTC LOG</UiStatusPill>
             </div>
-            <div class="relative h-[4px] rounded-full bg-cabin-navy/55">
-              <span
-                class="absolute -top-[3px] w-[10px] h-[10px] rounded-full bg-cabin-ok -translate-x-1/2"
-                :style="{ left: `${row.pct}%` }"
-              />
+            <p class="text-[12.5px] mt-[10px]">{{ state?.detail ?? 'Daily check-in recorded.' }}</p>
+          </div>
+          <div class="flex-1 flex flex-col justify-around">
+            <div v-for="row in rows" :key="row.label">
+              <div class="flex items-start justify-between">
+                <div>
+                  <p class="text-[13px] font-semibold">{{ row.label }}</p>
+                  <p class="text-[10px] text-cabin-ice mt-[3px]">{{ row.ref }}</p>
+                </div>
+                <div class="flex items-center gap-[18px]">
+                  <p class="text-[21px] font-bold leading-none">{{ row.value }}<span class="text-[10.5px] text-cabin-ice font-normal ml-[6px]">{{ row.max }}</span></p>
+                  <UiStatusPill :tone="row.good ? 'reference' : 'critical'" class="min-w-[78px]">{{ row.pill }}</UiStatusPill>
+                </div>
+              </div>
+              <div class="relative h-[10px] mt-[12px]" aria-hidden="true">
+                <div class="absolute left-0 right-0 top-[3.5px] h-[3px] rounded-full bg-cabin-track" />
+                <div
+v-if="row.band" class="absolute top-[1px] h-[8px] rounded-full bg-[var(--color-band-fill)] border border-cabin-navy-edge/70"
+                     :style="{ left: `${row.band[0]! * 100}%`, width: `${Math.max(2, (row.band[1]! - row.band[0]!) * 100)}%` }" />
+                <i
+class="absolute top-[1px] w-[8px] h-[8px] -ml-[4px] rounded-full" :class="row.good ? 'bg-cabin-ok' : 'bg-cabin-crit'"
+                   :style="{ left: `${Math.min(100, Math.max(0, row.pct * 100))}%` }" />
+              </div>
             </div>
           </div>
         </div>
       </ShellHudWindow>
 
-      <div class="flex flex-col gap-[18px]">
+      <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-          :title="$t('mind.profile.trend')"
-          icon="reticle"
-          :tag-text="$t('mind.profile.stability', { value: profile?.stability_pct ?? 0 })"
-        >
-          <div class="relative h-[230px]">
-            <span
-              v-if="profile"
-              class="absolute top-1 left-10 z-10 text-[9.8px] font-bold tracking-[0.05em] text-cabin-text"
-            >
-              {{ $t('mind.profile.zone', { low: profile.optimal_zone[0], high: profile.optimal_zone[1] }) }}
-            </span>
-            <span
-              v-if="lastTrend"
-              class="absolute top-1 right-4 z-10 flex gap-4 text-[9.8px] font-semibold"
-            >
-              <span class="inline-flex items-center gap-1.5"><i class="w-2 h-2 rounded-full bg-cabin-ok" />{{ $t('mind.profile.moodScore') }} ({{ lastTrend.mood }} / 5)</span>
-              <span class="inline-flex items-center gap-1.5"><i class="w-2 h-2 rounded-full bg-[var(--color-rem-accent)]" />{{ $t('mind.profile.calmness') }} ({{ lastTrend.calmness }} / 5)</span>
-            </span>
-            <ClientOnly>
-              <VChart
-                v-if="chartOption && profile?.trend.length"
-                :option="chartOption"
-                theme="spacescan-hud"
-                autoresize
-                class="w-full h-full"
-              />
-            </ClientOnly>
+class="h-[434px] shrink-0" title="Mood & Calmness Trend · Last 14 Days" icon="reticle"
+                        :tag-text="data.trend.length ? `STABILITY ${data.stability_pct}%` : undefined" flush>
+          <div class="flex-1 relative mx-[20px] my-[14px]">
+            <template v-if="chart">
+              <div class="absolute top-[22px] left-[56px] right-[30px] z-10 flex items-center justify-between pointer-events-none">
+                <span class="text-[10px] font-bold">OPTIMAL WELLBEING ZONE ({{ data.optimal_zone[0].toFixed(1) }} – {{ data.optimal_zone[1].toFixed(1) }})</span>
+                <span v-if="lastTrend" class="flex items-center gap-[18px] text-[10.5px]">
+                  <span class="flex items-center gap-[6px] font-bold"><i class="w-[8px] h-[8px] rounded-full bg-cabin-ok" />Mood Score ({{ lastTrend.mood.toFixed(1) }} / 5)</span>
+                  <span class="flex items-center gap-[6px]"><i class="w-[8px] h-[8px] rounded-full bg-cabin-rem" />Calmness ({{ lastTrend.calmness.toFixed(1) }} / 5)</span>
+                </span>
+              </div>
+              <ClientOnly>
+                <VChart
+:option="chart" theme="spacescan-hud" autoresize class="absolute inset-0"
+                        aria-label="Mood and calmness over the last 14 days" />
+              </ClientOnly>
+            </template>
+            <UiStateNote v-else empty="The trend appears after the first check-ins." class="h-full" />
           </div>
         </ShellHudWindow>
 
         <ShellHudWindow
-          :title="$t('mind.profile.reaction')"
-          icon="flame"
-          :tag-text="reactionOk ? $t('mind.profile.optimal') : $t('mind.profile.attention')"
-          :tag-tone="reactionOk ? 'reference' : 'warn'"
-        >
-          <p
-            v-if="!loading && !profile?.reaction"
-            class="text-[12.5px] text-cabin-muted"
-          >
-            {{ $t('mind.profile.noData') }}
-          </p>
-          <div
-            v-else-if="profile?.reaction"
-            class="grid grid-cols-4 gap-3"
-          >
-            <div class="rounded-[4px] border border-cabin-card/55 bg-cabin-inset flex items-center justify-center py-4">
-              <div
-                class="w-[104px] h-[104px] rounded-full p-[5px]"
-                :style="ringStyle"
-              >
-                <div class="w-full h-full rounded-full bg-cabin-bg flex flex-col items-center justify-center">
-                  <span class="text-[8.5px] font-bold text-cabin-muted">{{ $t('mind.profile.reactionTime') }}</span>
-                  <span class="text-[22px] font-bold text-cabin-text">{{ profile.reaction.reaction_ms === null ? '--' : Math.round(profile.reaction.reaction_ms) }}</span>
-                  <span class="text-[9px] text-cabin-muted">ms (&lt;{{ profile.reaction.reaction_target_ms }} ms)</span>
-                </div>
-              </div>
+class="flex-1" title="Cognitive & Motor Reaction Results" icon="bolt"
+                        :tag-text="data.reaction ? (reactionOk ? 'OPTIMAL' : 'BELOW TARGET') : 'NO TEST YET'"
+                        :tag-tone="data.reaction && !reactionOk ? 'critical' : 'reference'" flush>
+          <UiStateNote v-if="!data.reaction" empty="No reaction test yet. Run the 2-minute test in Capture." />
+          <div v-else class="flex-1 flex gap-[16px] px-[24px] py-[22px]">
+            <div class="tile w-[190px] flex items-center justify-center">
+              <UiArcGauge
+:fraction="data.reaction.reaction_ms ? Math.min(1, data.reaction.reaction_ms / 500) : 0"
+                          :tone="data.reaction.reaction_ms && data.reaction.reaction_ms < data.reaction.reaction_target_ms ? 'ok' : 'critical'"
+                          label="Reaction Time" :value="data.reaction.reaction_ms ? String(Math.round(data.reaction.reaction_ms)) : '—'"
+                          :caption="`ms (<${data.reaction.reaction_target_ms} ms)`" :size="128" :value-size="24" />
             </div>
             <div
-              v-for="card in [
-                { key: 'lapses', value: String(profile.reaction.lapses), hint: $t('mind.profile.lapsesHint') },
-                { key: 'precision', value: `${profile.reaction.accuracy_pct}%`, hint: $t('mind.profile.precisionHint', { value: profile.reaction.accuracy_target_pct }) },
-                { key: 'vigilance', value: `${Math.round(profile.reaction.attention_score)} / 100`, hint: profile.reaction.attention_score >= 90 ? $t('mind.profile.vigilanceHint') : $t('mind.profile.vigilanceLow') },
-              ]"
-              :key="card.key"
-              class="rounded-[4px] border border-cabin-card/55 border-t-[3px] border-t-cabin-ok bg-cabin-inset px-4 py-3 flex flex-col justify-between"
-            >
-              <span class="text-[9.8px] font-bold tracking-[0.06em] text-cabin-muted">{{ $t(`mind.profile.${card.key}`) }}</span>
-              <span class="text-[22px] font-bold text-cabin-text">{{ card.value }}</span>
-              <span class="text-[10.5px] text-cabin-muted">{{ card.hint }}</span>
+v-for="card in [
+              { label: 'Attention Lapses', value: String(data.reaction.lapses), note: 'Errors in 2-min session', ok: data.reaction.lapses <= 1 },
+              { label: 'Motor Precision', value: `${data.reaction.accuracy_pct.toFixed(1)}%`,
+                note: `Target accuracy ≥ ${data.reaction.accuracy_target_pct}%`, ok: data.reaction.accuracy_pct >= data.reaction.accuracy_target_pct },
+              { label: 'Vigilance Score', value: `${Math.round(data.reaction.attention_score)} / 100`,
+                note: data.reaction.attention_score >= 85 ? 'Alertness baseline met' : 'Below alertness baseline', ok: data.reaction.attention_score >= 85 },
+            ]" :key="card.label" class="tile relative flex-1 px-[16px] flex flex-col justify-center">
+              <span class="absolute top-0 left-0 right-0 h-[3px]" :class="card.ok ? 'bg-cabin-ok' : 'bg-cabin-crit'" />
+              <p class="label-caps">{{ card.label }}</p>
+              <p class="text-[26px] font-bold mt-[24px] leading-none">{{ card.value }}</p>
+              <p class="text-[11px] text-cabin-ice mt-[24px]">{{ card.note }}</p>
             </div>
           </div>
         </ShellHudWindow>

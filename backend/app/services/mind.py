@@ -22,6 +22,10 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from statistics import mean
 
+from app.services.alert_engine import raise_wellbeing_alert
+from app.services.alert_rules import Severity
+from app.services.mission_clock import day_label, mission_day, parse_iso
+
 MOOD_STATES = ("CALM", "FOCUSED", "TIRED", "STRESSED")
 FALSE_START_MS = 100
 LAPSE_MS = 500
@@ -146,7 +150,6 @@ def save_checkin(conn: sqlite3.Connection, crew_id: str, *, mood_state: str | No
                  sleep_onset_utc: str | None = None, wake_utc: str | None = None,
                  recorded_at_utc: str | None = None) -> dict:
     """Store one behavioral check-in and return it with its wellbeing index."""
-    ensure_mind_columns(conn)
     index = wellbeing_index(mood, stress, isolation, motivation)
     stamp = recorded_at_utc or _now()
     cursor = conn.execute(
@@ -160,7 +163,31 @@ def save_checkin(conn: sqlite3.Connection, crew_id: str, *, mood_state: str | No
         (crew_id, _mission_stage(conn), mood, stress, isolation, motivation, index, stamp,
          mood_state, sleep_onset_utc, wake_utc),
     )
-    return {"id": int(cursor.lastrowid), "wellbeing_index": index, "recorded_at_utc": stamp}
+    alert_id = _checkin_alert(conn, crew_id, mood, stress, isolation, motivation, stamp)
+    return {"id": int(cursor.lastrowid), "wellbeing_index": index, "recorded_at_utc": stamp,
+            "alert_id": alert_id}
+
+
+def _checkin_alert(conn: sqlite3.Connection, crew_id: str, mood: int, stress: int,
+                   isolation: int, motivation: int, stamp: str) -> int | None:
+    """A hard day deserves support: raise a wellbeing advisory for the crew member."""
+    concerns = []
+    if stress >= 4:
+        concerns.append("high stress")
+    if mood <= 2:
+        concerns.append("low mood")
+    if isolation >= 4:
+        concerns.append("feeling isolated")
+    if motivation <= 2:
+        concerns.append("low motivation")
+    if not concerns:
+        return None
+    worst = stress == 5 or mood == 1 or isolation == 5 or len(concerns) >= 2
+    severity = Severity.WARNING if worst else Severity.INFO
+    title = f"Wellbeing check-in: {' and '.join(concerns[:2])}"
+    message = ("Today's check-in is outside your usual range. "
+               "Small steps help; the crew physician is there to talk.")
+    return raise_wellbeing_alert(conn, crew_id, severity, title, message, "wellbeing", stamp)
 
 
 def save_reaction_session(conn: sqlite3.Connection, crew_id: str,
@@ -168,7 +195,6 @@ def save_reaction_session(conn: sqlite3.Connection, crew_id: str,
                           duration_sec: int = 120, recorded_at_utc: str | None = None
                           ) -> dict:
     """Score and store one reaction test session."""
-    ensure_mind_columns(conn)
     result = score_reaction_test(reaction_times_ms, false_starts)
     stamp = recorded_at_utc or _now()
     cursor = conn.execute(
@@ -182,7 +208,20 @@ def save_reaction_session(conn: sqlite3.Connection, crew_id: str,
          result.attention_score, duration_sec, stamp, result.trials_total,
          result.valid_responses, result.false_starts, result.lapses),
     )
-    return {"id": int(cursor.lastrowid), "recorded_at_utc": stamp, **asdict(result)}
+    alert_id = None
+    slow = result.valid_responses > 0 and result.reaction_ms >= REACTION_TARGET_MS
+    if slow or result.lapses >= 3 or result.accuracy_pct < PRECISION_TARGET_PCT - 10:
+        role = conn.execute("SELECT role FROM crew_members WHERE id = ?", (crew_id,)).fetchone()
+        pilot = bool(role) and role["role"] == "PILOT"
+        severity = Severity.WARNING if (pilot or result.lapses >= 5) else Severity.INFO
+        message = (f"Mean reaction {result.reaction_ms:g} ms with {result.lapses} lapses "
+                   f"(target under {REACTION_TARGET_MS} ms).")
+        if pilot:
+            message += " Important for piloting."
+        alert_id = raise_wellbeing_alert(conn, crew_id, severity, "Reaction test below target",
+                                         message, "alertness", stamp, category="ALERTNESS")
+    return {"id": int(cursor.lastrowid), "recorded_at_utc": stamp, "alert_id": alert_id,
+            **asdict(result)}
 
 
 # ---------------------------------------------------------------- profile ---
@@ -219,8 +258,12 @@ def _reference_range(conn: sqlite3.Connection, crew_id: str, column: str, day: s
 def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int = 14,
                   now: datetime | None = None) -> dict:
     """Read-only data for screen 05: latest state, 14-day trend and reaction results."""
-    ensure_mind_columns(conn)
     now = now or datetime.now(UTC)
+    newest = conn.execute(
+        "SELECT MAX(recorded_at_utc) FROM psych_tests WHERE crew_id = ?", (crew_id,)
+    ).fetchone()[0]
+    if newest:  # the 14-day window ends on the last logged day
+        now = min(now, parse_iso(newest))
     since = (now - timedelta(days=days - 1)).strftime("%Y-%m-%dT00:00:00Z")
     rows = conn.execute(
         """
@@ -234,7 +277,9 @@ def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int = 14,
         (crew_id, since),
     ).fetchall()
     trend = [
-        {"day": r["day"], "mood": round(r["mood"], 2), "calmness": calmness(r["stress"])}
+        {"day": r["day"],
+         "day_label": day_label(mission_day(conn, parse_iso(f"{r['day']}T00:00:00Z"))),
+         "mood": round(r["mood"], 2), "calmness": calmness(r["stress"])}
         for r in rows
     ]
 

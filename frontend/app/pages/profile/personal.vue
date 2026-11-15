@@ -1,274 +1,151 @@
 <script setup lang="ts">
-import ProfileSubnavBar from '~/components/profile/ProfileSubnavBar.vue'
-import SpaceScanHologram from '~/components/telemetry/SpaceScanHologram.vue'
-import { computeGaugeArcStroke, formatZScoreLabel } from '~/utils/profileCharts'
-import type { StatusTone } from '~/utils/profileCharts'
+// 04 · Astronaut Profile · Personal Data (read-only).
+import type { MetricView } from '~/composables/useProfile'
+import { dayText, digitsFor, formatDuration, formatNumber, litres, scalePct, sexText, toneOf } from '~/utils/format'
 
-const {
-  profile,
-  selectedStage,
-  isLoading,
-  errorMessage,
-  loadProfile,
-  openTelemetryStream,
-} = useCrewProfile()
+const { data: profile, loading, error, refresh } = useProfile()
 
-let closeStream: (() => void) | null = null
+usePageHeader(() => ({
+  title: 'Astronaut Profile · Personal Data',
+  status: profile.value
+    ? { text: profile.value.status === 'Attention' ? 'ATTENTION' : profile.value.status.toUpperCase(),
+        tone: profile.value.status === 'Attention' ? 'critical' : 'ok' }
+    : null,
+}))
 
-const demographicsLine = computed(() => {
-  const c = profile.value?.crew
-  if (!c) return 'Age: -- yrs · Sex: -- · Blood Type: --'
-  const agePart = c.age !== null ? `${c.age} yrs` : '--'
-  const bloodPart = c.blood_type ?? '--'
-  return `Age: ${agePart} · Sex: ${c.sex_display} · Blood Type: ${bloodPart}`
-})
-
-function topBarClass(tone: StatusTone): string {
-  if (tone === 'critical') return 'bg-cabin-crit'
-  if (tone === 'warn') return 'bg-cabin-navy-edge'
-  return 'bg-cabin-ok'
+function caption(card: MetricView): string {
+  if (card.value === null) return 'No reading yet'
+  switch (card.metric_key) {
+    case 'bmi_kg_m2': return `Normal: ${card.nominal_min}–${card.nominal_max}`
+    case 'muscle_mass_kg': return card.baseline_pct != null ? `${card.baseline_pct}% retained` : 'No pre-flight value'
+    case 'bone_density_g_cm2': return card.baseline_pct != null ? `${card.baseline_pct}% of baseline` : 'No pre-flight value'
+    case 'vo2_max_ml_kg_min': return card.status === 'NOMINAL' ? 'Optimal range' : `${card.baseline_pct}% of pre-flight`
+    default:
+      return card.baseline_mean != null
+        ? `Baseline: ${formatNumber(card.baseline_mean, digitsFor(card.unit, card.metric_key))} ${card.unit}`
+        : 'No pre-flight value'
+  }
 }
-
-function leftBarClass(tone: StatusTone): string {
-  if (tone === 'critical') return 'bg-cabin-crit'
-  if (tone === 'warn') return 'bg-cabin-navy-edge'
-  return 'bg-cabin-ok'
+const cardTitle: Record<string, string> = {
+  height_cm: 'Height', body_weight_kg: 'Weight', bmi_kg_m2: 'Body Mass Index',
+  muscle_mass_kg: 'Muscle Mass', bone_density_g_cm2: 'Bone Density', vo2_max_ml_kg_min: 'Aerobic Capacity',
 }
-
-function gaugeStrokeVar(tone: StatusTone): string {
-  if (tone === 'critical') return 'var(--color-status-critical)'
-  if (tone === 'warn') return 'var(--color-rem-accent)'
-  return 'var(--color-status-ok)'
+const cardUnit: Record<string, string> = { vo2_max_ml_kg_min: 'mL/kg', bmi_kg_m2: '' }
+function valueText(card: MetricView): string {
+  const digits = card.metric_key === 'bone_density_g_cm2' ? 2 : 1
+  const unit = cardUnit[card.metric_key] ?? card.unit
+  return card.value === null ? '—' : `${formatNumber(card.value, digits)}${unit ? ` ${unit}` : ''}`
 }
+const barClass = (card: MetricView) => ({
+  ok: 'bg-cabin-ok', watch: 'bg-cabin-navy-edge', critical: 'bg-cabin-crit', neutral: 'bg-cabin-dim',
+})[card.metric_key === 'height_cm' && card.value !== null ? 'ok' : toneOf(card.status)]
 
-onMounted(() => {
-  void loadProfile()
-  closeStream = openTelemetryStream()
+const env = computed(() => profile.value?.environment ?? null)
+const dials = computed(() => {
+  const e = env.value
+  if (!e) return []
+  return [
+    { label: 'Temperature', value: e.temp_c.toFixed(1), caption: '°C', status: e.statuses.temp_c,
+      fraction: scalePct(e.temp_c, 15, 32) / 100 },
+    { label: 'Humidity', value: `${Math.round(e.humidity_pct)}%`,
+      caption: `Optimal ${e.limits.humidity_pct[0]}–${e.limits.humidity_pct[1]}%`, status: e.statuses.humidity_pct,
+      fraction: e.humidity_pct / 100 },
+    { label: 'Ambient Noise', value: String(Math.round(e.noise_dba)),
+      caption: `dBA (<${e.limits.noise_dba_max} dBA)`, status: e.statuses.noise_dba,
+      fraction: scalePct(e.noise_dba, 30, 85) / 100 },
+    { label: 'Cabin CO₂', value: e.co2_mmhg.toFixed(1), caption: `mmHg (<${e.limits.co2_mmhg.alert.toFixed(1)})`,
+      status: e.statuses.co2_ppm, fraction: e.co2_mmhg / e.limits.co2_mmhg.physician },
+  ]
 })
-
-onUnmounted(() => {
-  closeStream?.()
-})
+const { clockText } = useMission()
+const hydration = computed(() => profile.value?.scan)
 </script>
 
 <template>
-  <div class="flex flex-col gap-[18px] flex-1">
-    <ProfileSubnavBar
-      v-model:selected-stage="selectedStage"
-      :badge-text="profile?.biometric_scan.scan_label ?? 'NOMINAL'"
-      :badge-tone="profile?.biometric_scan.scan_tone ?? 'reference'"
-    />
-
-    <div
-      v-if="errorMessage"
-      class="rounded-[4px] border border-cabin-crit bg-cabin-inset px-4 py-3 text-[12px] text-cabin-text"
-      role="alert"
-    >
-      {{ errorMessage }}
-    </div>
-
-    <div
-      v-if="profile && !profile.mission.stage_has_records"
-      class="rounded-[4px] border border-cabin-navy-edge/80 bg-cabin-navy/35 px-4 py-2 text-[11px] text-cabin-ice flex items-center justify-between gap-3"
-    >
-      <span>
-        No dedicated measurements logged in {{ profile.mission.selected_stage }} yet — displaying latest active values compared against personal pre-flight baseline.
-      </span>
-      <span class="font-mono text-[10px] font-bold uppercase text-cabin-text">
-        {{ profile.mission.mission_day_code }}
-      </span>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-[1.08fr_1fr_1.08fr] gap-[18px] flex-1">
-      <ShellHudWindow
-        title="PERSONAL BIOMETRICS"
-        icon="profile"
-        :tag-text="profile?.crew.code ?? 'ID·01'"
-      >
-        <div v-if="profile" class="h-full flex flex-col justify-between gap-4">
-          <div class="rounded-[4px] bg-cabin-card/35 border border-cabin-card/85 px-4 py-3.5 flex items-start justify-between gap-3">
-            <div class="flex flex-col gap-1">
-              <span class="text-[17px] font-bold text-cabin-text leading-tight">
-                {{ profile.crew.full_name }}
-              </span>
-              <span class="text-[11.5px] text-cabin-ice">
-                {{ demographicsLine }}
-              </span>
-            </div>
-            <span class="shrink-0 h-[22px] px-3 rounded-full bg-cabin-navy/48 border border-cabin-navy-edge/80 text-[9.5px] font-bold tracking-[0.05em] uppercase text-cabin-text inline-flex items-center">
-              {{ profile.crew.role_badge }}
-            </span>
+  <div class="page">
+  <ShellProfileTabs />
+  <UiStateNote v-if="!profile" :loading="loading" :error="error" @retry="refresh()" />
+  <div v-else class="flex-1 min-h-0 flex gap-[18px]">
+    <ShellHudWindow class="w-[502px]" title="Personal Biometrics" icon="profile" :tag-text="profile.crew.code" flush>
+      <div class="flex-1 flex flex-col px-[19px] pt-[17px] pb-[16px]">
+        <div class="tile-hi h-[80px] px-[18px] flex flex-col justify-center">
+          <div class="flex items-center justify-between">
+            <span class="text-[17px] font-bold">{{ profile.crew.full_name }}</span>
+            <UiStatusPill>{{ profile.crew.title_en.toUpperCase() }}</UiStatusPill>
           </div>
-
-          <div class="grid grid-cols-2 gap-3.5 flex-1">
-            <div
-              v-for="card in profile.biometrics"
-              :key="card.key"
-              class="relative rounded-[4px] bg-cabin-inset border border-cabin-card/60 px-4 py-3.5 flex flex-col justify-between overflow-hidden min-h-[126px]"
-            >
-              <span
-                class="pointer-events-none absolute top-0 inset-x-0 h-[3px]"
-                :class="topBarClass(card.status_tone)"
-              />
-
-              <div class="flex items-center justify-between gap-2 pt-0.5">
-                <span class="text-[10px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-                  {{ card.label }}
-                </span>
-                <span
-                  v-if="card.z_score !== null"
-                  class="font-mono text-[9.5px] text-cabin-muted"
-                >
-                  {{ formatZScoreLabel(card.z_score) }}
-                </span>
-              </div>
-
-              <span class="font-mono text-[24px] font-bold text-cabin-text leading-none my-2">
-                {{ card.display_value }}
-              </span>
-
-              <span class="text-[11px] text-cabin-ice">
-                {{ card.subtitle }}
-              </span>
-            </div>
+          <p class="text-[12px] text-cabin-ice mt-[8px]">
+            Age: {{ profile.crew.age ?? '—' }} yrs · Sex: {{ sexText(profile.crew.sex) }} · Blood Type: {{ profile.crew.blood_type ?? '—' }}
+          </p>
+        </div>
+        <div class="grid grid-cols-2 gap-x-[14px] gap-y-[18px] mt-[24px] flex-1">
+          <div v-for="card in profile.biometrics" :key="card.metric_key" class="tile relative overflow-hidden px-[18px] flex flex-col justify-center">
+            <span class="absolute top-0 left-0 right-0 h-[3px]" :class="barClass(card)" />
+            <p class="label-caps">{{ cardTitle[card.metric_key] }}</p>
+            <p class="text-[23px] font-bold mt-[18px] leading-none">{{ valueText(card) }}</p>
+            <p class="text-[11px] text-cabin-ice mt-[20px]">{{ caption(card) }}</p>
           </div>
         </div>
+      </div>
+    </ShellHudWindow>
 
-        <p v-else-if="isLoading" class="text-[12px] text-cabin-muted">
-          Loading personal biometrics...
-        </p>
-      </ShellHudWindow>
-
-      <ShellHudWindow
-        title="BIOMETRIC SCAN"
-        icon="vitruvian"
-        :tag-text="profile?.biometric_scan.scan_label ?? 'NOMINAL'"
-        :tag-tone="profile?.biometric_scan.scan_tone ?? 'reference'"
-      >
-        <div v-if="profile" class="h-full flex flex-col justify-between gap-3">
-          <SpaceScanHologram
-            class="flex-1"
-            :core-temp-display="profile.biometric_scan.core_temp_display"
-            :hydration-display="profile.biometric_scan.hydration_display"
-            :cardiac-tone="profile.biometric_scan.cardiac_tone"
-            :pulmonary-tone="profile.biometric_scan.pulmonary_tone"
-            :ocular-tone="profile.biometric_scan.ocular_tone"
-          />
-
-          <div class="grid grid-cols-3 gap-2 pt-1">
-            <div
-              v-for="snap in profile.stage_comparison"
-              :key="snap.stage"
-              class="rounded-[4px] bg-cabin-inset/75 border border-cabin-card/50 px-2.5 py-2 flex flex-col gap-0.5"
-            >
-              <span class="font-mono text-[9px] font-bold tracking-[0.06em] text-cabin-muted uppercase">
-                {{ snap.stage }}
-              </span>
-              <span class="font-mono text-[11.5px] font-bold text-cabin-text">
-                {{ snap.body_weight_kg !== null ? `${snap.body_weight_kg.toFixed(1)} kg` : 'Pending' }}
-              </span>
-              <span class="font-mono text-[9.5px] text-cabin-ice">
-                {{ snap.resting_hr_bpm !== null ? `${Math.round(snap.resting_hr_bpm)} bpm` : 'No log' }}
-              </span>
-            </div>
+    <ShellHudWindow
+class="w-[465px]" title="Biometric Scan" icon="vitruvian"
+                    :tag-text="profile.status.toUpperCase()" :tag-tone="profile.status === 'Attention' ? 'critical' : 'reference'" flush>
+      <div class="flex-1 flex flex-col items-center px-[19px] pb-[19px]">
+        <UiHoloFigure
+figure="body-scan" :size="392" class="mt-[34px]"
+                      :label="`Biometric scan of ${profile.crew.full_name}: ${profile.status}`" />
+        <div class="mt-auto w-full grid grid-cols-2 gap-[12px]">
+          <div class="tile h-[72px] px-[16px] flex flex-col justify-center">
+            <p class="label-caps">Core temp</p>
+            <p class="text-[17px] font-bold mt-[8px]">
+              {{ profile.scan.core_temp.value === null ? '—' : `${profile.scan.core_temp.value.toFixed(1)} °C` }}
+            </p>
+          </div>
+          <div class="tile h-[72px] px-[16px] flex flex-col justify-center">
+            <p class="label-caps">Hydration · {{ profile.habits_day_label }}</p>
+            <p class="text-[17px] font-bold mt-[8px]">
+              {{ litres(hydration?.hydration_ml) }} / {{ litres(hydration?.hydration_target_ml) }} L
+            </p>
           </div>
         </div>
+      </div>
+    </ShellHudWindow>
 
-        <p v-else-if="isLoading" class="text-[12px] text-cabin-muted">
-          Initializing anatomical scan...
-        </p>
-      </ShellHudWindow>
-
-      <ShellHudWindow
-        title="ENVIRONMENT & WORK HOURS"
-        icon="shield"
-        :tag-text="profile?.environment_work.habitat_tag ?? 'HABITAT A'"
-      >
-        <div v-if="profile" class="h-full flex flex-col justify-between gap-4">
-          <div class="grid grid-cols-2 gap-3.5">
-            <div
-              v-for="gauge in profile.environment_work.gauges"
-              :key="gauge.key"
-              class="rounded-[4px] bg-cabin-inset border border-cabin-card/60 px-3 py-3 flex flex-col items-center justify-center relative min-h-[132px]"
-            >
-              <div class="relative w-[108px] h-[108px] flex items-center justify-center">
-                <svg
-                  viewBox="0 0 96 96"
-                  class="w-full h-full -rotate-[218deg]"
-                  aria-hidden="true"
-                >
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r="38"
-                    fill="none"
-                    stroke="rgba(21, 97, 109, 0.42)"
-                    stroke-width="4.2"
-                    :stroke-dasharray="`${computeGaugeArcStroke(100, 38).arcSpan} ${computeGaugeArcStroke(100, 38).circumference}`"
-                    stroke-linecap="round"
-                  />
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r="38"
-                    fill="none"
-                    :stroke="gaugeStrokeVar(gauge.status_tone)"
-                    stroke-width="4.2"
-                    :stroke-dasharray="computeGaugeArcStroke(gauge.arc_pct, 38).dashArray"
-                    stroke-linecap="round"
-                  />
-                </svg>
-
-                <div class="absolute inset-0 flex flex-col items-center justify-center text-center px-2">
-                  <span class="text-[8.8px] font-bold tracking-[0.05em] uppercase text-cabin-muted leading-tight">
-                    {{ gauge.label }}
-                  </span>
-                  <span class="font-mono text-[21px] font-bold text-cabin-text leading-tight mt-0.5">
-                    {{ gauge.display_value }}
-                  </span>
-                  <span class="text-[9.5px] text-cabin-muted leading-tight mt-0.5">
-                    {{ gauge.subtitle }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex flex-col gap-2.5">
-            <span class="text-[10px] font-bold tracking-[0.07em] uppercase text-cabin-muted">
-              {{ profile.environment_work.work_header }}
-            </span>
-
-            <div
-              v-for="row in profile.environment_work.work_rows"
-              :key="row.key"
-              class="relative rounded-[4px] bg-cabin-inset border border-cabin-card/60 pl-5 pr-4 py-3 flex items-center justify-between gap-3"
-            >
-              <span
-                class="pointer-events-none absolute left-0 top-3 bottom-3 w-[4px] rounded-r-[2px]"
-                :class="leftBarClass(row.status_tone)"
-              />
-
-              <div class="flex flex-col gap-0.5">
-                <span class="text-[10px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-                  {{ row.label }}
-                </span>
-                <span class="text-[11.5px] text-cabin-ice">
-                  {{ row.subtitle }}
-                </span>
-              </div>
-
-              <span class="font-mono text-[21px] font-bold text-cabin-text shrink-0">
-                {{ row.display_value }}
-              </span>
-            </div>
+    <ShellHudWindow
+class="flex-1" title="Environment & Work Hours" icon="rocket"
+                    :tag-text="env?.location_en?.toUpperCase()" flush>
+      <div class="flex-1 flex flex-col px-[26px] pt-[26px] pb-[16px]">
+        <div v-if="env" class="grid grid-cols-2 gap-[18px]">
+          <div v-for="dial in dials" :key="dial.label" class="tile h-[143px] flex items-center justify-center">
+            <UiArcGauge
+:fraction="dial.fraction" :tone="toneOf(dial.status)" :label="dial.label" :value="dial.value"
+                        :caption="dial.caption" :size="112" :value-size="20" />
           </div>
         </div>
+        <UiStateNote v-else empty="No cabin reading yet." class="!flex-none h-[304px]" />
 
-        <p v-else-if="isLoading" class="text-[12px] text-cabin-muted">
-          Loading habitat telemetry...
-        </p>
-      </ShellHudWindow>
-    </div>
+        <p class="label-caps mt-[30px]">Work time · {{ dayText(profile.habits_day_label).toUpperCase() }}</p>
+        <div class="flex flex-col gap-[15px] mt-[12px]">
+          <div
+v-for="row in [
+            { title: 'Interior Work (IVA)', note: profile.work.interior_location_en ? `${profile.work.interior_location_en} · Active Shift` : 'No interior shift logged',
+              value: formatDuration(profile.work.interior_min), tone: profile.work.interior_min ? 'ok' : 'neutral' },
+            { title: 'Exterior Work (EVA)', note: `Mission Cumulative: ${formatDuration(profile.work.exterior_mission_min)}`,
+              value: formatDuration(profile.work.exterior_min), tone: 'ok' },
+            { title: 'Mission Elapsed Time', note: `${clockText.split('· ')[1] ?? ''} · Schedule ${profile.mission_stage === 'MISSION' ? 'Nominal' : profile.mission_stage.toLowerCase()}`,
+              value: profile.work.mission_elapsed_days === null ? '—' : `${profile.work.mission_elapsed_days} Days`, tone: 'ok' },
+          ]" :key="row.title" class="tile relative h-[75px] pl-[22px] pr-[20px] flex items-center justify-between">
+            <span class="absolute left-0 top-[12px] bottom-[12px] w-[3px] rounded-full" :class="row.tone === 'ok' ? 'bg-cabin-ok' : 'bg-cabin-dim'" />
+            <div>
+              <p class="label-caps">{{ row.title }}</p>
+              <p class="text-[12px] text-cabin-ice mt-[8px]">{{ row.note }}</p>
+            </div>
+            <span class="text-[22px] font-bold">{{ row.value }}</span>
+          </div>
+        </div>
+      </div>
+    </ShellHudWindow>
+  </div>
   </div>
 </template>

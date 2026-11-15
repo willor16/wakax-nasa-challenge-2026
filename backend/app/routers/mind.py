@@ -1,19 +1,22 @@
 """Psychological check-ins, reaction test sessions and the psychological profile (D3-03).
 
 Screen 13 (``/capture/psych-sleep``) writes; screen 05 (``/profile/psychological``)
-reads. Every call is for the signed-in crew member.
+reads. Writes are always for the signed-in crew member.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.auth_utils import get_current_crew
+from app.auth_utils import ensure_crew_access, get_current_crew
 from app.db import open_connection
 from app.services.mind import psych_profile, save_checkin, save_reaction_session
+from app.services.mission_clock import to_iso, utc_now
+from app.services.sleep_service import create_sleep_session
 
 router = APIRouter(prefix="/api/v1", tags=["mind"])
 
@@ -55,8 +58,28 @@ def create_checkin(body: CheckinIn, claims: Crew) -> dict:
             sleep_onset_utc=body.sleep_onset_utc,
             wake_utc=body.wake_utc,
         )
-        conn.commit()
+        saved["sleep_session"] = None
+        if body.sleep_onset_utc and body.wake_utc:
+            start, end = _sleep_window(body.sleep_onset_utc, body.wake_utc)
+            try:
+                saved["sleep_session"] = create_sleep_session(conn, claims["sub"], start, end)
+            except ValueError as exc:
+                saved["sleep_note_en"] = str(exc)
     return saved
+
+
+def _sleep_window(onset: str, wake: str) -> tuple[str, str]:
+    """Turn the two clock times into last night's window (wake is the latest one before now)."""
+    now = utc_now()
+    hour, minute = (int(part) for part in wake.split(":"))
+    end = datetime(now.year, now.month, now.day, hour, minute, tzinfo=now.tzinfo)
+    if end > now:
+        end -= timedelta(days=1)
+    hour, minute = (int(part) for part in onset.split(":"))
+    start = end.replace(hour=hour, minute=minute)
+    if start >= end:
+        start -= timedelta(days=1)
+    return to_iso(start), to_iso(end)
 
 
 @router.post("/cognitive/sessions", status_code=status.HTTP_201_CREATED)
@@ -66,14 +89,22 @@ def create_reaction_session(body: ReactionSessionIn, claims: Crew) -> dict:
         saved = save_reaction_session(
             conn, claims["sub"], body.reaction_times_ms, body.false_starts, body.duration_sec
         )
-        conn.commit()
     return saved
 
 
 @router.get("/psych/profile")
 def get_psych_profile(
-    claims: Crew, days: Annotated[int, Query(ge=1, le=60)] = 14
+    claims: Crew,
+    days: Annotated[int, Query(ge=1, le=60)] = 14,
+    crew_id: Annotated[str | None, Query(max_length=32)] = None,
 ) -> dict:
-    """Read-only psychological and reaction results for screen 05."""
+    """Read-only psychological and reaction results for screen 05.
+
+    Crew members see their own; the physician may open any crew member's.
+    """
+    target = crew_id or claims["sub"]
+    ensure_crew_access(claims, target)
     with open_connection() as conn:
-        return psych_profile(conn, claims["sub"], days=days)
+        if conn.execute("SELECT 1 FROM crew_members WHERE id = ?", (target,)).fetchone() is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
+        return psych_profile(conn, target, days=days)

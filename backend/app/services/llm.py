@@ -10,23 +10,33 @@ review every finding before the crew acts on it.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 import httpx
 
+from app.config import BACKEND_DIR
 from app.services.alert_engine import CARE_STEPS
 
-LLM_URL = os.environ.get("SPACESCAN_LLM_URL", "http://127.0.0.1:11434")
+
+def _local_url(url: str) -> str:
+    """The assistant only ever runs on this machine: any other address is ignored."""
+    host = (urlparse(url).hostname or "").lower()
+    return url if host in ("127.0.0.1", "localhost", "::1") else "http://127.0.0.1:11434"
+
+
+LLM_URL = _local_url(os.environ.get("SPACESCAN_LLM_URL", "http://127.0.0.1:11434"))
 LLM_MODEL = os.environ.get("SPACESCAN_LLM_MODEL", "llama3.2:3b")
 LLM_TIMEOUT_SEC = float(os.environ.get("SPACESCAN_LLM_TIMEOUT", "20"))
 
-# Words that must never reach the screen: restricted entities (kept encoded so
-# the code base never names them) and internal technology names.
-_RESTRICTED = [base64.b64decode(v).decode() for v in ("bmFzYQ==", "Y2hpbmE=", "Y2hpbmVzZQ==")]
+# Words that must never reach the screen: restricted names (listed in the data
+# file ``db/seed_snapshots/screen_word_filter.json``, never in code) and
+# internal technology names.
+_FILTER_PATH = BACKEND_DIR / "db" / "seed_snapshots" / "screen_word_filter.json"
+_RESTRICTED = [bytes.fromhex(v).decode() for v in json.loads(_FILTER_PATH.read_text())["hex"]]
 _BLOCKED = re.compile(
     r"\b(" + "|".join(_RESTRICTED) + r"|sqlite|json|fhir|hl7|kiwix|zim|fts5|wal|offline"
     r"|break-glass|dtn|osdr|donki|onnx|ollama|nuxt|python|neural|autoencoder|llm|ai model"
@@ -84,6 +94,8 @@ def build_prompt(finding: dict, articles: list[dict]) -> str:
 def validate(answer: dict, allowed_ids: set[str]) -> tuple[Guidance | None, list[str]]:
     """Check a raw model answer; return cleaned guidance or the reasons it failed."""
     issues: list[str] = []
+    if not isinstance(answer, dict):
+        return None, ["answer is not an object"]
     summary = _clean(answer.get("summary"), MAX_SUMMARY)
     raw_steps = answer.get("steps")
     steps: list[dict[str, str]] = []
@@ -102,7 +114,9 @@ def validate(answer: dict, allowed_ids: set[str]) -> tuple[Guidance | None, list
             steps.append({"title_en": title, "detail_en": detail})
     if not summary:
         issues.append("empty summary")
-    cited = [str(i) for i in answer.get("cited_article_ids") or [] if str(i) in allowed_ids]
+    raw_cited = answer.get("cited_article_ids")
+    cited = [str(i) for i in (raw_cited if isinstance(raw_cited, list) else [])
+             if str(i) in allowed_ids]
     if allowed_ids and not cited:
         issues.append("no valid protocol cited")
     text = " ".join([summary, *(s["title_en"] + " " + s["detail_en"] for s in steps)])
@@ -155,7 +169,7 @@ def generate_guidance(finding: dict, articles: list[dict], group: str,
         result = fallback(finding, group, primary)
         result.issues = issues
         return result
-    except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
+    except (httpx.HTTPError, KeyError, ValueError, TypeError, AttributeError) as exc:
         result = fallback(finding, group, primary)
         result.issues = [f"assistant unavailable: {type(exc).__name__}"]
         return result

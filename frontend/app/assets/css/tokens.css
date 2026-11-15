@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+/* Fonts are bundled with the app: no request ever leaves the habitat. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("/fonts/Inter-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+}
+
 :root {
   /* === OFFICIAL 6-COLOR PALETTE === */
   --color-bg-base: #001524;
@@ -13,6 +38,7 @@
   --color-bg-top: #00101C;
   --color-bg-bottom: #062838;
   --color-surface-inset: rgba(4, 30, 46, 0.72);
+  --color-inset-solid: #041E2E;
   --color-border-card: rgba(21, 97, 109, 0.78);
   --color-border-hi: #25899B;
   --color-rem-accent: #2994A6;
@@ -20,6 +46,27 @@
   --color-text-secondary: #F2DEC0;
   --color-text-muted: #C8B69C;
   --color-text-dim: #968976;
+  --color-status-warn: var(--color-navy-edge);
+
+  /* Translucent steps of the official colors, shared by components and charts. */
+  --color-header-bg: rgba(0, 21, 36, 0.86);
+  --color-card-fill: rgba(21, 97, 109, 0.28);
+  --color-card-head: rgba(21, 97, 109, 0.58);
+  --color-tile-fill: rgba(4, 30, 46, 0.78);
+  --color-tile-border: rgba(37, 137, 155, 0.42);
+  --color-track: rgba(255, 236, 209, 0.07);
+  --color-guide-line: rgba(38, 59, 176, 0.42);
+  --color-band-fill: rgba(0, 12, 92, 0.55);
+  --color-pill-fill: rgba(0, 12, 92, 0.62);
+  --color-pill-edge: rgba(38, 59, 176, 0.85);
+  --color-ok-soft: rgba(42, 239, 75, 0.16);
+  --color-ok-glow: rgba(42, 239, 75, 0.22);
+  --color-ok-scan: rgba(42, 239, 75, 0.65);
+  --color-crit-soft: rgba(213, 17, 11, 0.2);
+  --color-crit-edge: rgba(213, 17, 11, 0.85);
+  --color-text-line: rgba(255, 236, 209, 0.18);
+  --color-text-corner: rgba(255, 236, 209, 0.45);
+  --color-envelope-fill: rgba(255, 236, 209, 0.1);
 
   /* === DYNAMIC CABIN SURFACES (MUTATE IN CRITICAL ALERT MODE) === */
   --horizon-glow-core: rgba(21, 97, 109, 0.86);
@@ -40,19 +87,50 @@
   --color-cabin-bg: var(--color-bg-base);
   --color-cabin-card: var(--color-surface-card);
   --color-cabin-inset: var(--color-surface-inset);
+  --color-cabin-tile: var(--color-tile-fill);
+  --color-cabin-line: var(--color-tile-border);
+  --color-cabin-edge: var(--color-border-hi);
   --color-cabin-text: var(--color-text-primary);
   --color-cabin-ice: var(--color-text-secondary);
   --color-cabin-muted: var(--color-text-muted);
+  --color-cabin-dim: var(--color-text-dim);
   --color-cabin-ok: var(--color-status-ok);
+  --color-cabin-rem: var(--color-rem-accent);
   --color-cabin-navy: var(--color-navy-accent);
   --color-cabin-navy-edge: var(--color-navy-edge);
   --color-cabin-crit: var(--color-status-critical);
+  --color-cabin-track: var(--color-track);
 
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+html,
+body,
+#__nuxt {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--color-bg-top);
+}
+
+/* The cockpit is designed at 1568 x 940 and scaled as one piece to the display. */
+.cockpit-stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: clip;
+}
+
 .cockpit-canvas {
+  position: relative;
+  flex: none;
+  width: 1568px;
+  height: 940px;
+  overflow: clip; /* never scrolls, even when a focused control asks to be revealed */
+  border-radius: 10px;
   background-color: var(--color-bg-base);
   background-image:
     radial-gradient(66% 52% at 50% 86%, var(--horizon-glow-core) 0%, var(--horizon-glow-mid) 38%, rgba(3, 31, 47, 0.28) 74%, transparent 100%),
@@ -61,15 +139,121 @@
   color: var(--color-text-primary);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
+  transition: background-image 0.4s ease;
 }
 
+/* Exclusive selection style for menus, sub-tabs and filters (#000C5C at low opacity). */
 .menu-item-active {
   background: linear-gradient(180deg, rgba(0, 12, 92, 0.30) 0%, rgba(0, 12, 92, 0.52) 100%);
   border: 1.3px solid rgba(38, 59, 176, 0.82);
 }
 
+/* Dark inset tile used inside every window. */
+.tile {
+  border-radius: 5px;
+  background: var(--color-tile-fill);
+  border: 1px solid var(--color-tile-border);
+}
+
+.tile-hi {
+  border-radius: 5px;
+  background: var(--color-card-fill);
+  border: 1.2px solid var(--color-border-hi);
+}
+
+.label-caps {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Main action button: teal fill with a light frame. */
+.hud-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 56px;
+  width: 100%;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(21, 97, 109, 0.95) 0%, rgba(21, 97, 109, 0.72) 100%);
+  border: 1.4px solid rgba(255, 236, 209, 0.72);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.hud-button:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.hud-button:focus-visible,
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-text-primary);
+  outline-offset: 2px;
+}
+
+.hud-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hud-button-critical {
+  background: linear-gradient(180deg, rgba(213, 17, 11, 0.42) 0%, rgba(213, 17, 11, 0.24) 100%);
+  border-color: var(--color-crit-edge);
+}
+
+/* Dark numeric entry field of the Capture screens. */
+.hud-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 58px;
+  padding: 0 14px;
+  border-radius: 4px;
+  background: var(--color-tile-fill);
+  border: 1.2px solid var(--color-tile-border);
+}
+
+.hud-field:focus-within {
+  border-color: var(--color-text-primary);
+  background: rgba(0, 16, 28, 0.9);
+}
+
+.hud-field[data-invalid="true"] {
+  border-color: var(--color-crit-edge);
+}
+
+.hud-field input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 17px;
+}
+
+.hud-field input::placeholder {
+  color: var(--color-text-dim);
+}
+
 .hologram-shell {
-  filter: drop-shadow(0 0 12px rgba(42, 239, 75, 0.22));
+  filter: drop-shadow(0 0 12px var(--color-ok-glow));
+}
+
+.hologram-scanline {
+  position: relative;
+  overflow: hidden;
 }
 
 .hologram-scanline::after {
@@ -77,7 +261,7 @@
   position: absolute;
   inset-inline: 12%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(42, 239, 75, 0.65), transparent);
+  background: linear-gradient(90deg, transparent, var(--color-ok-scan), transparent);
   animation: scan-sweep 4.5s ease-in-out infinite;
 }
 
@@ -90,4 +274,27 @@
     top: 88%;
     opacity: 0.85;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hologram-scanline::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* Thin scrollbar for the few lists that can grow (notifications, guide results). */
+.hud-scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-hi) transparent;
+}
+
+/* Root of every screen: fills the space between the top bar and the dock. */
+.page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }

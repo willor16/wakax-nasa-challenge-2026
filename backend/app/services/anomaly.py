@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -17,11 +18,14 @@ import numpy as np
 import onnxruntime as ort
 
 from app.config import BACKEND_DIR
+from app.services import reference_ranges
 from app.services.alert_rules import Baseline, z_score
 
 MODELS_DIR = BACKEND_DIR / "models"
 META_PATH = MODELS_DIR / "anomaly_models.json"
 Z_LIMIT = 6.0
+MIN_READINGS = 6
+DAILY_TOTAL_METRICS = frozenset({"hydration_ml", "exercise_min"})
 
 # Plain names shown to the physician, and the care group / guide article used
 # to ground the suggestions (groups come from alert_engine.CARE_STEPS).
@@ -29,7 +33,7 @@ PATTERN_INFO: dict[str, dict[str, str]] = {
     "ocular": {"label_en": "Eye pressure and optic nerve changes", "group": "vision",
                "article": "wiki-vision-01"},
     "dehydration": {"label_en": "Signs of dehydration", "group": "hydration",
-                    "article": "wiki-cardio-01"},
+                    "article": "wiki-hydration-01"},
     "fatigue": {"label_en": "Fatigue and stress load", "group": "heart",
                 "article": "wiki-sleep-01"},
     "low_oxygen": {"label_en": "Low blood oxygen", "group": "cabin_air",
@@ -48,8 +52,19 @@ class Models:
     autoencoder: ort.InferenceSession
 
 
+class ModelsUnavailable(RuntimeError):
+    """The onboard pattern models are missing or unreadable."""
+
+
 @lru_cache(maxsize=1)
 def load_models(meta_path: Path = META_PATH) -> Models:
+    try:
+        return _load_models(meta_path)
+    except Exception as exc:  # missing file, damaged model, wrong format
+        raise ModelsUnavailable("Pattern models are not available on this unit.") from exc
+
+
+def _load_models(meta_path: Path) -> Models:
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     options = {"providers": ["CPUExecutionProvider"]}
     return Models(
@@ -72,11 +87,18 @@ class Finding:
     top_metrics: list[dict] = field(default_factory=list)
     readings_used: int = 0
     model_name: str = ""
+    enough_data: bool = True
 
 
 def crew_vector(conn: sqlite3.Connection, crew_id: str, features: list[str]
                 ) -> tuple[np.ndarray, list[dict]]:
-    """Latest z-score per model metric; missing data or baseline counts as 0 (usual)."""
+    """Latest z-score per model metric against the personal baseline.
+
+    The spread never goes below the measurement repeatability in the reference
+    catalog, so a short pre-flight series cannot inflate ordinary readings.
+    Daily habits (fluid, exercise) use the total of the last completed day.
+    Metrics without data stay at 0 and are not counted in ``readings_used``.
+    """
     rows = conn.execute(
         """
         SELECT c.metric_key, c.display_name_en, c.unit, m.value_num,
@@ -98,15 +120,35 @@ def crew_vector(conn: sqlite3.Connection, crew_id: str, features: list[str]
         row = by_key.get(key)
         if row is None or row["value_num"] is None or row["mean_val"] is None:
             continue
-        z = z_score(float(row["value_num"]),
-                    Baseline(row["mean_val"], row["std_dev"], row["sample_count"]))
+        entry = reference_ranges.metric(key) or {}
+        floor = entry.get("model_sd_floor", entry.get("drift_sd_floor", 0.0))
+        value = float(row["value_num"])
+        if key in DAILY_TOTAL_METRICS:
+            total = _last_full_day_total(conn, crew_id, key)
+            if total is None:
+                continue
+            value = total
+        z = z_score(value, Baseline(row["mean_val"], row["std_dev"], row["sample_count"]), floor)
         if z is None:
             continue
         vector[i] = max(-Z_LIMIT, min(Z_LIMIT, z))
         details.append({"metric_key": key, "display_name_en": row["display_name_en"],
-                        "unit": row["unit"], "value": float(row["value_num"]),
+                        "unit": row["unit"], "value": value,
                         "baseline": float(row["mean_val"]), "z": round(float(vector[i]), 2)})
     return vector, details
+
+
+def _last_full_day_total(conn: sqlite3.Connection, crew_id: str, metric_key: str) -> float | None:
+    today = datetime.now(UTC).date().isoformat()
+    row = conn.execute(
+        """SELECT SUM(value_num) AS total FROM measurements
+           WHERE crew_id = ? AND metric_key = ? AND mission_stage != 'LAUNCH'
+             AND substr(recorded_at_utc, 1, 10) = (
+               SELECT MAX(substr(recorded_at_utc, 1, 10)) FROM measurements
+               WHERE crew_id = ? AND metric_key = ? AND substr(recorded_at_utc, 1, 10) < ?)""",
+        (crew_id, metric_key, crew_id, metric_key, today),
+    ).fetchone()
+    return float(row["total"]) if row and row["total"] is not None else None
 
 
 def detect(conn: sqlite3.Connection, crew_id: str, models: Models | None = None) -> Finding:
@@ -115,6 +157,12 @@ def detect(conn: sqlite3.Connection, crew_id: str, models: Models | None = None)
     meta = models.meta
     features = meta["features"]
     vector, details = crew_vector(conn, crew_id, features)
+    if len(details) < MIN_READINGS:
+        # Too few readings to judge a multi-signal pattern; say so instead of "healthy".
+        return Finding(crew_id=crew_id, anomaly_score=0.0, is_anomaly=False, pattern=None,
+                       pattern_label_en=None, healthy_probability=0.0, novelty_ratio=0.0,
+                       readings_used=len(details), enough_data=False,
+                       model_name=f"pattern-net+novelty-net v{meta['version']}")
     batch = vector.reshape(1, -1)
 
     probabilities = models.classifier.run(None, {"z": batch})[1].reshape(-1)

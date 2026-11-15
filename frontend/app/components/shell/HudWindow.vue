@@ -1,69 +1,63 @@
 <script setup lang="ts">
-withDefaults(
-  defineProps<{
-    title?: string
-    subtitle?: string
-    tagText?: string
-    tagTone?: 'reference' | 'warn' | 'critical'
-    icon?: string
-  }>(),
-  {
-    title: undefined,
-    subtitle: undefined,
-    tagText: undefined,
-    tagTone: 'reference',
-    icon: undefined,
-  },
-)
+// Universal window: smoked-glass card, precision corner marks, header with icon and tag.
+withDefaults(defineProps<{
+  title?: string
+  tagText?: string
+  tagTone?: 'reference' | 'warn' | 'critical'
+  icon?: string
+  critical?: boolean
+  flush?: boolean
+}>(), {
+  title: undefined,
+  tagText: undefined,
+  tagTone: 'reference',
+  icon: undefined,
+})
 </script>
 
 <template>
   <section
-    class="relative rounded-[6px] bg-cabin-card/28 border flex flex-col overflow-hidden"
-    :style="{ borderColor: 'var(--window-frame-stroke)' }"
+    class="relative rounded-[6px] bg-[var(--color-card-fill)] border flex flex-col min-h-0 min-w-0"
+    :style="{ borderColor: critical ? 'var(--color-crit-edge)' : 'var(--window-frame-stroke)' }"
+    :aria-label="title"
   >
-    <span class="pointer-events-none absolute top-0 left-0 w-2 h-2 border-t-[1.4px] border-l-[1.4px] border-cabin-text/45" />
-    <span class="pointer-events-none absolute top-0 right-0 w-2 h-2 border-t-[1.4px] border-r-[1.4px] border-cabin-text/45" />
-    <span class="pointer-events-none absolute bottom-0 left-0 w-2 h-2 border-b-[1.4px] border-l-[1.4px] border-cabin-text/45" />
-    <span class="pointer-events-none absolute bottom-0 right-0 w-2 h-2 border-b-[1.4px] border-r-[1.4px] border-cabin-text/45" />
+    <span class="corner top-0 left-0 border-t-[1.4px] border-l-[1.4px]" />
+    <span class="corner top-0 right-0 border-t-[1.4px] border-r-[1.4px]" />
+    <span class="corner bottom-0 left-0 border-b-[1.4px] border-l-[1.4px]" />
+    <span class="corner bottom-0 right-0 border-b-[1.4px] border-r-[1.4px]" />
 
     <header
-      v-if="title"
-      class="px-4 py-2.5 bg-cabin-card/58 border-b border-cabin-text/18 flex items-center justify-between gap-3"
+      v-if="title || $slots.header"
+      class="h-[40px] shrink-0 px-[12px] bg-[var(--color-card-head)] border-b border-[var(--color-text-line)] flex items-center justify-between gap-3 rounded-t-[5px]"
     >
-      <div class="flex items-center gap-2.5">
-        <div
-          v-if="icon"
-          class="w-[22px] h-[22px] rounded-[4px] bg-cabin-inset border border-cabin-card/70 flex items-center justify-center"
-        >
-          <Icon :name="`spacescan:${icon}`" class="w-3.5 h-3.5 text-cabin-text" />
+      <slot name="header">
+        <div class="flex items-center gap-[10px] min-w-0">
+          <div
+            v-if="icon"
+            class="w-[22px] h-[22px] shrink-0 rounded-[4px] bg-cabin-tile border border-cabin-edge/70 flex items-center justify-center"
+          >
+            <Icon :name="`spacescan:${icon}`" class="w-[13px] h-[13px]" />
+          </div>
+          <h2 class="text-[13px] font-bold tracking-[0.02em] uppercase truncate">{{ title }}</h2>
         </div>
-        <div>
-          <h2 class="text-[12.5px] font-bold tracking-[0.03em] uppercase text-cabin-text">
-            {{ title }}
-          </h2>
-          <p v-if="subtitle" class="text-[10.5px] text-cabin-muted">
-            {{ subtitle }}
-          </p>
-        </div>
-      </div>
-
-      <span
-        v-if="tagText"
-        class="px-3 h-[22px] rounded-full text-[9.8px] font-semibold tracking-[0.03em] inline-flex items-center gap-1.5 border"
-        :class="{
-          'bg-cabin-navy/42 border-cabin-navy-edge/70 text-cabin-text': tagTone === 'reference',
-          'bg-cabin-navy/55 border-cabin-navy-edge/90 text-cabin-text': tagTone === 'warn',
-          'bg-cabin-crit/25 border-cabin-crit/85 text-cabin-text': tagTone === 'critical',
-        }"
-      >
-        <i v-if="tagTone === 'warn'" class="w-1.5 h-1.5 rounded-full bg-cabin-navy-edge" />
+      </slot>
+      <UiStatusPill v-if="tagText" :tone="tagTone === 'critical' ? 'critical' : 'reference'" :dot="tagTone === 'warn'">
         {{ tagText }}
-      </span>
+      </UiStatusPill>
     </header>
 
-    <div class="p-5 flex-1">
+    <div class="flex-1 min-h-0 flex flex-col" :class="flush ? '' : 'p-[18px]'">
       <slot />
     </div>
   </section>
 </template>
+
+<style scoped>
+.corner {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+  border-color: var(--color-text-corner);
+}
+</style>

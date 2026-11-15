@@ -48,6 +48,8 @@ class MetricCatalogItem(BaseModel):
     critical_threshold: float | None = None
     recommended_frequency_hours: float
     clinical_reference: str
+    plausible_min: float | None = None
+    plausible_max: float | None = None
 
 
 class MeasurementItemIn(BaseModel):
@@ -76,19 +78,18 @@ class MeasurementItemIn(BaseModel):
 class MeasurementBatchIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    crew_id: str = Field(..., min_length=1, max_length=32)
-    mission_stage: MissionStage
+    # Both are optional: the session decides the crew member and the mission its stage.
+    crew_id: str | None = Field(default=None, max_length=32)
+    mission_stage: MissionStage | None = None
     source_type: MeasurementSource = "MANUAL"
     recorded_at_utc: str | None = None
     items: list[MeasurementItemIn] = Field(..., min_length=1, max_length=64)
 
     @field_validator("crew_id")
     @classmethod
-    def strip_crew(cls, value: str) -> str:
-        trimmed = value.strip()
-        if not trimmed:
-            raise ValueError("Crew identifier must not be blank.")
-        return trimmed
+    def strip_crew(cls, value: str | None) -> str | None:
+        trimmed = (value or "").strip()
+        return trimmed or None
 
     @field_validator("recorded_at_utc")
     @classmethod
@@ -113,6 +114,7 @@ class MeasurementIngestOut(BaseModel):
 
     inserted_ids: list[int]
     alerts_created: list[int]
+    mission_stage: MissionStage
     streak: StreakUpdateSummary
     recorded_at_utc: str
 

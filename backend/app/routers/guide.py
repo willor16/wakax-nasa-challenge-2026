@@ -12,9 +12,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.db import open_connection
 from app.services.guide import (
-    GUIDE_CATEGORIES,
     emergency_index,
     get_article,
+    guide_categories,
     kit_drawers,
     search_articles,
 )
@@ -30,8 +30,8 @@ def search_guide(
     """Protocols matching the words and/or the topic filter, best match first."""
     with open_connection() as conn:
         results = search_articles(conn, q, category)
-    return {"query": q, "category": category, "categories": list(GUIDE_CATEGORIES),
-            "results": results}
+        categories = guide_categories(conn)
+    return {"query": q, "category": category, "categories": categories, "results": results}
 
 
 @router.get("/wiki/emergency-index")

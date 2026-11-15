@@ -1,35 +1,46 @@
-// 2-minute reaction test (screen 13): a green target appears after a random
-// wait; the crew member taps it as fast as possible. Taps while waiting are
-// false starts; a target left without a tap counts as a lapse.
-import {
-  ARENA_DURATION_MS,
-  ARENA_RESPONSE_WINDOW_MS,
-  nextDelayMs,
-  summarizeArena,
-} from '~/utils/mind'
+// 2-minute reaction test (screen 13), following the Psychomotor Vigilance Task: a target
+// appears after a random 2-10 s wait and must be tapped as fast as possible. A tap with no
+// target is a false start; a target left for 1.5 s counts as a lapse (no response). The
+// server scores the session (responses under 100 ms are false starts, 500 ms or more lapses).
+
+export const ARENA_DURATION_MS = 120_000
+const RESPONSE_WINDOW_MS = 1_500
+const MIN_WAIT_MS = 2_000
+const MAX_WAIT_MS = 10_000
+const LAPSE_MS = 500
 
 export type ArenaPhase = 'idle' | 'waiting' | 'target' | 'done'
 
-export function useReactionArena() {
+export function useReactionArena(random: () => number = Math.random) {
   const phase = ref<ArenaPhase>('idle')
   const times = ref<(number | null)[]>([])
   const falseStarts = ref(0)
   const elapsedMs = ref(0)
   const lastLatencyMs = ref<number | null>(null)
-
   let startedAt = 0
-  let targetShownAt = 0
-  let targetTimer: ReturnType<typeof setTimeout> | null = null
+  let shownAt = 0
+  let waitTimer: ReturnType<typeof setTimeout> | null = null
   let missTimer: ReturnType<typeof setTimeout> | null = null
-  let clockTimer: ReturnType<typeof setInterval> | null = null
+  let clock: ReturnType<typeof setInterval> | null = null
 
-  const summary = computed(() => summarizeArena(times.value, falseStarts.value))
+  const answered = computed(() => times.value.filter((t): t is number => t !== null && t >= 100))
+  const summary = computed(() => {
+    const valid = answered.value.filter(t => t < LAPSE_MS)
+    const attempts = times.value.length + falseStarts.value
+    return {
+      trials: times.value.length,
+      meanMs: answered.value.length ? Math.round(answered.value.reduce((a, b) => a + b, 0) / answered.value.length) : null,
+      valid: valid.length,
+      precisionPct: attempts ? Math.round((valid.length / attempts) * 1000) / 10 : null,
+      lapses: times.value.filter(t => t === null || t >= LAPSE_MS).length,
+    }
+  })
 
   function clearTimers() {
-    if (targetTimer) clearTimeout(targetTimer)
+    if (waitTimer) clearTimeout(waitTimer)
     if (missTimer) clearTimeout(missTimer)
-    if (clockTimer) clearInterval(clockTimer)
-    targetTimer = missTimer = clockTimer = null
+    if (clock) clearInterval(clock)
+    waitTimer = missTimer = clock = null
   }
 
   function finish() {
@@ -40,19 +51,20 @@ export function useReactionArena() {
 
   function scheduleTarget() {
     phase.value = 'waiting'
-    const wait = nextDelayMs()
-    if (performance.now() - startedAt + wait >= ARENA_DURATION_MS) {
-      targetTimer = setTimeout(finish, ARENA_DURATION_MS - (performance.now() - startedAt))
+    const wait = MIN_WAIT_MS + random() * (MAX_WAIT_MS - MIN_WAIT_MS)
+    const left = ARENA_DURATION_MS - (performance.now() - startedAt)
+    if (wait + RESPONSE_WINDOW_MS > left) {
+      waitTimer = setTimeout(finish, Math.max(0, left))
       return
     }
-    targetTimer = setTimeout(() => {
+    waitTimer = setTimeout(() => {
       phase.value = 'target'
-      targetShownAt = performance.now()
+      shownAt = performance.now()
       missTimer = setTimeout(() => {
         times.value = [...times.value, null]
         lastLatencyMs.value = null
         scheduleTarget()
-      }, ARENA_RESPONSE_WINDOW_MS)
+      }, RESPONSE_WINDOW_MS)
     }, wait)
   }
 
@@ -63,9 +75,9 @@ export function useReactionArena() {
     lastLatencyMs.value = null
     elapsedMs.value = 0
     startedAt = performance.now()
-    clockTimer = setInterval(() => {
+    clock = setInterval(() => {
       elapsedMs.value = Math.min(ARENA_DURATION_MS, performance.now() - startedAt)
-    }, 200)
+    }, 250)
     scheduleTarget()
   }
 
@@ -76,7 +88,7 @@ export function useReactionArena() {
     }
     if (phase.value !== 'target') return
     if (missTimer) clearTimeout(missTimer)
-    const latency = Math.round(performance.now() - targetShownAt)
+    const latency = Math.round(performance.now() - shownAt)
     lastLatencyMs.value = latency
     times.value = [...times.value, latency]
     scheduleTarget()
@@ -91,7 +103,6 @@ export function useReactionArena() {
     lastLatencyMs.value = null
   }
 
-  onUnmounted(clearTimers)
-
+  onBeforeUnmount(clearTimers)
   return { phase, times, falseStarts, elapsedMs, lastLatencyMs, summary, start, tap, reset }
 }

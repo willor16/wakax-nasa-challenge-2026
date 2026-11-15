@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS crew_members (
   sex TEXT CHECK (sex IS NULL OR sex IN ('F', 'M', 'X')),
   blood_type TEXT,
   height_cm REAL CHECK (height_cm IS NULL OR height_cm > 0),
+  title_en TEXT,                                    -- crew position shown on screen, e.g. 'Commander'
   is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
   failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
   locked_until_utc TEXT,
@@ -89,13 +90,13 @@ CREATE INDEX IF NOT EXISTS idx_measurements_stage_ts
 CREATE TRIGGER IF NOT EXISTS trg_measurements_no_update
 BEFORE UPDATE ON measurements
 BEGIN
-  SELECT RAISE(ABORT, 'Measurements table is append-only');
+  SELECT RAISE(ABORT, 'Health records cannot be changed or deleted');
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_measurements_no_delete
 BEFORE DELETE ON measurements
 BEGIN
-  SELECT RAISE(ABORT, 'Measurements table is append-only');
+  SELECT RAISE(ABORT, 'Health records cannot be changed or deleted');
 END;
 
 CREATE TABLE IF NOT EXISTS environment_readings (
@@ -106,7 +107,9 @@ CREATE TABLE IF NOT EXISTS environment_readings (
   humidity_pct REAL NOT NULL CHECK (humidity_pct BETWEEN 0 AND 100),
   radiation_msv REAL NOT NULL DEFAULT 0.0 CHECK (radiation_msv >= 0),
   solar_event_flag INTEGER NOT NULL DEFAULT 0 CHECK (solar_event_flag IN (0, 1)),
-  recorded_at_utc TEXT NOT NULL
+  recorded_at_utc TEXT NOT NULL,
+  kp_index REAL CHECK (kp_index IS NULL OR kp_index BETWEEN 0 AND 9),
+  location_en TEXT NOT NULL DEFAULT 'Habitat A'
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_environment_readings_ts
@@ -120,6 +123,8 @@ CREATE TABLE IF NOT EXISTS streak_days (
   habits_met INTEGER NOT NULL DEFAULT 0 CHECK (habits_met IN (0, 1)),
   daily_compliant INTEGER NOT NULL DEFAULT 0 CHECK (daily_compliant IN (0, 1)),
   updated_at_utc TEXT NOT NULL,
+  habits_done INTEGER NOT NULL DEFAULT 0 CHECK (habits_done BETWEEN 0 AND 4),
+  habits_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(habits_json)),
   UNIQUE (crew_id, streak_date_utc)
 ) STRICT;
 
@@ -158,7 +163,8 @@ CREATE TABLE IF NOT EXISTS sleep_sessions (
   rem_min INTEGER NOT NULL DEFAULT 0 CHECK (rem_min >= 0),
   light_min INTEGER NOT NULL DEFAULT 0 CHECK (light_min >= 0),
   awake_min INTEGER NOT NULL DEFAULT 0 CHECK (awake_min >= 0),
-  recorded_at_utc TEXT NOT NULL
+  recorded_at_utc TEXT NOT NULL,
+  stages_recorded INTEGER NOT NULL DEFAULT 1 CHECK (stages_recorded IN (0, 1))  -- 0 = window only
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_sleep_sessions_crew_start
@@ -234,6 +240,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS wiki_articles_fts USING fts5(
   title_en,
   category_en,
   steps_json,
+  escalation_en,
   content='wiki_articles',
   content_rowid='rowid'
 );
@@ -241,24 +248,24 @@ CREATE VIRTUAL TABLE IF NOT EXISTS wiki_articles_fts USING fts5(
 CREATE TRIGGER IF NOT EXISTS trg_wiki_articles_ai
 AFTER INSERT ON wiki_articles
 BEGIN
-  INSERT INTO wiki_articles_fts(rowid, title_en, category_en, steps_json)
-  VALUES (new.rowid, new.title_en, new.category_en, new.steps_json);
+  INSERT INTO wiki_articles_fts(rowid, title_en, category_en, steps_json, escalation_en)
+  VALUES (new.rowid, new.title_en, new.category_en, new.steps_json, new.escalation_en);
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_wiki_articles_ad
 AFTER DELETE ON wiki_articles
 BEGIN
-  INSERT INTO wiki_articles_fts(wiki_articles_fts, rowid, title_en, category_en, steps_json)
-  VALUES ('delete', old.rowid, old.title_en, old.category_en, old.steps_json);
+  INSERT INTO wiki_articles_fts(wiki_articles_fts, rowid, title_en, category_en, steps_json, escalation_en)
+  VALUES ('delete', old.rowid, old.title_en, old.category_en, old.steps_json, old.escalation_en);
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_wiki_articles_au
 AFTER UPDATE ON wiki_articles
 BEGIN
-  INSERT INTO wiki_articles_fts(wiki_articles_fts, rowid, title_en, category_en, steps_json)
-  VALUES ('delete', old.rowid, old.title_en, old.category_en, old.steps_json);
-  INSERT INTO wiki_articles_fts(rowid, title_en, category_en, steps_json)
-  VALUES (new.rowid, new.title_en, new.category_en, new.steps_json);
+  INSERT INTO wiki_articles_fts(wiki_articles_fts, rowid, title_en, category_en, steps_json, escalation_en)
+  VALUES ('delete', old.rowid, old.title_en, old.category_en, old.steps_json, old.escalation_en);
+  INSERT INTO wiki_articles_fts(rowid, title_en, category_en, steps_json, escalation_en)
+  VALUES (new.rowid, new.title_en, new.category_en, new.steps_json, new.escalation_en);
 END;
 
 CREATE TABLE IF NOT EXISTS psych_tests (
@@ -326,7 +333,8 @@ CREATE TABLE IF NOT EXISTS alerts (
   is_quiet_deferred INTEGER NOT NULL DEFAULT 0 CHECK (is_quiet_deferred IN (0, 1)),
   acknowledged_at_utc TEXT,
   acknowledged_by TEXT REFERENCES crew_members(id),
-  created_at_utc TEXT NOT NULL
+  created_at_utc TEXT NOT NULL,
+  steps_done_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(steps_done_json))  -- step -> UTC
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_alerts_crew_ack
@@ -348,8 +356,101 @@ CREATE TABLE IF NOT EXISTS diagnoses (
   validated_by TEXT REFERENCES crew_members(id),
   validated_at_utc TEXT,
   physician_notes_en TEXT,
-  created_at_utc TEXT NOT NULL
+  created_at_utc TEXT NOT NULL,
+  pattern_key TEXT,
+  pattern_label_en TEXT,
+  top_metrics_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(top_metrics_json)),
+  guidance_source TEXT
 ) STRICT;
+
+-- RNF 5: every physician decision is kept as an append-only audit trail.
+CREATE TABLE IF NOT EXISTS review_decisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  diagnosis_id INTEGER NOT NULL REFERENCES diagnoses(id),
+  decision TEXT NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED', 'PROMOTED_TO_GUIDE')),
+  reviewer_id TEXT NOT NULL REFERENCES crew_members(id),
+  notes_en TEXT,
+  decided_at_utc TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_review_decisions_diagnosis
+  ON review_decisions (diagnosis_id, decided_at_utc);
+
+-- ============================================================================
+-- RNF 5: Append-only health time series (no UPDATE, no DELETE)
+-- ============================================================================
+
+CREATE TRIGGER IF NOT EXISTS trg_review_decisions_no_update
+BEFORE UPDATE ON review_decisions
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be changed');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_review_decisions_no_delete
+BEFORE DELETE ON review_decisions
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sleep_sessions_no_update
+BEFORE UPDATE ON sleep_sessions
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be changed');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sleep_sessions_no_delete
+BEFORE DELETE ON sleep_sessions
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sleep_stages_no_update
+BEFORE UPDATE ON sleep_stages
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be changed');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sleep_stages_no_delete
+BEFORE DELETE ON sleep_stages
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_psych_tests_no_update
+BEFORE UPDATE ON psych_tests
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be changed');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_psych_tests_no_delete
+BEFORE DELETE ON psych_tests
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cognitive_tests_no_update
+BEFORE UPDATE ON cognitive_tests
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be changed');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cognitive_tests_no_delete
+BEFORE DELETE ON cognitive_tests
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_auscultation_recordings_no_update
+BEFORE UPDATE ON auscultation_recordings
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be changed');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_auscultation_recordings_no_delete
+BEFORE DELETE ON auscultation_recordings
+BEGIN
+  SELECT RAISE(ABORT, 'Health records cannot be deleted');
+END;
 
 CREATE INDEX IF NOT EXISTS idx_diagnoses_crew_status
   ON diagnoses (crew_id, validation_status, created_at_utc DESC);

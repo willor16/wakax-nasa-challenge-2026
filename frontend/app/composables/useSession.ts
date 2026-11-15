@@ -1,92 +1,83 @@
-export interface ActiveCrewMember {
+// Crew session: PIN sign-in, the signed-in crew member and the access token.
+// The session lives in this browser tab only (sessionStorage) and ends on Sign Out.
+
+export interface SessionCrew {
   id: string
   code: string
-  fullName: string
-  shortName: string
+  full_name: string
+  short_name: string
   role: 'ASTRONAUT' | 'PILOT' | 'OPERATOR' | 'PHYSICIAN'
+  title_en: string
 }
 
-interface LoginResponse {
-  access_token: string
-  token_type: string
-  crew: {
-    id: string
-    code: string
-    full_name: string
-    short_name: string
-    role: 'ASTRONAUT' | 'PILOT' | 'OPERATOR' | 'PHYSICIAN'
+interface StoredSession {
+  token: string
+  crew: SessionCrew
+}
+
+const STORAGE_KEY = 'spacescan.session'
+
+function readStored(): StoredSession | null {
+  if (!import.meta.client) return null
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as StoredSession) : null
+  }
+  catch {
+    return null
   }
 }
 
-interface MissionStatusResponse {
-  unread_alerts: number
-  critical_alerts: number
-  cabin_mode: 'nominal' | 'critical'
+function writeStored(session: StoredSession | null) {
+  if (!import.meta.client) return
+  try {
+    if (session) window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session))
+    else window.sessionStorage.removeItem(STORAGE_KEY)
+  }
+  catch {
+    // Storage can be unavailable (private mode); the session then lasts until reload.
+  }
 }
 
 export function useSession() {
-  const token = useState<string | null>('session_token', () => null)
-  const isAuthenticated = useState<boolean>('session_authenticated', () => false)
-  const activeCrew = useState<ActiveCrewMember | null>('session_crew', () => null)
-  const cabinMode = useState<'nominal' | 'critical'>('cabin_mode', () => 'nominal')
-  const unreadAlerts = useState<number>('unread_alerts', () => 0)
+  const session = useState<StoredSession | null>('session', () => readStored())
+  const base = useRuntimeConfig().public.apiBase
 
-  function setCabinMode(mode: 'nominal' | 'critical') {
-    cabinMode.value = mode
-    if (import.meta.client) {
-      document.documentElement.dataset.cabinMode = mode === 'critical' ? 'critical' : ''
-    }
-  }
-
-  async function refreshMissionStatus() {
-    try {
-      const res = await $fetch<MissionStatusResponse>('/api/v1/mission')
-      unreadAlerts.value = res.unread_alerts
-      setCabinMode(res.cabin_mode)
-    }
-    catch {
-      // Keep last known cabin state if API is momentarily unavailable
-    }
-  }
-
-  async function signInWithPin(crewId: string, pin: string): Promise<ActiveCrewMember> {
-    const res = await $fetch<LoginResponse>('/api/v1/auth/login', {
-      method: 'POST',
-      body: { crew_id: crewId, pin },
-    })
-    token.value = res.access_token
-    activeCrew.value = {
-      id: res.crew.id,
-      code: res.crew.code,
-      fullName: res.crew.full_name,
-      shortName: res.crew.short_name,
-      role: res.crew.role,
-    }
-    isAuthenticated.value = true
-    await refreshMissionStatus()
-    return activeCrew.value
-  }
-
-  function signOut() {
-    token.value = null
-    isAuthenticated.value = false
-    activeCrew.value = null
-  }
+  const crew = computed(() => session.value?.crew ?? null)
+  const isAuthenticated = computed(() => session.value !== null)
+  const isPhysician = computed(() => crew.value?.role === 'PHYSICIAN')
+  const isOperator = computed(() => crew.value?.role === 'OPERATOR')
 
   function authHeaders(): Record<string, string> {
-    return token.value ? { Authorization: `Bearer ${token.value}` } : {}
+    return session.value ? { Authorization: `Bearer ${session.value.token}` } : {}
   }
 
-  return {
-    token,
-    isAuthenticated,
-    activeCrew,
-    cabinMode,
-    unreadAlerts,
-    setCabinMode,
-    refreshMissionStatus,
-    signInWithPin,
-    signOut,
-    authHeaders,
+  async function login(crewId: string, pin: string) {
+    const result = await $fetch<{ access_token: string, crew: SessionCrew }>(
+      `${base}/api/v1/auth/login`,
+      { method: 'POST', body: { crew_id: crewId, pin } },
+    )
+    session.value = { token: result.access_token, crew: result.crew }
+    writeStored(session.value)
   }
+
+  function logout() {
+    session.value = null
+    writeStored(null)
+  }
+
+  /** Checks a restored session with the server; a stale one is dropped. */
+  async function verify(): Promise<boolean> {
+    if (!session.value) return false
+    try {
+      await $fetch(`${base}/api/v1/auth/me`, { headers: authHeaders() })
+      return true
+    }
+    catch {
+      logout()
+      return false
+    }
+  }
+
+  return { crew, isAuthenticated, isPhysician, isOperator, authHeaders, login, logout, verify }
 }

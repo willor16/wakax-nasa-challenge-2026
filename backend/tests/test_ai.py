@@ -64,9 +64,9 @@ def conn(temp_db_path: Path):
 
 
 def test_detect_on_seeded_crew(conn) -> None:
-    eyes = detect(conn, "ID-01")  # seed: right eye pressure and sheath well above baseline
+    eyes = detect(conn, "ID-01")  # seed: both optic nerve sheaths well above baseline
     assert eyes.is_anomaly and eyes.pattern == "ocular"
-    assert eyes.top_metrics[0]["metric_key"] in {"iop_right_mmhg", "optic_sheath_right_mm"}
+    assert eyes.top_metrics[0]["metric_key"] in {"optic_sheath_left_mm", "optic_sheath_right_mm"}
     assert eyes.anomaly_score >= 1
     calm = detect(conn, "ID-03")  # seed: readings close to baseline
     assert not calm.is_anomaly and calm.pattern is None
