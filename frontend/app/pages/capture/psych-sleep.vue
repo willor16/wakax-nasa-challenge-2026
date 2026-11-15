@@ -199,7 +199,7 @@ onMounted(() => {
             <label class="flex flex-col gap-1">
               <span class="flex justify-between text-[9.8px] font-bold tracking-[0.05em] text-cabin-muted">
                 {{ $t('mind.capture.wakeTime') }}
-                <span class="font-normal">{{ asleep }}</span>
+                <span class="font-mono font-normal">{{ asleep }}</span>
               </span>
               <span class="relative">
                 <input

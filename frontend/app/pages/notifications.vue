@@ -120,7 +120,7 @@ onUnmounted(() => {
       </div>
       <span
         v-if="data"
-        class="h-8 px-4 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/80 text-[10.5px] font-bold tracking-[0.05em] text-cabin-text inline-flex items-center gap-2"
+        class="h-8 px-4 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/80 font-mono text-[10.5px] font-bold tracking-[0.05em] text-cabin-text inline-flex items-center gap-2"
       >
         <i
           v-if="data.quiet_hours.active"

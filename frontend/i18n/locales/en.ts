@@ -10,6 +10,11 @@ export default defineI18nLocale(() => ({
     cabinCritical: 'CABIN ALERT',
   },
   nav: {
+    profileTabs: {
+      personal: 'Personal Data',
+      psychological: 'Psychological',
+      physical: 'Physical',
+    },
     public: {
       signIn: 'Sign In',
       crewOverview: 'Crew Overview',
