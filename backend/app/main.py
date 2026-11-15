@@ -11,6 +11,7 @@ from app.config import AUDIO_STORAGE_DIR, STATIC_SPA_DIR
 from app.db import init_db
 from app.routers import (
     alerts,
+    auscultation,
     auth,
     comms,
     crew,
@@ -18,8 +19,11 @@ from app.routers import (
     guide,
     measurements,
     mind,
+    profile,
+    sleep,
     streaks,
     system,
+    vision,
 )
 from app.services.comms_service import run_outbox_scheduler_tick
 from app.services.scheduled_checks import run_scheduled_checks_tick
@@ -60,6 +64,10 @@ app.add_middleware(
 app.include_router(system.router)
 app.include_router(auth.router)
 app.include_router(crew.router)
+app.include_router(profile.router)
+app.include_router(sleep.router)
+app.include_router(vision.router)
+app.include_router(auscultation.router)
 app.include_router(measurements.router)
 app.include_router(streaks.router)
 app.include_router(comms.router)
