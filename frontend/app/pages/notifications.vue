@@ -23,7 +23,18 @@ const ackFailed = ref(false)
 const now = ref(new Date())
 let clock: ReturnType<typeof setInterval> | null = null
 
-const tabs: NotificationView[] = ['all', 'advisories', 'checks']
+type PageTab = NotificationView | 'reviews'
+
+const tab = ref<PageTab>('all')
+const reviewCount = ref(0)
+const isPhysician = computed(() => activeCrew.value?.role === 'PHYSICIAN')
+const tabs = computed<PageTab[]>(() =>
+  isPhysician.value ? ['all', 'advisories', 'checks', 'reviews'] : ['all', 'advisories', 'checks'],
+)
+
+function tabCount(name: PageTab): number {
+  return name === 'reviews' ? reviewCount.value : (data.value?.counts[name] ?? 0)
+}
 
 const items = computed(() => data.value?.items ?? [])
 const selected = computed<NotificationItem | null>(() =>
@@ -76,9 +87,11 @@ async function acknowledge() {
   }
 }
 
-function selectTab(tab: NotificationView) {
-  if (view.value === tab) return
-  view.value = tab
+function selectTab(next: PageTab) {
+  if (tab.value === next) return
+  tab.value = next
+  if (next === 'reviews') return
+  view.value = next
   selectedKey.value = null
   void load()
 }
@@ -89,6 +102,14 @@ onMounted(() => {
     return
   }
   void load()
+  if (isPhysician.value) {
+    $fetch<{ pending: number }>('/api/v1/diagnosis', {
+      query: { status: 'PENDING_REVIEW' },
+      headers: authHeaders(),
+    }).then((res) => {
+      reviewCount.value = res.pending
+    }).catch(() => {})
+  }
   clock = setInterval(() => {
     now.value = new Date()
   }, 30000)
@@ -104,23 +125,23 @@ onUnmounted(() => {
     <div class="h-9 flex items-center justify-between gap-3">
       <div class="flex items-center gap-2">
         <button
-          v-for="tab in tabs"
-          :key="tab"
+          v-for="name in tabs"
+          :key="name"
           type="button"
           class="h-9 px-5 rounded-[4px] border text-[11.5px] font-semibold transition-colors"
           :class="
-            view === tab
+            tab === name
               ? 'menu-item-active text-cabin-text'
               : 'bg-cabin-inset border-cabin-card/65 text-cabin-muted hover:text-cabin-text'
           "
-          @click="selectTab(tab)"
+          @click="selectTab(name)"
         >
-          {{ $t(`notifications.tabs.${tab}`) }} ({{ data?.counts[tab] ?? 0 }})
+          {{ $t(`notifications.tabs.${name}`) }} ({{ tabCount(name) }})
         </button>
       </div>
       <span
         v-if="data"
-        class="h-8 px-4 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/80 text-[10.5px] font-bold tracking-[0.05em] text-cabin-text inline-flex items-center gap-2"
+        class="h-8 px-4 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/80 font-mono text-[10.5px] font-bold tracking-[0.05em] text-cabin-text inline-flex items-center gap-2"
       >
         <i
           v-if="data.quiet_hours.active"
@@ -145,7 +166,15 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-[18px] flex-1">
+    <NotificationsPhysicianReviews
+      v-if="tab === 'reviews'"
+      @count="reviewCount = $event"
+    />
+
+    <div
+      v-else
+      class="grid grid-cols-1 lg:grid-cols-2 gap-[18px] flex-1"
+    >
       <ShellHudWindow
         :title="$t('notifications.recent')"
         icon="bell"

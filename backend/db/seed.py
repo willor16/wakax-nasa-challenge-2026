@@ -9,6 +9,7 @@ from app.auth_utils import hash_pin
 from app.config import DB_PATH, SCHEMA_PATH, SEED_SNAPSHOT_PATH
 from app.db import init_db, open_connection
 from app.services.contracts import evaluate_alerts
+from app.services.wiki_seed import load_medical_guide
 
 
 def seed_database(
@@ -133,6 +134,8 @@ def seed_database(
                         env["recorded_at_utc"],
                     ),
                 )
+
+        load_medical_guide(conn)  # Dev 3: guide articles and medical kit (D3-06)
 
         if conn.execute("SELECT COUNT(*) FROM measurements").fetchone()[0] == 0:
             _seed_crew_clinical_history(conn)
