@@ -1,12 +1,27 @@
+import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 
 // Build output must not carry paths from the build machine (folder names, home directory).
-const projectRoot = decodeURIComponent(new URL('.', import.meta.url).pathname).replace(/\/$/, '')
+const projectRoot = fileURLToPath(new URL('.', import.meta.url)).replace(/[/\\]+$/, '')
+const localRoots = Array.from(new Set([
+  projectRoot,
+  projectRoot.replaceAll('\\', '\\\\'),
+  projectRoot.replaceAll('\\', '/'),
+  encodeURI(projectRoot.replaceAll('\\', '/')),
+]))
+function cleanMachinePaths(input: string): string {
+  let next = input
+  for (const root of localRoots) {
+    if (root && next.includes(root)) next = next.split(root).join('.')
+  }
+  return next
+}
 const stripLocalPaths = {
   name: 'strip-local-paths',
   enforce: 'post' as const,
   renderChunk(code: string) {
-    return code.includes(projectRoot) ? { code: code.split(projectRoot).join('.'), map: null } : null
+    const cleaned = cleanMachinePaths(code)
+    return cleaned !== code ? { code: cleaned, map: null } : null
   },
 }
 
@@ -73,7 +88,7 @@ export default defineNuxtConfig({
     hooks: {
       // Generated pages embed the app settings; keep build-machine paths out of them too.
       'prerender:generate'(route) {
-        if (typeof route.contents === 'string') route.contents = route.contents.split(projectRoot).join('.')
+        if (typeof route.contents === 'string') route.contents = cleanMachinePaths(route.contents)
       },
     },
   },
