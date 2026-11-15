@@ -239,6 +239,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vision/{crew_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_vision_exam_endpoint_api_v1_vision__crew_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vision/{crew_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_vision_review_endpoint_api_v1_vision__crew_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics/catalog": {
         parameters: {
             query?: never;
@@ -934,6 +966,90 @@ export interface components {
             input?: unknown;
             ctx?: Record<string, never>;
         };
+        VisionClinicalMetricOut: {
+            key: string;
+            label: string;
+            subtitle: string;
+            display_value: string;
+            unit: string;
+            badge_label: string;
+            tone: "nominal" | "warn" | "critical";
+            marker_pct: number;
+            nominal_band_start_pct: number;
+            nominal_band_width_pct: number;
+        };
+        VisionExamOut: {
+            crew_id: string;
+            crew_code: string;
+            selected_stage: "ALL" | "LAUNCH" | "MISSION" | "RETURN";
+            stage_has_records: boolean;
+            mission_day: number;
+            header_status_badge: string;
+            overall_tone: "reference" | "warn" | "critical";
+            alert_headline: string;
+            review_status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "PROMOTED_TO_GUIDE";
+            reviewed_by_label: string;
+            physician_notes_en?: string | null;
+            left_eye: components["schemas"]["VisionEyeArcOut"];
+            right_eye: components["schemas"]["VisionEyeArcOut"];
+            ocular_metrics: components["schemas"]["VisionClinicalMetricOut"][];
+            latest_scan_heading: string;
+            latest_scan_subtitle: string;
+            baseline_band_label: string;
+            baseline_band_min_mm: number;
+            baseline_band_max_mm: number;
+            alert_threshold_label: string;
+            alert_threshold_mm: number;
+            right_legend_label: string;
+            left_legend_label: string;
+            trend_points: components["schemas"]["VisionTrendPointOut"][];
+            steps_badge: string;
+            preventive_steps: components["schemas"]["VisionPreventiveStepOut"][];
+        };
+        VisionEyeArcOut: {
+            side: "LEFT" | "RIGHT";
+            label: string;
+            sheath_mm: number;
+            display_value: string;
+            baseline_mm: number;
+            delta_mm: number;
+            status_label: string;
+            tone: "reference" | "warn" | "critical";
+        };
+        VisionPreventiveStepIn: {
+            step_number: number;
+            code_label: string;
+            title: string;
+            description: string;
+            accent_tone: "ok" | "ice";
+        };
+        VisionPreventiveStepOut: {
+            step_number: number;
+            code_label: string;
+            title: string;
+            description: string;
+            accent_tone: "ok" | "ice";
+        };
+        VisionReviewCreateIn: {
+            validation_status: "APPROVED" | "REJECTED" | "PROMOTED_TO_GUIDE";
+            physician_notes_en?: string | null;
+            preventive_steps?: components["schemas"]["VisionPreventiveStepIn"][] | null;
+        };
+        VisionReviewCreatedOut: {
+            diagnosis_id: number;
+            crew_id: string;
+            validation_status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "PROMOTED_TO_GUIDE";
+            validated_by: string;
+            reviewer_label: string;
+            validated_at_utc: string;
+            physician_notes_en?: string | null;
+        };
+        VisionTrendPointOut: {
+            label: string;
+            left_mm: number;
+            right_mm: number;
+            is_projected: boolean;
+        };
         WorkTimeRowOut: {
             key: string;
             label: string;
@@ -1408,6 +1524,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SleepMonitorOut"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_vision_exam_endpoint_api_v1_vision__crew_id__get: {
+        parameters: {
+            query?: {
+                stage?: "ALL" | "LAUNCH" | "MISSION" | "RETURN";
+            };
+            header?: never;
+            path: {
+                crew_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisionExamOut"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_vision_review_endpoint_api_v1_vision__crew_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                crew_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisionReviewCreateIn"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisionReviewCreatedOut"];
                 };
             };
             422: {
