@@ -18,6 +18,7 @@ from app.routers import (
     guide,
     measurements,
     mind,
+    profile,
     streaks,
     system,
 )
@@ -60,6 +61,7 @@ app.add_middleware(
 app.include_router(system.router)
 app.include_router(auth.router)
 app.include_router(crew.router)
+app.include_router(profile.router)
 app.include_router(measurements.router)
 app.include_router(streaks.router)
 app.include_router(comms.router)
