@@ -139,7 +139,8 @@ def care_steps(group: str, severity: Severity) -> list[Step]:
     return steps
 
 
-def _quiet_hours(conn: sqlite3.Connection) -> QuietHours:
+def load_quiet_hours(conn: sqlite3.Connection) -> QuietHours:
+    """Quiet Hours from the mission settings, or the 22:00-06:00 default."""
     row = conn.execute(
         "SELECT quiet_hours_start_utc, quiet_hours_end_utc FROM mission WHERE id = 1"
     ).fetchone()
@@ -198,7 +199,7 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
         limits,
         baseline,
         row["recorded_at_utc"],
-        quiet=_quiet_hours(conn),
+        quiet=load_quiet_hours(conn),
         role_focus=is_role_focus(row["role"], row["metric_key"]),
     )
     if decision is None:
