@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import VChart from 'vue-echarts'
+import ProfileSubnavBar from '~/components/profile/ProfileSubnavBar.vue'
 import type { PsychProfile } from '~/utils/mind'
 import { buildMoodTrendOption, rangeKey, scalePercent, stateKey } from '~/utils/mind'
 
@@ -65,26 +66,7 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col gap-[18px] flex-1">
-    <div class="flex gap-2">
-      <NuxtLink
-        to="/profile/personal"
-        class="px-6 h-9 rounded-[4px] bg-cabin-inset border border-cabin-card/60 text-[11.5px] font-semibold flex items-center text-cabin-muted hover:text-cabin-text"
-      >
-        {{ $t('nav.profileTabs.personal') }}
-      </NuxtLink>
-      <NuxtLink
-        to="/profile/psychological"
-        class="px-6 h-9 rounded-[4px] menu-item-active text-[11.5px] font-bold flex items-center text-cabin-text"
-      >
-        {{ $t('nav.profileTabs.psychological') }}
-      </NuxtLink>
-      <NuxtLink
-        to="/profile/physical"
-        class="px-6 h-9 rounded-[4px] bg-cabin-inset border border-cabin-card/60 text-[11.5px] font-semibold flex items-center text-cabin-muted hover:text-cabin-text"
-      >
-        {{ $t('nav.profileTabs.physical') }}
-      </NuxtLink>
-    </div>
+    <ProfileSubnavBar :show-stage-filter="false" />
 
     <p
       v-if="loadFailed"
