@@ -64,7 +64,7 @@ def _article(row: Any) -> dict:
 
 
 def search_articles(conn: sqlite3.Connection, query: str = "",
-                    category: str | None = None) -> list[dict]:
+                    category: str | None = None, loose: bool = True) -> list[dict]:
     """Articles matching the words and/or topic, best match first."""
     ensure_guide_schema(conn)
     category_sql = "AND a.category_en = ?" if category else ""
@@ -87,9 +87,9 @@ def search_articles(conn: sqlite3.Connection, query: str = "",
         LIMIT ?
     """
     rows = conn.execute(sql, (match, *category_args, MAX_RESULTS)).fetchall()
-    if not rows:
-        loose = build_match_query(query, mode="OR")
-        rows = conn.execute(sql, (loose, *category_args, MAX_RESULTS)).fetchall()
+    if not rows and loose:
+        loose_match = build_match_query(query, mode="OR")
+        rows = conn.execute(sql, (loose_match, *category_args, MAX_RESULTS)).fetchall()
     return [_article(r) for r in rows]
 
 

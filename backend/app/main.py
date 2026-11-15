@@ -9,7 +9,18 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import AUDIO_STORAGE_DIR, STATIC_SPA_DIR
 from app.db import init_db
-from app.routers import alerts, auth, comms, crew, guide, measurements, mind, streaks, system
+from app.routers import (
+    alerts,
+    auth,
+    comms,
+    crew,
+    diagnosis,
+    guide,
+    measurements,
+    mind,
+    streaks,
+    system,
+)
 from app.services.comms_service import run_outbox_scheduler_tick
 from app.services.scheduled_checks import run_scheduled_checks_tick
 
@@ -23,6 +34,7 @@ async def lifespan(_app: FastAPI):
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(run_outbox_scheduler_tick, "interval", seconds=15, id="ground_outbox_sync")
     scheduler.add_job(run_scheduled_checks_tick, "interval", minutes=5, id="scheduled_checks")
+    scheduler.add_job(diagnosis.run_anomaly_scan_tick, "interval", hours=6, id="anomaly_scan")
     scheduler.start()
     try:
         yield
@@ -54,6 +66,7 @@ app.include_router(comms.router)
 app.include_router(alerts.router)
 app.include_router(mind.router)
 app.include_router(guide.router)
+app.include_router(diagnosis.router)
 
 if STATIC_SPA_DIR.exists():
     app.mount("/", StaticFiles(directory=STATIC_SPA_DIR, html=True), name="spa")
