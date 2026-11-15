@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import AUDIO_STORAGE_DIR, STATIC_SPA_DIR
 from app.db import init_db
-from app.routers import alerts, auth, comms, crew, measurements, mind, streaks, system
+from app.routers import alerts, auth, comms, crew, measurements, mind, profile, streaks, system
 from app.services.comms_service import run_outbox_scheduler_tick
 from app.services.scheduled_checks import run_scheduled_checks_tick
 
@@ -48,6 +48,7 @@ app.add_middleware(
 app.include_router(system.router)
 app.include_router(auth.router)
 app.include_router(crew.router)
+app.include_router(profile.router)
 app.include_router(measurements.router)
 app.include_router(streaks.router)
 app.include_router(comms.router)
