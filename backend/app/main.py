@@ -9,8 +9,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import AUDIO_STORAGE_DIR, STATIC_SPA_DIR
 from app.db import init_db
-from app.routers import auth, comms, crew, measurements, streaks, system
+from app.routers import alerts, auth, comms, crew, measurements, streaks, system
 from app.services.comms_service import run_outbox_scheduler_tick
+from app.services.scheduled_checks import run_scheduled_checks_tick
 
 
 @asynccontextmanager
@@ -18,8 +19,10 @@ async def lifespan(_app: FastAPI):
     """Initialize local database, storage paths, and background scheduler."""
     AUDIO_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
+    run_scheduled_checks_tick()
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(run_outbox_scheduler_tick, "interval", seconds=15, id="ground_outbox_sync")
+    scheduler.add_job(run_scheduled_checks_tick, "interval", minutes=5, id="scheduled_checks")
     scheduler.start()
     try:
         yield
@@ -48,6 +51,7 @@ app.include_router(crew.router)
 app.include_router(measurements.router)
 app.include_router(streaks.router)
 app.include_router(comms.router)
+app.include_router(alerts.router)
 
 if STATIC_SPA_DIR.exists():
     app.mount("/", StaticFiles(directory=STATIC_SPA_DIR, html=True), name="spa")
