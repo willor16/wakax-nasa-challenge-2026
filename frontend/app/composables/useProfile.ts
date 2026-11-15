@@ -29,11 +29,15 @@ export interface MetricView {
   title?: string
   note?: string | null
   value_text?: string | null
+  /** Skeletal muscle index (muscle mass card only), judged against the sex limit. */
+  smi?: { value: number, min: number, dxa_min: number, status: StatusCode } | null
 }
 
 export interface CrewProfile {
   crew: { id: string, code: string, full_name: string, short_name: string, title_en: string
     role: string, age: number | null, sex: string | null, blood_type: string | null }
+  /** ``Female ranges`` / ``Male ranges``. */
+  reference_profile_en: string
   mission_stage: 'LAUNCH' | 'MISSION' | 'RETURN'
   mission_day: number | null
   habits_day_label: string

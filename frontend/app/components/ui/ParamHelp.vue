@@ -30,10 +30,22 @@ const help = computed(() => entries.value[props.metricKey] ?? null)
 const baseline = useState<Record<string, { mean_val: number }>>('param-help-baselines', () => ({}))
 const baselineFor = useState('param-help-baselines-for', () => '')
 
+// Ranges that differ by sex show the signed-in crew member's own range.
+const sexRange = computed(() => {
+  const sex = crew.value?.sex
+  const range = sex ? help.value?.by_sex?.[sex] : undefined
+  return range && range.nominal_min != null && range.nominal_max != null ? { sex, ...range } : null
+})
+const normalLabel = computed(() => (sexRange.value
+  ? `${t('help.normal')} (${sexRange.value.sex === 'F' ? 'female' : 'male'})`
+  : t('help.normal')))
 const normalText = computed(() => {
   const item = help.value
-  if (!item || item.nominal_min == null || item.nominal_max == null) return null
-  return `${item.nominal_min}–${item.nominal_max} ${item.unit}`
+  if (!item) return null
+  const low = sexRange.value?.nominal_min ?? item.nominal_min
+  const high = sexRange.value?.nominal_max ?? item.nominal_max
+  if (low == null || high == null) return null
+  return `${low}–${high} ${item.unit}`
 })
 const personalText = computed(() => {
   const base = baseline.value[props.metricKey]
@@ -173,7 +185,7 @@ onBeforeUnmount(() => {
           </div>
         </dl>
         <div v-if="normalText || personalText" class="mt-[10px] pt-[8px] border-t border-cabin-line flex flex-wrap gap-x-[16px] gap-y-[4px] text-[11px]">
-          <p v-if="normalText"><span class="text-cabin-muted">{{ t('help.normal') }}:</span> <span class="mono">{{ normalText }}</span></p>
+          <p v-if="normalText"><span class="text-cabin-muted">{{ normalLabel }}:</span> <span class="mono">{{ normalText }}</span></p>
           <p v-if="personalText"><span class="text-cabin-muted">{{ t('help.personal') }}:</span> <span class="mono">{{ personalText }}</span></p>
         </div>
       </template>

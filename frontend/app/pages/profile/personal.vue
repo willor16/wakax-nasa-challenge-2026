@@ -17,7 +17,10 @@ function caption(card: MetricView): string {
   if (card.value === null) return 'No reading yet'
   switch (card.metric_key) {
     case 'bmi_kg_m2': return `Normal: ${card.nominal_min}–${card.nominal_max}`
-    case 'muscle_mass_kg': return card.baseline_pct != null ? `${card.baseline_pct}% retained` : 'No pre-flight value'
+    case 'muscle_mass_kg': {
+      const retained = card.baseline_pct != null ? `${card.baseline_pct}% retained` : 'No pre-flight value'
+      return card.smi ? `${retained} · SMI ${card.smi.value.toFixed(1)} (≥ ${card.smi.min})` : retained
+    }
     case 'bone_density_g_cm2': return card.baseline_pct != null ? `${card.baseline_pct}% of baseline` : 'No pre-flight value'
     case 'vo2_max_ml_kg_min': return card.status === 'NOMINAL' ? 'Optimal range' : `${card.baseline_pct}% of pre-flight`
     default:
@@ -76,8 +79,10 @@ const hydration = computed(() => profile.value?.scan)
             <span class="text-[17px] font-bold">{{ profile.crew.full_name }}</span>
             <UiStatusPill>{{ profile.crew.title_en.toUpperCase() }}</UiStatusPill>
           </div>
-          <p class="text-[12px] text-cabin-ice mt-[8px]">
-            Age: {{ profile.crew.age ?? '—' }} yrs · Sex: {{ sexText(profile.crew.sex) }} · Blood Type: {{ profile.crew.blood_type ?? '—' }}
+          <p class="text-[12px] text-cabin-ice mt-[8px] flex items-center gap-[6px] min-w-0">
+            <span class="truncate">Age: {{ profile.crew.age ?? '—' }} yrs · Sex: {{ sexText(profile.crew.sex) }} · Blood Type: {{ profile.crew.blood_type ?? '—' }}</span>
+            <span class="shrink-0 ml-auto h-[18px] px-[8px] rounded-full border border-cabin-navy-edge/80 bg-[var(--color-pill-fill)] text-[9px] font-bold uppercase tracking-[0.04em] text-cabin-text flex items-center">{{ profile.reference_profile_en }}</span>
+            <UiParamHelp metric-key="sex_reference" />
           </p>
         </div>
         <div class="grid grid-cols-2 gap-x-[14px] gap-y-[clamp(10px,1.9dvh,18px)] mt-[clamp(12px,2.6dvh,24px)] flex-1 min-h-0">

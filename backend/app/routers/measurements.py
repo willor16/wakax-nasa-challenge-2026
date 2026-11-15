@@ -42,7 +42,8 @@ def _fetch_catalog(conn: sqlite3.Connection, category: str | None) -> list[Metri
     for r in rows:
         entry = reference_ranges.metric(r["metric_key"]) or {}
         items.append(MetricCatalogItem(**dict(r), plausible_min=entry.get("plausible_min"),
-                                       plausible_max=entry.get("plausible_max")))
+                                       plausible_max=entry.get("plausible_max"),
+                                       by_sex=reference_ranges.by_sex_nominal(entry)))
     return items
 
 
@@ -132,6 +133,24 @@ def list_measurements(
     return [MeasurementRowOut(**dict(r)) for r in rows]
 
 
+MIN_PULSE_PRESSURE_MMHG = 10.0
+
+
+def _check_pressure_pair(items: list[Any]) -> None:
+    """Diastolic pressure must sit at least 10 mmHg below systolic in the same reading."""
+    values = {item.metric_key: item.value_num for item in items}
+    systolic = values.get("bp_systolic_mmhg")
+    diastolic = values.get("bp_diastolic_mmhg")
+    if systolic is None or diastolic is None:
+        return
+    if systolic - diastolic < MIN_PULSE_PRESSURE_MMHG:
+        raise HTTPException(
+            HTTP_422_UNPROCESSABLE,
+            f"Non-admissible reading · blood pressure {systolic:g} / {diastolic:g} mmHg. "
+            f"Diastolic must be at least {MIN_PULSE_PRESSURE_MMHG:g} mmHg below systolic.",
+        )
+
+
 def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection,
                   claims: dict[str, Any]) -> MeasurementIngestOut:
     crew_id = body.crew_id or claims["sub"]
@@ -169,16 +188,21 @@ def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection,
             HTTP_422_UNPROCESSABLE,
             f"These readings are not part of the health catalog: {', '.join(unknown_keys)}",
         )
+    # Level 1 - non-admissible readings (typing errors, values no living person can have)
+    # are rejected as a whole batch before anything is stored. Readings that are possible
+    # but outside the normal range are stored and judged by the alert engine (level 2).
     for item in body.items:
         if not reference_ranges.is_plausible(item.metric_key, item.value_num):
             entry = reference_ranges.metric(item.metric_key) or {}
             name = catalog[item.metric_key]["display_name_en"]
+            unit = catalog[item.metric_key]["unit"]
             raise HTTPException(
                 HTTP_422_UNPROCESSABLE,
-                f"{name} of {item.value_num:g} {catalog[item.metric_key]['unit']} is not possible. "
-                f"Enter a value between {entry.get('plausible_min'):g} and "
-                f"{entry.get('plausible_max'):g}.",
+                f"Non-admissible reading · {name} {item.value_num:g} {unit}. "
+                f"Admissible range: {entry.get('plausible_min'):g}–"
+                f"{entry.get('plausible_max'):g} {unit}.",
             )
+    _check_pressure_pair(body.items)
 
     inserted_ids: list[int] = []
     alerts_created: list[int] = []

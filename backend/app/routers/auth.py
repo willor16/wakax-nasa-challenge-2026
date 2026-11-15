@@ -69,7 +69,7 @@ def login_with_pin(body: PinLoginRequest) -> dict:
     with open_connection() as conn:
         member = conn.execute(
             """
-            SELECT id, code, full_name, role, title_en, pin_hash, is_active,
+            SELECT id, code, full_name, role, title_en, sex, pin_hash, is_active,
                    failed_attempts, locked_until_utc
             FROM crew_members
             WHERE id = ?
@@ -134,6 +134,8 @@ def login_with_pin(body: PinLoginRequest) -> dict:
             "short_name": short_name(member["full_name"]),
             "role": member["role"],
             "title_en": display_title(member),
+            # Lets the screens show normal ranges calibrated to the crew member's physiology.
+            "sex": member["sex"],
         }
         token = create_access_token(crew_payload)
         return {

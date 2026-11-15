@@ -46,6 +46,8 @@ class ParameterHelpItem(BaseModel):
     operational_impact_en: str
     nominal_min: float | None = None
     nominal_max: float | None = None
+    # Female / male limits for metrics whose normal range differs by sex.
+    by_sex: dict[str, dict[str, float | None]] | None = None
 
 
 class MetricCatalogItem(BaseModel):
@@ -65,6 +67,7 @@ class MetricCatalogItem(BaseModel):
     clinical_reference: str
     plausible_min: float | None = None
     plausible_max: float | None = None
+    by_sex: dict[str, dict[str, float | None]] | None = None
 
 
 class MeasurementItemIn(BaseModel):

@@ -66,12 +66,21 @@ def stage_averages(
     return {stage: (round(found[stage], 2) if stage in found else None) for stage in STAGES}
 
 
-def assess(metric_key: str, value: float | None, base: Baseline | None) -> tuple[str, bool]:
-    """``(status, is_above)`` using the same rules as the alert engine."""
+def crew_sex(conn: sqlite3.Connection, crew_id: str) -> str | None:
+    """``"F"`` / ``"M"`` for the crew member (None when not recorded)."""
+    row = conn.execute("SELECT sex FROM crew_members WHERE id = ?", (crew_id,)).fetchone()
+    return row["sex"] if row else None
+
+
+def assess(
+    metric_key: str, value: float | None, base: Baseline | None, sex: str | None = None
+) -> tuple[str, bool]:
+    """``(status, is_above)`` using the same rules (and sex-specific limits) as the alert engine."""
     if value is None:
         return "NO_DATA", False
     entry = reference_ranges.metric(metric_key) or {}
-    fixed = reference_ranges.classify(metric_key, value)
+    limits = reference_ranges.limits_for_sex(metric_key, sex) or entry
+    fixed = reference_ranges.classify(metric_key, value, sex)
     direction = entry.get("drift", "none")
     z = None if direction == "none" else z_score(value, base, entry.get("drift_sd_floor", 0.0))
     if z is not None and ((direction == "up" and z < 0) or (direction == "down" and z > 0)):
@@ -85,7 +94,7 @@ def assess(metric_key: str, value: float | None, base: Baseline | None) -> tuple
     found = [s for s in (fixed, drift, relative) if s is not None]
     severity = max(found) if found else None
     if fixed is not None:
-        above = value > entry.get("nominal_max", value)
+        above = value > (limits.get("nominal_max") or value)
     elif relative is not None and (drift is None or relative >= drift):
         above = False
     else:
@@ -114,12 +123,14 @@ def metric_view(
     nominal_text: str = "Optimal",
     with_stages: bool = False,
 ) -> dict[str, Any]:
-    """Everything a results row needs for one metric."""
+    """Everything a results row needs for one metric (limits calibrated to the crew's sex)."""
     entry = reference_ranges.metric(metric_key) or {}
+    sex = crew_sex(conn, crew_id) if entry.get("by_sex") else None
+    limits = reference_ranges.limits_for_sex(metric_key, sex) or entry
     row = latest(conn, crew_id, metric_key)
     base = baseline(conn, crew_id, metric_key)
     value = float(row["value_num"]) if row else None
-    status, above = assess(metric_key, value, base)
+    status, above = assess(metric_key, value, base, sex)
     usable = base is not None and base.sample_count >= MIN_BASELINE_SAMPLES
     spread = max(base.std_dev, entry.get("drift_sd_floor", 0.0)) if base else 0.0
     view: dict[str, Any] = {
@@ -140,8 +151,8 @@ def metric_view(
         "baseline_pct": round(value / base.mean_val * 100, 1)
         if (value is not None and base and base.mean_val)
         else None,
-        "nominal_min": entry.get("nominal_min"),
-        "nominal_max": entry.get("nominal_max"),
+        "nominal_min": limits.get("nominal_min"),
+        "nominal_max": limits.get("nominal_max"),
         "scale_min": entry.get("plausible_min"),
         "scale_max": entry.get("plausible_max"),
     }

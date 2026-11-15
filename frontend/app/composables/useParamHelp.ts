@@ -8,6 +8,8 @@ export interface ParamHelp {
   operational_impact_en: string
   nominal_min: number | null
   nominal_max: number | null
+  /** Female / male normal range for parameters that differ by sex. */
+  by_sex?: Record<string, { nominal_min?: number | null, nominal_max?: number | null }> | null
 }
 
 export function useParamHelp() {

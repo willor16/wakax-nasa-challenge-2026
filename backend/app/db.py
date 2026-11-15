@@ -75,7 +75,7 @@ def init_db(db_path: Path | None = None, schema_path: Path = SCHEMA_PATH) -> Non
     from app.services.clinical_catalog import ensure_clinical_metrics
     from app.services.diagnosis import ensure_diagnosis_columns
     from app.services.mind import ensure_mind_columns
-    from app.services.wiki_seed import ensure_guide_schema
+    from app.services.wiki_seed import ensure_guide_schema, load_medical_guide
 
     schema_sql = schema_path.read_text(encoding="utf-8")
     with open_connection(db_path) as conn:
@@ -89,3 +89,6 @@ def init_db(db_path: Path | None = None, schema_path: Path = SCHEMA_PATH) -> Non
         ensure_diagnosis_columns(conn)
         ensure_mind_columns(conn)
         ensure_clinical_metrics(conn)
+        # New protocols from the shipped guide reach existing databases (never overwrites).
+        if conn.execute("SELECT COUNT(*) FROM wiki_articles").fetchone()[0]:
+            load_medical_guide(conn)
