@@ -6,6 +6,7 @@ const tabs = [
   { id: 'personal', label: t('profileTabs.personal'), to: '/profile/personal' },
   { id: 'psychological', label: t('profileTabs.psychological'), to: '/profile/psychological' },
   { id: 'physical', label: t('profileTabs.physical'), to: '/profile/physical' },
+  { id: 'streak', label: t('profileTabs.streak'), to: '/profile/streak' },
 ]
 const active = ref(route.path.split('/').at(-1) ?? 'personal')
 const onAdmin = computed(() => route.path === '/crew-management')

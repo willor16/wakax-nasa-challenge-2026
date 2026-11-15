@@ -61,7 +61,6 @@
   --color-pill-edge: rgba(38, 59, 176, 0.85);
   --color-ok-soft: rgba(42, 239, 75, 0.16);
   --color-ok-glow: rgba(42, 239, 75, 0.22);
-  --color-ok-scan: rgba(42, 239, 75, 0.65);
   --color-crit-soft: rgba(213, 17, 11, 0.2);
   --color-crit-edge: rgba(213, 17, 11, 0.85);
   --color-text-line: rgba(255, 236, 209, 0.18);
@@ -249,38 +248,6 @@ body,
 
 .hologram-shell {
   filter: drop-shadow(0 0 12px var(--color-ok-glow));
-}
-
-.hologram-scanline {
-  position: relative;
-  overflow: hidden;
-}
-
-.hologram-scanline::after {
-  content: "";
-  position: absolute;
-  inset-inline: 12%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-ok-scan), transparent);
-  animation: scan-sweep 4.5s ease-in-out infinite;
-}
-
-@keyframes scan-sweep {
-  0%, 100% {
-    top: 10%;
-    opacity: 0.25;
-  }
-  50% {
-    top: 88%;
-    opacity: 0.85;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hologram-scanline::after {
-    animation: none;
-    opacity: 0;
-  }
 }
 
 /* Thin scrollbar for the few lists that can grow (notifications, guide results). */

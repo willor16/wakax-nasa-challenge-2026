@@ -39,6 +39,7 @@ export default defineI18nLocale(() => ({
     personal: 'Personal Data',
     psychological: 'Psychological',
     physical: 'Physical',
+    streak: 'Streak',
   },
   captureTabs: {
     label: 'Capture sections',

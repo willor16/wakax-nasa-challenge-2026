@@ -25,7 +25,7 @@ const ring = computed(() => props.figure === 'body' || props.figure === 'brain')
 <template>
   <div
     class="relative shrink-0 rounded-full"
-    :class="figure === 'body-scan' ? 'hologram-shell hologram-scanline' : ''"
+    :class="figure === 'body-scan' ? 'hologram-shell' : ''"
     :style="{ width: box, height: box }"
     role="img"
     :aria-label="label"

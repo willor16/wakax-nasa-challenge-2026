@@ -138,6 +138,33 @@ export function ecgOption(samples: number[], sampleRateHz: number): EChartsOptio
   }
 }
 
+/**
+ * Live ECG: a fixed 6-second window that slides as new samples arrive (newest on the right),
+ * drawn without animation so four updates a second stay smooth.
+ */
+export function ecgLiveOption(samples: number[], sampleRateHz: number, windowSeconds = 6): EChartsOption {
+  const c = palette()
+  const offset = windowSeconds - samples.length / sampleRateHz
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    grid: { left: 10, right: 10, top: 34, bottom: 12 },
+    xAxis: { type: 'value', min: 0, max: windowSeconds, show: false },
+    yAxis: { type: 'value', min: -0.8, max: 1.6, interval: 0.6, axisLabel: { show: false },
+      axisLine: { show: false }, axisTick: { show: false },
+      splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } } },
+    series: [{
+      type: 'line',
+      data: samples.map((value, index) => [offset + index / sampleRateHz, value]),
+      showSymbol: false,
+      sampling: 'lttb',
+      silent: true,
+      lineStyle: { color: c.ok, width: 2 },
+      areaStyle: { color: c.okSoft, origin: -0.8 },
+    }],
+  }
+}
+
 /** Sound envelope of a recording: heart bursts (green) or breathing (cream fill). */
 export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary'): EChartsOption {
   const c = palette()

@@ -70,6 +70,13 @@ describe('language and restricted words', () => {
     for (const file of codeFiles) expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(/ares[\s_-]*vii/i)
   })
 
+  it('declares the page as English and blocks browser auto-translation', () => {
+    const config = readFileSync(join(ROOT, 'nuxt.config.ts'), 'utf-8')
+    expect(config).toContain('lang: \'en\'')
+    expect(config).toContain('translate: \'no\'')
+    expect(config).toContain('notranslate')
+  })
+
   it('contains no Spanish words in code or text', () => {
     const spanish = /\b(?:usuario|guardar|fecha|paciente|sueño|tripulante|medición|configuración|pantalla|botón|también|está)\b|[ñáéíóú¿¡]/i
     for (const file of codeFiles) expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(spanish)
@@ -121,16 +128,22 @@ describe('screen map', () => {
       'auscultation.vue', 'capture/auscultation.vue', 'capture/physical.vue', 'capture/psych-sleep.vue',
       'capture/vision.vue', 'comms.vue', 'crew-management.vue', 'crew-overview.vue', 'crew-streaks.vue', 'guide.vue',
       'index.vue', 'login.vue', 'notifications.vue', 'profile/personal.vue', 'profile/physical.vue',
-      'profile/psychological.vue', 'sleep.vue', 'vision.vue',
+      'profile/psychological.vue', 'profile/streak.vue', 'sleep.vue', 'vision.vue',
     ])
   })
 
   it('keeps every input on the capture screens (results screens are read-only)', () => {
-    const resultScreens = ['profile/personal.vue', 'profile/physical.vue', 'profile/psychological.vue', 'sleep.vue',
+    const resultScreens = ['profile/personal.vue', 'profile/physical.vue', 'profile/psychological.vue', 'profile/streak.vue', 'sleep.vue',
       'vision.vue', 'auscultation.vue', 'crew-overview.vue', 'crew-streaks.vue']
     for (const page of resultScreens) {
       const source = readFileSync(join(APP, 'pages', page), 'utf-8')
       expect(source, page).not.toMatch(/<input|<textarea|<select|method: 'POST'/)
+    }
+  })
+
+  it('draws the body without an animated scanner sweep', () => {
+    for (const file of [...vueFiles, join(APP, 'assets/css/tokens.css')]) {
+      expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(/scanline|scan-sweep/)
     }
   })
 

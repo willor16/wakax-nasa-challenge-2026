@@ -2,7 +2,7 @@
 // 06 · Astronaut Profile · Physical (read-only): daily vitals and habits, live ECG, labs.
 import VChart from 'vue-echarts'
 import type { MetricView } from '~/composables/useProfile'
-import { ecgOption } from '~/utils/charts'
+import { ecgLiveOption, ecgOption } from '~/utils/charts'
 import { digitsFor, formatNumber, toneOf } from '~/utils/format'
 
 const { data: profile, loading, error, refresh } = useProfile(20_000)
@@ -50,8 +50,31 @@ const label = (row: MetricView) => ({
   spo2_pct: 'Oxygen Saturation (SpO₂)', exercise_min: 'Daily Exercise', resting_hr_bpm: 'Resting Heart Rate',
 } as Record<string, string>)[row.metric_key] ?? row.label
 
+// Live wearable sensor (4 frames/s); the last stored strip is shown until the stream connects.
+const live = useLiveVitalsStream()
 const ecg = computed(() => profile.value?.ecg ?? null)
-const ecgChart = computed(() => (ecg.value ? ecgOption(ecg.value.samples, ecg.value.sample_rate_hz) : null))
+const isLive = computed(() => live.state.value === 'live' && live.samples.value.length > 0)
+const ecgChart = computed(() => {
+  if (isLive.value) return ecgLiveOption(live.samples.value, live.sampleRate.value)
+  return ecg.value ? ecgOption(ecg.value.samples, ecg.value.sample_rate_hz) : null
+})
+const trace = computed(() => {
+  const frame = live.latest.value
+  if (isLive.value && frame) {
+    return { lead: frame.lead, speed: frame.paper_speed_mm_s, bpm: frame.heart_rate_bpm, hrv: frame.hrv_ms,
+      temp: frame.body_temp_c, rhythm: frame.rhythm_text, note: frame.override_en }
+  }
+  const strip = ecg.value
+  return strip
+    ? { lead: strip.lead, speed: strip.paper_speed_mm_s, bpm: strip.heart_rate_bpm, hrv: strip.hrv_ms,
+        temp: strip.body_temp_c, rhythm: strip.rhythm_text, note: null }
+    : null
+})
+const liveTag = computed(() => {
+  if (isLive.value) return 'LIVE SENSOR STREAM · ACTIVE'
+  if (live.state.value === 'reconnecting') return 'RECONNECTING…'
+  return ecg.value ? 'NO LIVE SIGNAL · LAST STRIP' : 'NO SIGNAL'
+})
 function labValue(lab: MetricView): string {
   if (lab.value_text !== undefined) return lab.value_text ?? '—'
   if (lab.value == null) return '—'
@@ -94,20 +117,22 @@ class="w-[41%] shrink-0" title="Daily Vitals, Exercise & Nutrition" icon="heart"
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
 class="h-[clamp(200px,31dvh,380px)] shrink-0" title="Live ECG & Body Temperature" icon="bolt" help-key="ecg_lead_ii_mv"
-                        :tag-text="ecg ? ecg.rhythm_text.toUpperCase() : 'NO SIGNAL'"
-                        :tag-tone="ecg && ecg.rhythm_text !== 'Normal Sinus' ? 'critical' : 'reference'" flush>
+                        :tag-text="liveTag"
+                        :tag-tone="trace && trace.rhythm !== 'Normal Sinus' ? 'critical' : 'reference'" flush>
           <div class="flex-1 min-h-0 m-[clamp(12px,2.1dvh,20px)] tile relative">
-            <template v-if="ecg && ecgChart">
-              <span class="absolute top-[12px] left-[14px] mono text-[9.5px] text-cabin-ok z-10">
-                LEAD {{ ecg.lead }} · {{ ecg.paper_speed_mm_s }} mm/s
+            <template v-if="trace && ecgChart">
+              <span class="absolute top-[12px] left-[14px] mono text-[9.5px] text-cabin-ok z-10 flex items-center gap-[8px]">
+                <i v-if="isLive" class="w-[6px] h-[6px] rounded-full bg-cabin-ok animate-pulse" aria-hidden="true" />
+                LEAD {{ trace.lead }} · {{ trace.speed }} mm/s · {{ trace.rhythm.toUpperCase() }}
               </span>
-              <span class="absolute top-[12px] right-[14px] mono text-[9.5px] z-10">
-                {{ ecg.heart_rate_bpm ?? '—' }} BPM · HRV {{ ecg.hrv_ms ?? '—' }} MS · {{ ecg.body_temp_c?.toFixed(1) ?? '—' }} °C
+              <span class="absolute top-[12px] right-[14px] mono text-[9.5px] z-10" aria-live="off">
+                {{ trace.bpm ?? '—' }} BPM · HRV {{ trace.hrv ?? '—' }} MS · {{ trace.temp?.toFixed(2) ?? '—' }} °C
               </span>
+              <span v-if="trace.note" class="absolute bottom-[10px] left-[14px] mono text-[9.5px] z-10 text-cabin-text">{{ trace.note }}</span>
               <ClientOnly>
                 <VChart
 :option="ecgChart" theme="spacescan-hud" autoresize class="absolute inset-0"
-                        :aria-label="`Heart tracing, ${ecg.heart_rate_bpm} beats per minute, ${ecg.rhythm_text}`" />
+                        :aria-label="`Heart tracing, ${trace.rhythm}`" />
               </ClientOnly>
             </template>
             <UiStateNote v-else empty="No heart tracing recorded yet." class="h-full" />
