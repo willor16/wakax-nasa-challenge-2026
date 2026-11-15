@@ -210,7 +210,24 @@ CREATE TABLE IF NOT EXISTS wiki_articles (
   escalation_en TEXT NOT NULL,
   source_diagnosis_id INTEGER,
   created_at_utc TEXT NOT NULL,
-  updated_at_utc TEXT NOT NULL
+  updated_at_utc TEXT NOT NULL,
+  source_en TEXT                                    -- scientific or clinical reference
+) STRICT;
+
+-- Medical kit locator for the guide screen (14): drawers and what each holds.
+CREATE TABLE IF NOT EXISTS kit_drawers (
+  code TEXT PRIMARY KEY,                            -- e.g. 'DRAWER B2'
+  name_en TEXT NOT NULL,                            -- e.g. 'Diagnostics & Relief'
+  sort_order INTEGER NOT NULL DEFAULT 0
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS kit_items (
+  id TEXT PRIMARY KEY,
+  drawer_code TEXT NOT NULL REFERENCES kit_drawers(code),
+  slot_code TEXT NOT NULL UNIQUE,                   -- e.g. 'Slot B2-01', 'Pouch B2-11'
+  name_en TEXT NOT NULL,
+  status_en TEXT NOT NULL,                          -- e.g. 'Charged 100%', '24 strips'
+  sort_order INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS wiki_articles_fts USING fts5(

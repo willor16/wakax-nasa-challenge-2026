@@ -1,0 +1,24 @@
+{
+  "drawers": [
+    {"code": "DRAWER A1", "name_en": "Airway & Oxygen", "sort_order": 1},
+    {"code": "DRAWER A2", "name_en": "Cardiac & Defibrillator", "sort_order": 2},
+    {"code": "DRAWER B1", "name_en": "Trauma & Sutures", "sort_order": 3},
+    {"code": "DRAWER B2", "name_en": "Diagnostics & Relief", "sort_order": 4}
+  ],
+  "items": [
+    {"id": "kit-a1-01", "drawer_code": "DRAWER A1", "slot_code": "Slot A1-01", "name_en": "Oxygen Mask & Regulator", "status_en": "Sealed", "sort_order": 1},
+    {"id": "kit-a1-02", "drawer_code": "DRAWER A1", "slot_code": "Slot A1-02", "name_en": "Portable Oxygen Cylinder", "status_en": "Pressure 92%", "sort_order": 2},
+    {"id": "kit-a1-03", "drawer_code": "DRAWER A1", "slot_code": "Slot A1-03", "name_en": "Pulse Oximeter", "status_en": "Charged 100%", "sort_order": 3},
+    {"id": "kit-a2-01", "drawer_code": "DRAWER A2", "slot_code": "Slot A2-01", "name_en": "Automated External Defibrillator", "status_en": "Battery 100%", "sort_order": 1},
+    {"id": "kit-a2-02", "drawer_code": "DRAWER A2", "slot_code": "Pouch A2-02", "name_en": "Defibrillator Electrode Pads", "status_en": "4 sets", "sort_order": 2},
+    {"id": "kit-a2-03", "drawer_code": "DRAWER A2", "slot_code": "Slot A2-03", "name_en": "Blood Pressure Cuff", "status_en": "Charged 100%", "sort_order": 3},
+    {"id": "kit-b1-01", "drawer_code": "DRAWER B1", "slot_code": "Pouch B1-01", "name_en": "Gauze Pads & Pressure Dressings", "status_en": "30 pads", "sort_order": 1},
+    {"id": "kit-b1-02", "drawer_code": "DRAWER B1", "slot_code": "Pouch B1-02", "name_en": "Adhesive Closure Strips", "status_en": "40 strips", "sort_order": 2},
+    {"id": "kit-b1-03", "drawer_code": "DRAWER B1", "slot_code": "Slot B1-03", "name_en": "Splint & Cold Packs", "status_en": "2 packs", "sort_order": 3},
+    {"id": "kit-b1-04", "drawer_code": "DRAWER B1", "slot_code": "Pouch B1-04", "name_en": "Nitrile Gloves", "status_en": "20 pairs", "sort_order": 4},
+    {"id": "kit-b2-01", "drawer_code": "DRAWER B2", "slot_code": "Slot B2-01", "name_en": "Digital Acoustic Stethoscope", "status_en": "Charged 100%", "sort_order": 1},
+    {"id": "kit-b2-02", "drawer_code": "DRAWER B2", "slot_code": "Slot B2-02", "name_en": "Handheld Capnograph", "status_en": "Charged 100%", "sort_order": 2},
+    {"id": "kit-b2-03", "drawer_code": "DRAWER B2", "slot_code": "Pouch B2-11", "name_en": "Glucose & Urine Strips", "status_en": "24 strips", "sort_order": 3},
+    {"id": "kit-b2-04", "drawer_code": "DRAWER B2", "slot_code": "Pouch B2-12", "name_en": "Approved Relief Medicines", "status_en": "Checked weekly", "sort_order": 4}
+  ]
+}

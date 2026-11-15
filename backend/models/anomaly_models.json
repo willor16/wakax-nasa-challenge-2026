@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "features": [
+    "resting_hr_bpm",
+    "hrv_rmssd_ms",
+    "spo2_pct",
+    "bp_systolic_mmhg",
+    "body_temp_c",
+    "optic_sheath_left_mm",
+    "optic_sheath_right_mm",
+    "iop_left_mmhg",
+    "iop_right_mmhg",
+    "blood_glucose_mg_dl",
+    "hydration_ml",
+    "exercise_min"
+  ],
+  "classes": [
+    "healthy",
+    "ocular",
+    "dehydration",
+    "fatigue",
+    "low_oxygen",
+    "decoupled"
+  ],
+  "classifier_file": "pattern_classifier.onnx",
+  "autoencoder_file": "novelty_autoencoder.onnx",
+  "healthy_cut": 0.18807195127010345,
+  "novelty_threshold": 1.6290092468261719,
+  "evaluation": {
+    "healthy_flag_rate": 0.0267,
+    "detection_rate": {
+      "ocular": 0.86,
+      "dehydration": 0.9633,
+      "fatigue": 0.8933,
+      "low_oxygen": 0.9533,
+      "decoupled": 0.99
+    },
+    "named_correctly": {
+      "ocular": 0.9167,
+      "dehydration": 0.9633,
+      "fatigue": 0.9333,
+      "low_oxygen": 0.9333,
+      "decoupled": 0.9767
+    },
+    "unseen_pattern_detection": 0.6233
+  },
+  "trained_at_utc": "2026-11-15T02:36:54Z",
+  "seed": 7
+}

@@ -16,12 +16,20 @@ dependencies = [
   "pyjwt>=2.9.0",
   "python-multipart>=0.0.12",
   "uvicorn[standard]>=0.32.0",
+  "numpy>=1.26",
+  "onnxruntime>=1.19",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0",
   "ruff>=0.7.0",
+]
+# Only to retrain the onboard anomaly model (backend/ml); not needed to run the app.
+train = [
+  "scikit-learn>=1.5",
+  "skl2onnx>=1.17",
+  "onnx>=1.16",
 ]
 
 [tool.ruff]
