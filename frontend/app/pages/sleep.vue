@@ -24,11 +24,12 @@ const { crew } = useSession()
 const { api } = useApi()
 const period = ref<Period>('last_night')
 const { data, loading, error, refresh } = useResource(
-  () => api<SleepMonitor>(`/sleep/${crew.value!.id}`, { query: { period: period.value } }), 60_000)
+  () => api<SleepMonitor>(`/sleep/${crew.value!.id}`, { query: { period: period.value } }), 60_000, ['sleep', 'psych'])
 watch(period, () => void refresh())
 
 const summary = computed(() => data.value?.summary ?? null)
 const lastNight = computed(() => period.value === 'last_night')
+const STAGE_HELP: Record<string, string> = { DEEP: 'sleep_deep', REM: 'sleep_rem', LIGHT: 'sleep_light', AWAKE: 'sleep_awake' }
 const tabs = computed(() => [
   { id: 'last_night', label: summary.value && lastNight.value ? `Last Night (${summary.value.day_label})` : 'Last Night' },
   { id: '7d', label: 'Last 7 Days' },
@@ -88,34 +89,35 @@ function intervalText(lapse: Lapse): string {
     <UiStateNote v-else-if="!summary" empty="No sleep logged yet. Confirm last night's sleep window in Capture · Psych, Motor & Sleep." />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-class="w-[470px]" title="Sleep Quality & Stage Time" icon="moon"
+class="w-[31.1%] shrink-0" title="Sleep Quality & Stage Time" icon="moon"
                       :tag-text="lastNight ? `DAY ${summary.day_label.replace('D', '0').padStart(3, '0')}` : `${data.nights} NIGHTS`" flush>
-        <div class="flex-1 flex flex-col px-[19px] pt-[18px] pb-[14px]">
-          <div class="flex gap-[12px] h-[172px] shrink-0">
-            <div class="tile w-[193px] flex items-center justify-center">
+        <div class="flex-1 min-h-0 flex flex-col px-[19px] pt-[clamp(10px,1.9dvh,18px)] pb-[14px]">
+          <div class="flex gap-[12px] h-[clamp(132px,18.3dvh,200px)] shrink-0">
+            <div class="tile relative w-[44%] shrink-0 flex items-center justify-center">
+              <span class="absolute top-[7px] right-[7px]"><UiParamHelp metric-key="sleep_score" /></span>
               <UiArcGauge
 :fraction="summary.score / 100" :tone="summary.score >= 65 ? 'ok' : 'critical'"
                           label="Sleep Score" :value="String(summary.score)"
                           :caption="`of 100 · ${summary.score_label.charAt(0)}${summary.score_label.slice(1).toLowerCase()}`"
-                          :size="140" :value-size="26" />
+                          size="clamp(110px, 14.9dvh, 160px)" :value-size="26" />
             </div>
-            <div class="tile-hi relative flex-1 px-[16px] pt-[20px]">
+            <div class="tile-hi relative flex-1 min-w-0 px-[16px] pt-[clamp(10px,2.1dvh,20px)]">
               <span class="absolute top-0 left-0 right-0 h-[3px]" :class="summary.target_met ? 'bg-cabin-ok' : 'bg-cabin-crit'" />
-              <p class="label-caps">{{ lastNight ? 'Total sleep time' : 'Average sleep time' }}</p>
-              <p class="text-[30px] font-bold mt-[12px] leading-none">{{ formatDuration(summary.total_min) }}</p>
-              <p class="text-[11px] font-bold mt-[12px]" :class="summary.target_met ? 'text-cabin-ok' : 'text-cabin-text'">
+              <p class="label-caps flex items-center gap-[6px]">{{ lastNight ? 'Total sleep time' : 'Average sleep time' }}<UiParamHelp metric-key="sleep_duration" /></p>
+              <p class="text-[30px] font-bold mt-[clamp(6px,1.3dvh,12px)] leading-none">{{ formatDuration(summary.total_min) }}</p>
+              <p class="text-[11px] font-bold mt-[clamp(6px,1.3dvh,12px)]" :class="summary.target_met ? 'text-cabin-ok' : 'text-cabin-text'">
                 Target ≥ {{ formatDuration(data.target_min) }} {{ summary.target_met ? 'Met' : 'Missed' }}
               </p>
-              <p class="text-[10.5px] text-cabin-ice mt-[10px]">In Bed: {{ formatDuration(summary.in_bed_min) }}</p>
-              <p class="text-[10.5px] text-cabin-ice mt-[6px]">Sleep Efficiency: {{ summary.efficiency_pct ?? '—' }}%</p>
+              <p class="text-[10.5px] text-cabin-ice mt-[clamp(4px,1dvh,10px)]">In Bed: {{ formatDuration(summary.in_bed_min) }}</p>
+              <p class="text-[10.5px] text-cabin-ice mt-[6px] flex items-center gap-[6px]">Sleep Efficiency: {{ summary.efficiency_pct ?? '—' }}%<UiParamHelp metric-key="sleep_efficiency" /></p>
             </div>
           </div>
-          <p class="label-caps mt-[22px]">Time in each sleep stage</p>
-          <div v-if="data.stages.length" class="flex-1 flex flex-col justify-between mt-[10px]">
-            <div v-for="card in data.stages" :key="card.stage" class="tile relative h-[92px] pl-[22px] pr-[16px] flex flex-col justify-center">
+          <p class="label-caps mt-[clamp(10px,2.3dvh,22px)]">Time in each sleep stage</p>
+          <div v-if="data.stages.length" class="flex-1 min-h-0 flex flex-col justify-between gap-[8px] mt-[10px]">
+            <div v-for="card in data.stages" :key="card.stage" class="tile relative flex-1 min-h-0 max-h-[112px] pl-[22px] pr-[16px] flex flex-col justify-center">
               <span class="absolute left-0 top-[10px] bottom-[10px] w-[3px] rounded-full" :class="stageColor[card.stage]" />
               <div class="flex items-center justify-between">
-                <span class="text-[13px] font-bold">{{ card.label }}</span>
+                <span class="text-[13px] font-bold flex items-center gap-[6px]">{{ card.label }}<UiParamHelp v-if="STAGE_HELP[card.stage]" :metric-key="STAGE_HELP[card.stage]!" /></span>
                 <div class="flex items-center gap-[8px]">
                   <span class="mono text-[17px] font-bold">{{ formatDuration(card.minutes) }}</span>
                   <UiStatusPill size="sm" :tone="card.status === 'WARNING' ? 'critical' : card.status === 'WATCH' ? 'watch' : 'reference'">
@@ -123,8 +125,8 @@ class="w-[470px]" title="Sleep Quality & Stage Time" icon="moon"
                   </UiStatusPill>
                 </div>
               </div>
-              <p class="text-[10.5px] text-cabin-ice mt-[6px]">{{ stageNote(card) }}</p>
-              <div class="mt-[10px] h-[5px] rounded-full bg-cabin-track overflow-hidden">
+              <p class="text-[10.5px] text-cabin-ice mt-[clamp(2px,0.6dvh,6px)] truncate">{{ stageNote(card) }}</p>
+              <div class="mt-[clamp(5px,1dvh,10px)] h-[5px] rounded-full bg-cabin-track overflow-hidden">
                 <div
 class="h-full rounded-full" :class="stageColor[card.stage]"
                      :style="{ width: `${Math.min(100, card.stage === 'AWAKE' ? (card.minutes / (card.limit_min ?? 35)) * 100 * 0.6 : card.pct * 1.4)}%` }" />
@@ -137,10 +139,10 @@ class="h-full rounded-full" :class="stageColor[card.stage]"
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-class="h-[425px] shrink-0" icon="reticle" flush
+class="flex-[1.3] min-h-0" icon="reticle" flush
                         :title="lastNight ? `Sleep Stage Ribbon Chart · ${summary.window_start} – ${summary.window_end} UTC` : 'Nightly Sleep Stages'"
                         :tag-text="lastNight && data.night ? `${data.night.cycles} CYCLES` : `${data.nights} NIGHTS`">
-          <div class="flex-1 m-[18px] tile relative">
+          <div class="flex-1 min-h-0 m-[clamp(12px,1.9dvh,18px)] tile relative">
             <div class="absolute top-[12px] left-[22px] right-[18px] z-10 flex items-center gap-[30px] text-[10.5px] font-semibold pointer-events-none">
               <span v-for="item in legend" :key="item.stage" class="flex items-center gap-[8px]">
                 <i class="w-[14px] h-[8px] rounded-[2px]" :class="stageColor[item.stage]" />{{ item.text }}
@@ -159,17 +161,17 @@ v-if="ribbon || history" :option="(ribbon ?? history)!" theme="spacescan-hud" au
         </ShellHudWindow>
 
         <ShellHudWindow
-class="flex-1" title="Stage Lapses & Cycle Intervals" icon="moon"
+class="flex-1 min-h-0" title="Stage Lapses & Cycle Intervals" icon="moon"
                         :tag-text="data.night && lastNight ? `${data.night.bout_count} BOUTS LOGGED` : undefined" flush>
-          <div v-if="data.night && lastNight" class="flex-1 flex flex-col px-[18px] pb-[14px]">
+          <div v-if="data.night && lastNight" class="flex-1 min-h-0 flex flex-col px-[18px] pb-[14px]">
             <div class="grid grid-cols-[150px_1fr_86px_150px_70px] px-[16px] h-[30px] items-center label-caps !text-cabin-muted">
               <span>Sleep stage</span><span>Recorded UTC lapses (bout intervals)</span><span>Bouts</span>
               <span>Avg / max lapse</span><span class="text-right">Total</span>
             </div>
-            <div class="flex-1 flex flex-col justify-between">
+            <div class="flex-1 min-h-0 flex flex-col justify-between gap-[6px]">
               <div
 v-for="lapse in data.night.lapses" :key="lapse.stage"
-                   class="tile relative h-[43px] grid grid-cols-[150px_1fr_86px_150px_70px] items-center pl-[18px] pr-[16px]">
+                   class="tile relative flex-1 min-h-0 max-h-[52px] grid grid-cols-[150px_1fr_86px_150px_70px] items-center pl-[18px] pr-[16px]">
                 <span class="absolute left-0 top-[7px] bottom-[7px] w-[3px] rounded-full" :class="stageColor[lapse.stage]" />
                 <span class="text-[12.5px] font-bold">{{ lapse.label }}</span>
                 <span class="mono text-[10.5px] truncate pr-3">{{ intervalText(lapse) }}</span>
@@ -182,11 +184,11 @@ v-for="lapse in data.night.lapses" :key="lapse.stage"
           <div v-else class="flex-1 flex flex-col px-[18px] pb-[14px] pt-[8px] gap-[10px]">
             <div
 v-for="item in [
-              { label: 'Nights logged', value: `${data.nights} of ${period === '7d' ? 7 : period === '14d' ? 14 : 30}` },
-              { label: 'Nights meeting the 7 h target', value: String(data.trend.filter(n => n.deep_min + n.rem_min + n.light_min >= data!.target_min).length) },
-              { label: 'Average deep sleep', value: formatDuration(data.trend.reduce((s, n) => s + n.deep_min, 0) / Math.max(1, data.trend.length)) },
-            ]" :key="item.label" class="tile h-[52px] px-[18px] flex items-center justify-between">
-              <span class="text-[12.5px] font-bold">{{ item.label }}</span>
+              { label: 'Nights logged', help: 'sleep_duration', value: `${data.nights} of ${period === '7d' ? 7 : period === '14d' ? 14 : 30}` },
+              { label: 'Nights meeting the 7 h target', help: 'sleep_target_nights', value: String(data.trend.filter(n => n.deep_min + n.rem_min + n.light_min >= data!.target_min).length) },
+              { label: 'Average deep sleep', help: 'sleep_deep', value: formatDuration(data.trend.reduce((s, n) => s + n.deep_min, 0) / Math.max(1, data.trend.length)) },
+            ]" :key="item.label" class="tile h-[clamp(40px,5.5dvh,60px)] px-[18px] flex items-center justify-between">
+              <span class="text-[12.5px] font-bold flex items-center gap-[6px]">{{ item.label }}<UiParamHelp :metric-key="item.help" /></span>
               <span class="mono text-[15px] font-bold">{{ item.value }}</span>
             </div>
           </div>

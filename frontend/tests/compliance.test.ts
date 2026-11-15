@@ -19,6 +19,11 @@ const vueFiles = files(APP, '.vue')
 const codeFiles = [...vueFiles, ...files(APP, '.ts'), join(ROOT, 'i18n/locales/en.ts'), join(ROOT, 'nuxt.config.ts')]
 const restricted = [atob('bmFzYQ=='), atob('Y2hpbmE='), atob('Y2hpbmVzZQ==')]
 
+/** Project-relative path with forward slashes, so results read the same on Windows and Linux. */
+function rel(from: string, file: string): string {
+  return relative(from, file).replaceAll('\\', '/')
+}
+
 /** Text a crew member can see: template content and quoted strings, comments removed. */
 function visibleText(source: string): string {
   return source
@@ -36,34 +41,38 @@ describe('palette', () => {
   it('uses no raw color codes outside the token file', () => {
     for (const file of codeFiles) {
       const source = readFileSync(file, 'utf-8')
-      expect(source, relative(ROOT, file)).not.toMatch(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?![\w-])|rgba?\(/)
+      expect(source, rel(ROOT, file)).not.toMatch(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?![\w-])|rgba?\(/)
     }
   })
 
   it('uses no default framework colors', () => {
     const defaults = /\b(?:bg|text|border)-(?:gray|slate|zinc|red|blue|green|yellow|white|black)-?\d*\b/
-    for (const file of vueFiles) expect(readFileSync(file, 'utf-8'), relative(ROOT, file)).not.toMatch(defaults)
+    for (const file of vueFiles) expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(defaults)
   })
 })
 
 describe('language and restricted words', () => {
-  const jargon = /\b(sqlite|json|fhir|hl7|kiwix|zim|fts5|wal|offline|break-glass|dtn|osdr|donki|onnx|ollama|nuxt|python)\b/i
+  const jargon = /\b(sqlite|json|fhir|hl7|kiwix|zim|fts5|wal|offline|break-glass|dtn|osdr|donki|onnx|ollama|nuxt|python|cnn|llm|neural|autoencoder)\b/i
 
   it('shows no internal technology names on screen', () => {
     for (const file of [...vueFiles, join(ROOT, 'i18n/locales/en.ts')]) {
       const template = readFileSync(file, 'utf-8').split('<template>').slice(1).join('<template>')
-      expect(visibleText(template), relative(ROOT, file)).not.toMatch(jargon)
+      expect(visibleText(template), rel(ROOT, file)).not.toMatch(jargon)
     }
   })
 
   it('never names restricted entities anywhere in the app', () => {
     const pattern = new RegExp(`\\b(${restricted.join('|')})\\b`, 'i')
-    for (const file of codeFiles) expect(readFileSync(file, 'utf-8'), relative(ROOT, file)).not.toMatch(pattern)
+    for (const file of codeFiles) expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(pattern)
+  })
+
+  it('carries no retired mission identity', () => {
+    for (const file of codeFiles) expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(/ares[\s_-]*vii/i)
   })
 
   it('contains no Spanish words in code or text', () => {
     const spanish = /\b(?:usuario|guardar|fecha|paciente|sueño|tripulante|medición|configuración|pantalla|botón|también|está)\b|[ñáéíóú¿¡]/i
-    for (const file of codeFiles) expect(readFileSync(file, 'utf-8'), relative(ROOT, file)).not.toMatch(spanish)
+    for (const file of codeFiles) expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(spanish)
   })
 
   it('keeps the interface catalog in a TypeScript file only', () => {
@@ -76,7 +85,7 @@ describe('works fully on board', () => {
   it('loads nothing from outside the habitat', () => {
     const external = /https?:\/\/(?!localhost|127\.0\.0\.1)[\w.-]+/
     for (const file of [...codeFiles, join(APP, 'assets/css/tokens.css')]) {
-      expect(readFileSync(file, 'utf-8'), relative(ROOT, file)).not.toMatch(external)
+      expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(external)
     }
   })
 
@@ -99,15 +108,15 @@ describe('delivered build', () => {
     const pattern = new RegExp(`\\b(${restricted.join('|')})\\b`, 'i')
     for (const file of files(output, '.html', '.js', '.css')) {
       const content = readFileSync(file, 'utf-8')
-      expect(content, relative(ROOT, file)).not.toMatch(pattern)
-      expect(content, relative(ROOT, file)).not.toContain(ROOT)
+      expect(content, rel(ROOT, file)).not.toMatch(pattern)
+      for (const form of new Set([ROOT, ROOT.replaceAll('\\', '/')])) expect(content, rel(ROOT, file)).not.toContain(form)
     }
   })
 })
 
 describe('screen map', () => {
   it('has the 16 design screens plus the operator administration', () => {
-    const pages = files(join(APP, 'pages'), '.vue').map(f => relative(join(APP, 'pages'), f)).sort()
+    const pages = files(join(APP, 'pages'), '.vue').map(f => rel(join(APP, 'pages'), f)).sort()
     expect(pages).toEqual([
       'auscultation.vue', 'capture/auscultation.vue', 'capture/physical.vue', 'capture/psych-sleep.vue',
       'capture/vision.vue', 'comms.vue', 'crew-management.vue', 'crew-overview.vue', 'crew-streaks.vue', 'guide.vue',
@@ -135,6 +144,6 @@ describe('screen map', () => {
   it('redirects the root page declaratively', () => {
     const index = readFileSync(join(APP, 'pages/index.vue'), 'utf-8')
     expect(index).toContain('redirect: \'/login\'')
-    for (const file of vueFiles) expect(readFileSync(file, 'utf-8'), relative(ROOT, file)).not.toMatch(/^await navigateTo/m)
+    for (const file of vueFiles) expect(readFileSync(file, 'utf-8'), rel(ROOT, file)).not.toMatch(/^await navigateTo/m)
   })
 })

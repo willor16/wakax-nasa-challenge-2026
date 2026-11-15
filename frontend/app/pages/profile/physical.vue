@@ -69,13 +69,14 @@ const accent = (lab: MetricView) => ({
     <UiStateNote v-if="!profile" :loading="loading" :error="error" @retry="refresh()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-class="w-[621px]" title="Daily Vitals, Exercise & Nutrition" icon="heart"
+class="w-[41%] shrink-0" title="Daily Vitals, Exercise & Nutrition" icon="heart"
                       tag-text="CONTINUOUS" flush>
-        <div class="flex-1 flex flex-col justify-around px-[23px] py-[10px]">
+        <div class="flex-1 min-h-0 flex flex-col justify-around gap-[6px] px-[23px] py-[10px]">
           <UiBandRow
             v-for="row in profile.daily"
             :key="row.metric_key"
             :label="label(row)"
+            :help-key="row.metric_key"
             :reference="reference(row)"
             :value-text="valueText(row)"
             :unit="unitText(row)"
@@ -92,10 +93,10 @@ class="w-[621px]" title="Daily Vitals, Exercise & Nutrition" icon="heart"
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-class="h-[292px]" title="Live ECG & Body Temperature" icon="bolt"
+class="h-[clamp(200px,31dvh,380px)] shrink-0" title="Live ECG & Body Temperature" icon="bolt" help-key="ecg_lead_ii_mv"
                         :tag-text="ecg ? ecg.rhythm_text.toUpperCase() : 'NO SIGNAL'"
                         :tag-tone="ecg && ecg.rhythm_text !== 'Normal Sinus' ? 'critical' : 'reference'" flush>
-          <div class="flex-1 m-[20px] tile relative">
+          <div class="flex-1 min-h-0 m-[clamp(12px,2.1dvh,20px)] tile relative">
             <template v-if="ecg && ecgChart">
               <span class="absolute top-[12px] left-[14px] mono text-[9.5px] text-cabin-ok z-10">
                 LEAD {{ ecg.lead }} · {{ ecg.paper_speed_mm_s }} mm/s
@@ -114,19 +115,19 @@ class="h-[292px]" title="Live ECG & Body Temperature" icon="bolt"
         </ShellHudWindow>
 
         <ShellHudWindow class="flex-1" title="Periodic Clinical Lab Results" icon="kit" tag-text="LATEST RESULTS" flush>
-          <div class="flex-1 grid grid-cols-2 gap-x-[16px] gap-y-[18px] p-[20px]">
+          <div class="flex-1 min-h-0 grid grid-cols-2 gap-x-[16px] gap-y-[clamp(10px,1.9dvh,18px)] p-[clamp(12px,2.1dvh,20px)]">
             <div v-for="lab in profile.labs" :key="lab.metric_key" class="tile relative pl-[22px] pr-[16px] flex flex-col justify-center">
               <span class="absolute left-0 top-[14px] bottom-[14px] w-[3px] rounded-full" :class="accent(lab)" />
               <div class="flex items-center justify-between">
                 <span
-class="text-[9.5px] font-bold tracking-[0.04em] uppercase"
-                      :class="lab.status === 'NOMINAL' ? 'text-cabin-ok' : 'text-cabin-ice'">{{ lab.title }}</span>
+class="text-[9.5px] font-bold tracking-[0.04em] uppercase flex items-center gap-[6px]"
+                      :class="lab.status === 'NOMINAL' ? 'text-cabin-ok' : 'text-cabin-ice'">{{ lab.title }}<UiParamHelp v-if="lab.metric_key !== 'auscultation_vision'" :metric-key="lab.metric_key" /></span>
                 <UiStatusPill size="sm" :tone="toneOf(lab.status) === 'critical' ? 'critical' : toneOf(lab.status) === 'watch' ? 'watch' : 'reference'">
                   {{ lab.status_text }}
                 </UiStatusPill>
               </div>
-              <p class="text-[24px] font-bold mt-[18px] leading-none">{{ labValue(lab) }}</p>
-              <p class="text-[11.5px] text-cabin-ice mt-[16px] truncate">{{ lab.value == null && lab.value_text == null ? 'No result yet' : lab.note }}</p>
+              <p class="text-[24px] font-bold mt-[clamp(8px,1.9dvh,18px)] leading-none">{{ labValue(lab) }}</p>
+              <p class="text-[11.5px] text-cabin-ice mt-[clamp(6px,1.7dvh,16px)] truncate">{{ lab.value == null && lab.value_text == null ? 'No result yet' : lab.note }}</p>
             </div>
           </div>
         </ShellHudWindow>

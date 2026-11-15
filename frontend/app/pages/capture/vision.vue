@@ -94,17 +94,17 @@ const steps = [
     <ShellCaptureTabs />
     <UiStateNote v-if="loadError" :error="loadError" @retry="() => reloadNuxtApp()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
-      <ShellHudWindow class="w-[826px]" title="Ocular Ultrasound & Tonometry Entry" icon="sans" tag-text="FEEDS VISION" flush>
-        <form class="flex-1 flex flex-col px-[23px] pt-[28px] pb-[20px]" novalidate @submit.prevent="save">
-          <div class="grid grid-cols-2 gap-x-[19px] gap-y-[38px]">
-            <UiNumberField id="left-sheath" v-model="form.leftSheath" label="Left Optic Nerve Sheath" :hint="baselineHint('optic_sheath_left_mm').replace('Baseline', 'Personal baseline')" unit="mm" placeholder="e.g. 5.5" :error="errors.leftSheath" />
-            <UiNumberField id="right-sheath" v-model="form.rightSheath" label="Right Optic Nerve Sheath" :hint="alertMm ? `Alert threshold ≥ ${alertMm} mm` : ''" unit="mm" placeholder="e.g. 5.9" :error="errors.rightSheath" />
-            <UiNumberField id="left-iop" v-model="form.leftIop" label="Left Intraocular Pressure" :hint="baselineHint('iop_left_mmhg', 1, true)" unit="mmHg" placeholder="e.g. 15.8" :error="errors.leftIop" />
-            <UiNumberField id="right-iop" v-model="form.rightIop" label="Right Intraocular Pressure" :hint="baselineHint('iop_right_mmhg', 1, true)" unit="mmHg" placeholder="e.g. 16.2" :error="errors.rightIop" />
-            <UiNumberField id="retina" v-model="form.retina" label="Retinal Layer Thickness" :hint="baselineHint('retinal_thickness_um', 0, true)" unit="µm" placeholder="e.g. 104" inputmode="numeric" :error="errors.retina" />
-            <UiNumberField id="acuity" v-model="form.acuity" label="Visual Acuity (Both Eyes)" hint="4-meter cabin chart" unit="Snellen" placeholder="20 / 20" inputmode="text" :error="errors.acuity" />
+      <ShellHudWindow class="w-[54.6%] shrink-0" title="Ocular Ultrasound & Tonometry Entry" icon="sans" tag-text="FEEDS VISION" flush>
+        <form class="flex-1 min-h-0 flex flex-col px-[23px] pt-[clamp(14px,3dvh,28px)] pb-[clamp(12px,2.1dvh,20px)]" novalidate @submit.prevent="save">
+          <div class="grid grid-cols-2 gap-x-[19px] gap-y-[clamp(14px,4dvh,38px)]">
+            <UiNumberField id="left-sheath" v-model="form.leftSheath" help-key="optic_sheath_left_mm" label="Left Optic Nerve Sheath" :hint="baselineHint('optic_sheath_left_mm').replace('Baseline', 'Personal baseline')" unit="mm" placeholder="e.g. 5.5" :error="errors.leftSheath" />
+            <UiNumberField id="right-sheath" v-model="form.rightSheath" help-key="optic_sheath_right_mm" label="Right Optic Nerve Sheath" :hint="alertMm ? `Alert threshold ≥ ${alertMm} mm` : ''" unit="mm" placeholder="e.g. 5.9" :error="errors.rightSheath" />
+            <UiNumberField id="left-iop" v-model="form.leftIop" help-key="iop_left_mmhg" label="Left Intraocular Pressure" :hint="baselineHint('iop_left_mmhg', 1, true)" unit="mmHg" placeholder="e.g. 15.8" :error="errors.leftIop" />
+            <UiNumberField id="right-iop" v-model="form.rightIop" help-key="iop_right_mmhg" label="Right Intraocular Pressure" :hint="baselineHint('iop_right_mmhg', 1, true)" unit="mmHg" placeholder="e.g. 16.2" :error="errors.rightIop" />
+            <UiNumberField id="retina" v-model="form.retina" help-key="retinal_thickness_um" label="Retinal Layer Thickness" :hint="baselineHint('retinal_thickness_um', 0, true)" unit="µm" placeholder="e.g. 104" inputmode="numeric" :error="errors.retina" />
+            <UiNumberField id="acuity" v-model="form.acuity" help-key="visual_acuity_snellen" label="Visual Acuity (Both Eyes)" hint="4-meter cabin chart" unit="Snellen" placeholder="20 / 20" inputmode="text" :error="errors.acuity" />
           </div>
-          <div class="mt-auto flex flex-col gap-[16px]">
+          <div class="mt-auto pt-[10px] flex flex-col gap-[clamp(10px,1.7dvh,16px)]">
             <UiSaveResult v-if="result" :tone="result.tone" :title="result.title" :text="result.text" />
             <UiSaveResult v-else-if="errors.form" tone="critical" title="Not saved" :text="errors.form" />
             <UiSaveResult v-else-if="detection" :tone="detection.tone" :title="detection.title" :text="detection.text" />
@@ -117,9 +117,10 @@ const steps = [
         </form>
       </ShellHudWindow>
 
-      <ShellHudWindow class="flex-1" title="Probe Alignment & Measurement Guide" icon="reticle" tag-text="3.0 MM AXIAL" flush>
-        <div class="flex-1 flex flex-col px-[19px] pt-[18px] pb-[20px] gap-[18px]">
-          <div class="tile-hi relative h-[202px] shrink-0">
+      <ShellHudWindow class="flex-1 min-w-0" title="Probe Alignment & Measurement Guide" icon="reticle" tag-text="3.0 MM AXIAL" flush>
+        <div class="flex-1 min-h-0 flex flex-col px-[19px] pt-[clamp(10px,1.9dvh,18px)] pb-[clamp(12px,2.1dvh,20px)] gap-[clamp(10px,1.9dvh,18px)]">
+          <div class="tile-hi relative h-[clamp(190px,21.5dvh,230px)] shrink-0">
+            <UiAiWatermark position="top-right" />
             <p class="absolute top-[18px] left-[16px] text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok">Axial caliper target · 3.0 mm behind globe</p>
             <div class="absolute left-1/2 top-[30px] -translate-x-1/2 w-[160px] h-[160px]">
               <span class="absolute inset-0 rounded-full border-[1.3px] border-dashed border-cabin-ok/60" />
@@ -130,10 +131,10 @@ const steps = [
             </div>
             <p class="absolute bottom-[14px] left-0 right-0 text-center text-[11.5px]">Align linear probe perpendicular to closed eyelid with neutral gaze</p>
           </div>
-          <div v-for="(step, index) in steps" :key="step.title" class="tile relative flex-1 pl-[22px] pr-[18px] flex flex-col justify-center">
+          <div v-for="(step, index) in steps" :key="step.title" class="tile relative flex-1 min-h-0 pl-[22px] pr-[18px] flex flex-col justify-center">
             <span class="absolute left-0 top-[12px] bottom-[12px] w-[3px] rounded-full" :class="index < 2 ? 'bg-cabin-ok' : 'bg-cabin-navy-edge'" />
             <p class="text-[10.5px] font-bold tracking-[0.03em] uppercase" :class="index < 2 ? 'text-cabin-ok' : ''">0{{ index + 1 }} · {{ step.title }}</p>
-            <p class="text-[12.5px] mt-[14px]">{{ step.text }}</p>
+            <p class="text-[12.5px] mt-[clamp(6px,1.5dvh,14px)]">{{ step.text }}</p>
           </div>
         </div>
       </ShellHudWindow>

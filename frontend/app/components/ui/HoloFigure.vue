@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// Holographic artwork from the design file with a status ring and the scan sweep.
+// Holographic artwork from the design file with a status ring. The artwork was generated
+// with AI tools, so it carries the general "AI Used" mark.
 import bodyUrl from '~/assets/hologram/body_small.svg'
 import bodyScanUrl from '~/assets/hologram/body_scan.svg'
 import brainUrl from '~/assets/hologram/brain.svg'
@@ -10,11 +11,14 @@ import type { Tone } from '~/utils/format'
 const props = withDefaults(defineProps<{
   figure: 'body' | 'body-scan' | 'heart' | 'lungs' | 'brain'
   tone?: Tone
-  size?: number
+  /** Pixels, or any CSS length such as ``clamp(72px, 14dvh, 168px)`` for windows that resize. */
+  size?: number | string
   label: string
-}>(), { tone: 'ok', size: 104 })
+  watermark?: boolean
+}>(), { tone: 'ok', size: 104, watermark: true })
 
 const sources = { 'body': bodyUrl, 'body-scan': bodyScanUrl, 'heart': heartUrl, 'lungs': lungsUrl, 'brain': brainUrl }
+const box = computed(() => (typeof props.size === 'number' ? `${props.size}px` : props.size))
 const ring = computed(() => props.figure === 'body' || props.figure === 'brain')
 </script>
 
@@ -22,7 +26,7 @@ const ring = computed(() => props.figure === 'body' || props.figure === 'brain')
   <div
     class="relative shrink-0 rounded-full"
     :class="figure === 'body-scan' ? 'hologram-shell hologram-scanline' : ''"
-    :style="{ width: `${size}px`, height: `${size}px` }"
+    :style="{ width: box, height: box }"
     role="img"
     :aria-label="label"
   >
@@ -38,5 +42,6 @@ const ring = computed(() => props.figure === 'body' || props.figure === 'brain')
       }"
       :style="{ inset: figure === 'body' ? '11%' : '1%' }"
     />
+    <UiAiWatermark v-if="watermark" :position="figure === 'body-scan' ? 'bottom-center' : 'below'" />
   </div>
 </template>

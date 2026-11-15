@@ -4,7 +4,7 @@ import logoUrl from '~/assets/hologram/logo.svg'
 defineProps<{ authenticated: boolean }>()
 
 const header = usePageHeader()
-const { clockText, unread } = useMission()
+const { clockText, unread, mission } = useMission()
 const route = useRoute()
 const { t } = useI18n()
 const onNotifications = computed(() => route.path === '/notifications')
@@ -12,12 +12,12 @@ const onNotifications = computed(() => route.path === '/notifications')
 
 <template>
   <header
-    class="absolute top-0 left-0 right-0 h-[56px] flex items-center px-[18px] border-b border-cabin-edge/40 bg-[var(--color-header-bg)]"
+    class="relative shrink-0 w-full h-[56px] flex items-center px-[18px] border-b border-cabin-edge/40 bg-[var(--color-header-bg)]"
   >
     <img :src="logoUrl" alt="" class="w-[34px] h-[36px] shrink-0">
     <div class="ml-[8px] leading-tight w-[104px] shrink-0">
       <p class="text-[15.5px] font-bold tracking-[0.01em]">{{ t('brand.name') }}</p>
-      <p class="text-[9.5px] font-semibold text-cabin-ice tracking-[0.04em]">{{ t('brand.mission') }}</p>
+      <p class="text-[9.5px] font-semibold text-cabin-ice tracking-[0.04em]">{{ mission?.mission_code ?? '' }}</p>
     </div>
 
     <template v-if="header.title">

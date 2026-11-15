@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -28,6 +28,7 @@ from app.routers import (
     system,
     vision,
 )
+from app.services import change_feed
 from app.services.comms_service import run_outbox_scheduler_tick
 from app.services.scheduled_checks import run_scheduled_checks_tick
 from app.services.sensor_simulator import run_sensor_tick_job
@@ -72,6 +73,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
+@app.middleware("http")
+async def announce_data_changes(request: Request, call_next):
+    """After a successful write, tell every open display which kinds of data changed."""
+    response = await call_next(request)
+    if request.method in {"POST", "PATCH", "PUT", "DELETE"} and 200 <= response.status_code < 300:
+        change_feed.publish(*change_feed.domains_for_path(request.url.path))
+    return response
+
 
 app.include_router(system.router)
 app.include_router(auth.router)

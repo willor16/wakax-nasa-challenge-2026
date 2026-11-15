@@ -14,6 +14,7 @@ from app.schemas.measurements import (
     MeasurementSource,
     MetricCatalogItem,
     MissionStage,
+    ParameterHelpItem,
     StreakUpdateSummary,
     normalize_utc_timestamp,
 )
@@ -51,6 +52,12 @@ def get_metric_catalog(
     category: Annotated[str | None, Query()] = None,
 ) -> list[MetricCatalogItem]:
     return _fetch_catalog(conn, category)
+
+
+@router.get("/metrics/help", response_model=list[ParameterHelpItem])
+def get_parameter_help() -> list[ParameterHelpItem]:
+    """What each parameter measures, how to read it and its mission impact (public text)."""
+    return [ParameterHelpItem(**entry) for entry in reference_ranges.help_entries()]
 
 
 @router.get("/metrics", response_model=list[MetricCatalogItem])

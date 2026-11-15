@@ -176,19 +176,19 @@ const glucoseHint = computed(() => `Biweekly check · ${usualRange('blood_glucos
     <ShellCaptureTabs />
     <UiStateNote v-if="loadError" :error="loadError" @retry="() => reloadNuxtApp()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
-      <ShellHudWindow class="w-[858px]" title="Daily Vitals, Biometrics & Habits Entry" icon="heart" tag-text="FEEDS PROFILE" flush>
-        <form class="flex-1 flex flex-col px-[23px] pt-[24px] pb-[20px]" novalidate @submit.prevent="saveVitals">
-          <div class="grid grid-cols-2 gap-x-[19px] gap-y-[26px]">
-            <UiNumberField id="weight" v-model="vitals.weight" label="Body Weight" :hint="baselineHint('body_weight_kg')" unit="kg" placeholder="e.g. 63.8" :error="vitalErrors.weight" />
-            <UiNumberField id="bp" v-model="vitals.bp" label="Blood Pressure" hint="Systolic / Diastolic" unit="mmHg" placeholder="118 / 76" inputmode="text" :error="vitalErrors.bp" />
-            <UiNumberField id="hr" v-model="vitals.hr" label="Resting Heart Rate" :hint="baselineHint('resting_hr_bpm', 0, true)" unit="bpm" placeholder="e.g. 64" inputmode="numeric" :error="vitalErrors.hr" />
-            <UiNumberField id="temp" v-model="vitals.temp" label="Core Body Temp" :hint="`${catalog.body_temp_c?.nominal_min ?? ''}–${catalog.body_temp_c?.nominal_max ?? ''} °C`" unit="°C" placeholder="e.g. 36.8" :error="vitalErrors.temp" />
-            <UiNumberField id="water" v-model="vitals.water" label="Hydration Intake" :hint="hydrationHint" unit="mL" placeholder="+ 400" inputmode="numeric" :error="vitalErrors.water" />
-            <UiNumberField id="kcal" v-model="vitals.kcal" label="Caloric Intake" hint="Today's meals" unit="kcal" placeholder="e.g. 2,420" inputmode="numeric" :error="vitalErrors.kcal" />
-            <UiNumberField id="exercise" v-model="vitals.exercise" label="Daily Exercise" hint="Target: 30 min session" unit="min" placeholder="e.g. 45" inputmode="numeric" :error="vitalErrors.exercise" />
+      <ShellHudWindow class="w-[56.7%] shrink-0" title="Daily Vitals, Biometrics & Habits Entry" icon="heart" tag-text="FEEDS PROFILE" flush>
+        <form class="flex-1 min-h-0 flex flex-col px-[23px] pt-[clamp(12px,2.5dvh,24px)] pb-[clamp(12px,2.1dvh,20px)]" novalidate @submit.prevent="saveVitals">
+          <div class="grid grid-cols-2 gap-x-[19px] gap-y-[clamp(12px,2.8dvh,26px)]">
+            <UiNumberField id="weight" v-model="vitals.weight" help-key="body_weight_kg" label="Body Weight" :hint="baselineHint('body_weight_kg')" unit="kg" placeholder="e.g. 63.8" :error="vitalErrors.weight" />
+            <UiNumberField id="bp" v-model="vitals.bp" help-key="blood_pressure" label="Blood Pressure" hint="Systolic / Diastolic" unit="mmHg" placeholder="118 / 76" inputmode="text" :error="vitalErrors.bp" />
+            <UiNumberField id="hr" v-model="vitals.hr" help-key="resting_hr_bpm" label="Resting Heart Rate" :hint="baselineHint('resting_hr_bpm', 0, true)" unit="bpm" placeholder="e.g. 64" inputmode="numeric" :error="vitalErrors.hr" />
+            <UiNumberField id="temp" v-model="vitals.temp" help-key="body_temp_c" label="Core Body Temp" :hint="`${catalog.body_temp_c?.nominal_min ?? ''}–${catalog.body_temp_c?.nominal_max ?? ''} °C`" unit="°C" placeholder="e.g. 36.8" :error="vitalErrors.temp" />
+            <UiNumberField id="water" v-model="vitals.water" help-key="hydration_ml" label="Hydration Intake" :hint="hydrationHint" unit="mL" placeholder="+ 400" inputmode="numeric" :error="vitalErrors.water" />
+            <UiNumberField id="kcal" v-model="vitals.kcal" help-key="calories_kcal" label="Caloric Intake" hint="Today's meals" unit="kcal" placeholder="e.g. 2,420" inputmode="numeric" :error="vitalErrors.kcal" />
+            <UiNumberField id="exercise" v-model="vitals.exercise" help-key="exercise_min" label="Daily Exercise" hint="Target: 30 min session" unit="min" placeholder="e.g. 45" inputmode="numeric" :error="vitalErrors.exercise" />
             <div>
               <div class="flex items-baseline justify-between mb-[8px]">
-                <label for="shift" class="label-caps">Work Shift (IVA / EVA)</label>
+                <span class="flex items-center gap-[6px]"><label for="shift" class="label-caps">Work Shift (IVA / EVA)</label><UiParamHelp metric-key="work_shift_min" /></span>
                 <span class="text-[9.5px] text-cabin-ice">{{ vitals.shiftMode === 'EVA' ? 'Exterior work' : workLocation || 'Interior work' }}</span>
               </div>
               <div class="hud-field" :data-invalid="vitalErrors.shift ? 'true' : undefined">
@@ -204,7 +204,7 @@ v-for="mode in (['IVA', 'EVA'] as const)" :key="mode" type="button" role="radio"
               <p v-if="vitalErrors.shift" class="text-[10px] mt-[4px]" role="alert">{{ vitalErrors.shift }}</p>
             </div>
           </div>
-          <div class="mt-auto flex flex-col gap-[16px]">
+          <div class="mt-auto pt-[10px] flex flex-col gap-[clamp(10px,1.7dvh,16px)]">
             <UiSaveResult v-if="vitalResult" :tone="vitalResult.tone" :title="vitalResult.title" :text="vitalResult.text" />
             <UiSaveResult v-else-if="vitalErrors.form" tone="critical" title="Not saved" :text="vitalErrors.form" />
             <UiSaveResult v-else tone="ok" title="Automatic sync to personal profile & crew streaks" :text="vitalNote" />
@@ -216,15 +216,15 @@ v-for="mode in (['IVA', 'EVA'] as const)" :key="mode" type="button" role="radio"
         </form>
       </ShellHudWindow>
 
-      <ShellHudWindow class="flex-1" title="Periodic Clinical Labs Entry" icon="kit" tag-text="LAB STRIPS" flush>
-        <form class="flex-1 flex flex-col px-[23px] pt-[24px] pb-[20px]" novalidate @submit.prevent="saveLabs">
-          <div class="flex flex-col gap-[26px]">
-            <UiNumberField id="glucose" v-model="labs.glucose" label="Fasting Blood Glucose" :hint="glucoseHint" unit="mg/dL" placeholder="e.g. 89" inputmode="numeric" :error="labErrors.glucose" />
-            <UiNumberField id="hemoglobin" v-model="labs.hemoglobin" label="Hemoglobin (Blood Panel)" :hint="`Monthly check · ${usualRange('hemoglobin_g_dl')}`" unit="g/dL" placeholder="e.g. 13.8" :error="labErrors.hemoglobin" />
-            <UiNumberField id="sg" v-model="labs.sg" label="Urine Specific Gravity" :hint="`Weekly strip · Target ${catalog.urine_specific_gravity?.nominal_min ?? ''}–${catalog.urine_specific_gravity?.nominal_max ?? ''}`" unit="SG" placeholder="e.g. 1.018" :error="labErrors.sg" />
-            <UiNumberField id="spo2" v-model="labs.spo2" label="Oxygen Saturation (SpO₂)" :hint="`Spot oximetry · ${usualRange('spo2_pct')}`" unit="%" placeholder="e.g. 98" inputmode="numeric" :error="labErrors.spo2" />
+      <ShellHudWindow class="flex-1 min-w-0" title="Periodic Clinical Labs Entry" icon="kit" tag-text="LAB STRIPS" flush>
+        <form class="flex-1 min-h-0 flex flex-col px-[23px] pt-[clamp(12px,2.5dvh,24px)] pb-[clamp(12px,2.1dvh,20px)]" novalidate @submit.prevent="saveLabs">
+          <div class="flex flex-col gap-[clamp(12px,2.8dvh,26px)]">
+            <UiNumberField id="glucose" v-model="labs.glucose" help-key="blood_glucose_mg_dl" label="Fasting Blood Glucose" :hint="glucoseHint" unit="mg/dL" placeholder="e.g. 89" inputmode="numeric" :error="labErrors.glucose" />
+            <UiNumberField id="hemoglobin" v-model="labs.hemoglobin" help-key="hemoglobin_g_dl" label="Hemoglobin (Blood Panel)" :hint="`Monthly check · ${usualRange('hemoglobin_g_dl')}`" unit="g/dL" placeholder="e.g. 13.8" :error="labErrors.hemoglobin" />
+            <UiNumberField id="sg" v-model="labs.sg" help-key="urine_specific_gravity" label="Urine Specific Gravity" :hint="`Weekly strip · Target ${catalog.urine_specific_gravity?.nominal_min ?? ''}–${catalog.urine_specific_gravity?.nominal_max ?? ''}`" unit="SG" placeholder="e.g. 1.018" :error="labErrors.sg" />
+            <UiNumberField id="spo2" v-model="labs.spo2" help-key="spo2_pct" label="Oxygen Saturation (SpO₂)" :hint="`Spot oximetry · ${usualRange('spo2_pct')}`" unit="%" placeholder="e.g. 98" inputmode="numeric" :error="labErrors.spo2" />
           </div>
-          <div class="mt-auto flex flex-col gap-[16px]">
+          <div class="mt-auto pt-[10px] flex flex-col gap-[clamp(10px,1.7dvh,16px)]">
             <UiSaveResult v-if="labResult" :tone="labResult.tone" :title="labResult.title" :text="labResult.text" />
             <UiSaveResult v-else-if="labErrors.form" tone="critical" title="Not saved" :text="labErrors.form" />
             <UiSaveResult v-else tone="ok" title="Range validation before saving" text="Results appear immediately in Profile → Physical." />

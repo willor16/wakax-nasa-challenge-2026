@@ -33,6 +33,21 @@ def normalize_utc_timestamp(raw_value: str | None) -> str:
     return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class ParameterHelpItem(BaseModel):
+    """Plain-language explanation of one parameter for the on-screen help button."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label_en: str
+    unit: str
+    summary_en: str
+    interpretation_en: str
+    operational_impact_en: str
+    nominal_min: float | None = None
+    nominal_max: float | None = None
+
+
 class MetricCatalogItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

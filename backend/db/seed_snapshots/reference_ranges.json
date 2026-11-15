@@ -37,7 +37,10 @@
       "plausible_max": 250.0,
       "source": "pulse",
       "drift": "both",
-      "drift_sd_floor": 3.0
+      "drift_sd_floor": 3.0,
+      "summary_en": "Heartbeats per minute at rest. In weightlessness, blood shifts toward the head and chest and the heart works against less gravity, so resting rate often settles lower than on the ground.",
+      "interpretation_en": "Low: common in fit crew; below 40 bpm with dizziness or fatigue needs review. Normal: steady and close to your own baseline. High: points to fever, dehydration, stress, poor sleep or heat load.",
+      "operational_impact_en": "A raised resting rate reduces the reserve available for exterior work and heavy exercise; a sudden change from baseline is checked before any high-effort task."
     },
     {
       "metric_key": "hrv_rmssd_ms",
@@ -55,7 +58,10 @@
       "plausible_max": 300.0,
       "source": "stress",
       "drift": "down",
-      "drift_sd_floor": 6.0
+      "drift_sd_floor": 6.0,
+      "summary_en": "Beat-to-beat variation of the heart rhythm, a window on how well the body switches between effort and recovery. Long missions, confinement and broken sleep tend to lower it.",
+      "interpretation_en": "Low: the body is under strain (stress, fatigue, illness, overtraining). Normal: good recovery. A steady fall below your own baseline matters more than any single value.",
+      "operational_impact_en": "Low variability over several days is an early sign of fatigue; plan lighter workloads and protect the next rest period."
     },
     {
       "metric_key": "spo2_pct",
@@ -73,7 +79,10 @@
       "plausible_max": 100.0,
       "source": "pulse_oximetry",
       "drift": "down",
-      "drift_sd_floor": 0.8
+      "drift_sd_floor": 0.8,
+      "summary_en": "Share of hemoglobin carrying oxygen, read with a finger sensor. Cabin air pressure and composition, carbon dioxide and lung health all influence it.",
+      "interpretation_en": "Low: below 95% needs attention and below 91% is urgent (cabin air, lungs or circulation). Normal: 95-100%. Values that drop with effort deserve a recheck at rest.",
+      "operational_impact_en": "Low oxygen impairs judgment and fine motor work long before symptoms are felt; no exterior work or suit operations until it is back in range."
     },
     {
       "metric_key": "bp_systolic_mmhg",
@@ -91,7 +100,10 @@
       "plausible_max": 260.0,
       "source": "blood_pressure",
       "drift": "both",
-      "drift_sd_floor": 5.0
+      "drift_sd_floor": 5.0,
+      "summary_en": "Peak pressure in the arteries during each heartbeat. Fluid shifts toward the upper body change pressure readings early in the mission and again on return to gravity.",
+      "interpretation_en": "Low: below 90 mmHg can cause light-headedness, especially when standing after landing. Normal: under 120 mmHg. High: 130 mmHg or more is raised; 180 mmHg or more is a crisis.",
+      "operational_impact_en": "Low pressure raises fainting risk during return and surface operations; high pressure adds heart strain during heavy work and exterior activity."
     },
     {
       "metric_key": "bp_diastolic_mmhg",
@@ -109,7 +121,10 @@
       "plausible_max": 160.0,
       "source": "blood_pressure",
       "drift": "both",
-      "drift_sd_floor": 4.0
+      "drift_sd_floor": 4.0,
+      "summary_en": "Pressure in the arteries while the heart relaxes between beats. Read together with the systolic value.",
+      "interpretation_en": "Low: below 55 mmHg with symptoms needs review. Normal: under 80 mmHg. High: 80-89 mmHg is raised, 90 mmHg or more is high and 120 mmHg or more is a crisis.",
+      "operational_impact_en": "Persistently high values add load to the heart and blood vessels; repeat the reading after rest before any strenuous task."
     },
     {
       "metric_key": "body_temp_c",
@@ -127,7 +142,10 @@
       "plausible_max": 44.0,
       "source": "body_temperature",
       "drift": "both",
-      "drift_sd_floor": 0.2
+      "drift_sd_floor": 0.2,
+      "summary_en": "Core body temperature. Without air convection, heat leaves the body more slowly in weightlessness, so core temperature runs slightly higher during exercise.",
+      "interpretation_en": "Low: below 36.5 °C suggests cold exposure or a measurement error. Normal: 36.5-37.3 °C. High: 38.5 °C or more is fever or heat strain.",
+      "operational_impact_en": "Fever or heat strain reduces endurance and concentration; exterior work and heavy exercise wait until temperature is back in range."
     },
     {
       "metric_key": "ecg_lead_ii_mv",
@@ -144,7 +162,10 @@
       "plausible_min": -5.0,
       "plausible_max": 5.0,
       "source": "pulse",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Electrical activity of the heart seen from the standard lead II view. It shows the rhythm and the shape of each beat.",
+      "interpretation_en": "A regular pattern with normal wave heights is expected. Irregular beats, flat or very tall waves, or pauses need the physician's review.",
+      "operational_impact_en": "Rhythm changes can appear with dehydration, electrolyte loss or stress; any irregular trace is reviewed before high-effort tasks."
     },
     {
       "metric_key": "orthostatic_hr_delta_bpm",
@@ -162,7 +183,10 @@
       "plausible_max": 80.0,
       "source": "pulse",
       "drift": "up",
-      "drift_sd_floor": 3.0
+      "drift_sd_floor": 3.0,
+      "summary_en": "How much the heart rate rises when moving from lying to standing (or under a lower-body pressure test). It shows how well the circulation adapts to gravity.",
+      "interpretation_en": "Normal: a rise of less than 20 bpm. A rise of 30 bpm or more means the circulation struggles to keep blood flowing to the head.",
+      "operational_impact_en": "A large rise predicts dizziness or fainting on landing and in partial gravity; fluid loading and compression garments are planned before return."
     },
     {
       "metric_key": "height_cm",
@@ -179,7 +203,10 @@
       "plausible_min": 100.0,
       "plausible_max": 230.0,
       "source": "bmi",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Standing height. The spine lengthens by a few centimetres in weightlessness because the discs between vertebrae are no longer compressed.",
+      "interpretation_en": "Growth of 3-5 cm during flight is expected and reverses on return. Back pain often comes with it.",
+      "operational_impact_en": "Extra height can change suit and seat fit; check fit before exterior work and landing."
     },
     {
       "metric_key": "body_weight_kg",
@@ -200,7 +227,10 @@
         "warning_below_pct": 95.0,
         "critical_below_pct": 90.0
       },
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Body mass, measured with a mass-measurement device because ordinary scales do not work in weightlessness.",
+      "interpretation_en": "A slow loss usually means energy intake is below need or muscle is being lost. A sudden change in a few days often reflects fluid balance.",
+      "operational_impact_en": "Unplanned loss lowers strength and endurance for exterior work; review meals and exercise when the trend keeps falling."
     },
     {
       "metric_key": "bmi_kg_m2",
@@ -217,7 +247,10 @@
       "plausible_min": 10.0,
       "plausible_max": 60.0,
       "source": "bmi",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Body mass divided by height squared, a broad indicator of body composition.",
+      "interpretation_en": "Low: below 18.5 suggests undernutrition. Normal: 18.5-24.9. High: above 25 may reflect muscle or fat; read it together with muscle mass.",
+      "operational_impact_en": "Large shifts in either direction call for a nutrition and exercise review to keep work capacity."
     },
     {
       "metric_key": "muscle_mass_kg",
@@ -238,7 +271,10 @@
         "warning_below_pct": 95.0,
         "critical_below_pct": 90.0
       },
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Weight of the skeletal muscles. Without gravity the postural and leg muscles are used much less and shrink unless trained daily.",
+      "interpretation_en": "A falling value means the exercise routine is not holding muscle. Stable or rising is the goal.",
+      "operational_impact_en": "Muscle loss reduces strength for exterior work, emergency egress and walking after landing."
     },
     {
       "metric_key": "muscle_mass_retention_pct",
@@ -255,7 +291,10 @@
       "plausible_min": 50.0,
       "plausible_max": 130.0,
       "source": "muscle",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Current muscle mass as a share of your own pre-flight value.",
+      "interpretation_en": "Normal: 95-105%. Below 95% shows loss; below 90% calls for an exercise plan change.",
+      "operational_impact_en": "Low retention raises injury risk on return and in partial-gravity surface work."
     },
     {
       "metric_key": "bone_density_g_cm2",
@@ -277,7 +316,10 @@
         "warning_below_pct": 94.6,
         "critical_below_pct": 93.8
       },
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Mineral density of bone. In weightlessness the skeleton carries no load and can lose around 1-1.5% per month in the hips and spine.",
+      "interpretation_en": "A falling trend means bone is being lost faster than it is rebuilt. Stable is the goal.",
+      "operational_impact_en": "Lower density raises fracture risk during landing, surface operations and after return."
     },
     {
       "metric_key": "vo2_max_ml_kg_min",
@@ -298,7 +340,10 @@
         "info_below_pct": 90.0,
         "warning_below_pct": 80.0
       },
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "The most oxygen the body can use during maximum effort: the best single measure of aerobic fitness.",
+      "interpretation_en": "Keeping at least 80% of your pre-flight value is the goal. A steady fall shows deconditioning of the heart, lungs or muscles.",
+      "operational_impact_en": "Aerobic capacity sets how long you can sustain exterior work and emergency tasks."
     },
     {
       "metric_key": "respiratory_rate_brpm",
@@ -316,7 +361,10 @@
       "plausible_max": 70.0,
       "source": "sleep",
       "drift": "both",
-      "drift_sd_floor": 1.2
+      "drift_sd_floor": 1.2,
+      "summary_en": "Breaths per minute at rest.",
+      "interpretation_en": "Low: below 12 can come with deep sleep or medication. Normal: 12-20. High: above 20 suggests effort, fever, anxiety or high carbon dioxide in the cabin.",
+      "operational_impact_en": "Fast breathing at rest is checked together with oxygen and cabin carbon dioxide before suit operations."
     },
     {
       "metric_key": "cardiorespiratory_index",
@@ -334,7 +382,10 @@
       "plausible_max": 100.0,
       "source": "exercise",
       "drift": "down",
-      "drift_sd_floor": 4.0
+      "drift_sd_floor": 4.0,
+      "summary_en": "A combined readiness score built from heart rate, heart-rate variability, oxygen and breathing.",
+      "interpretation_en": "75-100 points: ready. Below 75: reduced reserve. Below 45: rest and review.",
+      "operational_impact_en": "Used to plan who is best placed for demanding tasks on the day."
     },
     {
       "metric_key": "optic_sheath_left_mm",
@@ -352,7 +403,10 @@
       "plausible_max": 9.0,
       "source": "ocular",
       "drift": "up",
-      "drift_sd_floor": 0.15
+      "drift_sd_floor": 0.15,
+      "summary_en": "Width of the sheath around the left optic nerve, measured by ultrasound. It widens when pressure around the brain rises, a key sign of spaceflight-associated eye changes.",
+      "interpretation_en": "Normal: up to 5.5 mm. 5.8 mm or more, or a steady rise from baseline, suggests raised pressure around the nerve.",
+      "operational_impact_en": "Raised values can come with blurred vision and headache; schedule a full eye exam and review exercise and cabin carbon dioxide."
     },
     {
       "metric_key": "optic_sheath_right_mm",
@@ -370,7 +424,10 @@
       "plausible_max": 9.0,
       "source": "ocular",
       "drift": "up",
-      "drift_sd_floor": 0.15
+      "drift_sd_floor": 0.15,
+      "summary_en": "Width of the sheath around the right optic nerve, measured by ultrasound. It widens when pressure around the brain rises.",
+      "interpretation_en": "Normal: up to 5.5 mm. 5.8 mm or more, or a steady rise from baseline, suggests raised pressure around the nerve.",
+      "operational_impact_en": "Raised values can come with blurred vision and headache; schedule a full eye exam and review exercise and cabin carbon dioxide."
     },
     {
       "metric_key": "iop_left_mmhg",
@@ -388,7 +445,10 @@
       "plausible_max": 60.0,
       "source": "ocular",
       "drift": "both",
-      "drift_sd_floor": 1.5
+      "drift_sd_floor": 1.5,
+      "summary_en": "Fluid pressure inside the left eye. Fluid moving toward the head changes eye pressure in weightlessness.",
+      "interpretation_en": "Low: below 10 mmHg may affect the shape of the eye. Normal: 10-21 mmHg. High: above 21 mmHg needs review; 26 mmHg or more is urgent.",
+      "operational_impact_en": "Pressure changes can blur vision needed for fine tasks and reading displays."
     },
     {
       "metric_key": "iop_right_mmhg",
@@ -406,7 +466,10 @@
       "plausible_max": 60.0,
       "source": "ocular",
       "drift": "both",
-      "drift_sd_floor": 1.5
+      "drift_sd_floor": 1.5,
+      "summary_en": "Fluid pressure inside the right eye. Fluid moving toward the head changes eye pressure in weightlessness.",
+      "interpretation_en": "Low: below 10 mmHg may affect the shape of the eye. Normal: 10-21 mmHg. High: above 21 mmHg needs review; 26 mmHg or more is urgent.",
+      "operational_impact_en": "Pressure changes can blur vision needed for fine tasks and reading displays."
     },
     {
       "metric_key": "retinal_thickness_um",
@@ -424,7 +487,10 @@
       "plausible_max": 200.0,
       "source": "ocular",
       "drift": "up",
-      "drift_sd_floor": 4.0
+      "drift_sd_floor": 4.0,
+      "summary_en": "Thickness of the retinal nerve layer at the back of the eye. Swelling of the optic disc is one of the signs of spaceflight-associated eye changes.",
+      "interpretation_en": "Normal: 80-120 µm. Thickening above your baseline suggests swelling; 140 µm or more is urgent.",
+      "operational_impact_en": "Swelling can lead to lasting vision changes; it triggers closer monitoring and a physician review."
     },
     {
       "metric_key": "visual_acuity_snellen",
@@ -441,7 +507,10 @@
       "plausible_min": 5.0,
       "plausible_max": 400.0,
       "source": "ocular",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Sharpness of vision as the denominator of a 20/x chart score (20/20 means normal sight). Some crew become more far-sighted during long missions.",
+      "interpretation_en": "20/20 or better is normal. A larger number means less sharp vision; a change from baseline matters more than the value.",
+      "operational_impact_en": "Reduced sharpness affects reading instruments, procedures and exterior work; corrective glasses are kept on board."
     },
     {
       "metric_key": "blood_glucose_mg_dl",
@@ -459,7 +528,10 @@
       "plausible_max": 600.0,
       "source": "glucose",
       "drift": "both",
-      "drift_sd_floor": 6.0
+      "drift_sd_floor": 6.0,
+      "summary_en": "Sugar level in the blood after fasting. Spaceflight can reduce how well the body responds to insulin.",
+      "interpretation_en": "Low: below 70 mg/dL causes shakiness and poor focus; below 55 is urgent. Normal: 70-99 mg/dL. High: 100-125 is raised; above 180 is urgent.",
+      "operational_impact_en": "Low sugar impairs judgment during critical tasks; eat before exterior work and long shifts."
     },
     {
       "metric_key": "hemoglobin_g_dl",
@@ -477,7 +549,10 @@
       "plausible_max": 25.0,
       "source": "glucose",
       "drift": "down",
-      "drift_sd_floor": 0.5
+      "drift_sd_floor": 0.5,
+      "summary_en": "Oxygen-carrying protein in red blood cells. The body reduces red cell numbers early in flight (so-called space anemia).",
+      "interpretation_en": "Low: below the normal range reduces oxygen delivery and causes fatigue. Normal: about 12-17.5 g/dL depending on sex. High: may reflect dehydration.",
+      "operational_impact_en": "Low values reduce endurance for exterior work and recovery after landing."
     },
     {
       "metric_key": "urine_specific_gravity",
@@ -495,7 +570,10 @@
       "plausible_max": 1.05,
       "source": "hydration",
       "drift": "up",
-      "drift_sd_floor": 0.004
+      "drift_sd_floor": 0.004,
+      "summary_en": "How concentrated the urine is, a simple hydration check.",
+      "interpretation_en": "Low: very dilute, usually high fluid intake. Normal: 1.005-1.020. High: above 1.020 means concentrated urine and likely dehydration.",
+      "operational_impact_en": "Dehydration lowers endurance and raises kidney stone risk, which is higher in spaceflight because bone releases calcium."
     },
     {
       "metric_key": "urine_color_scale",
@@ -512,7 +590,10 @@
       "plausible_min": 1.0,
       "plausible_max": 8.0,
       "source": "hydration",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Urine color on a 1-8 chart, a quick hydration check.",
+      "interpretation_en": "1-3: well hydrated. 4-6: drink more. 7 or more: dehydrated.",
+      "operational_impact_en": "Drink before exterior work and after exercise to keep the color in the pale range."
     },
     {
       "metric_key": "urine_protein_mg_dl",
@@ -529,7 +610,10 @@
       "plausible_min": 0.0,
       "plausible_max": 2000.0,
       "source": "hydration",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Protein in the urine, a check on kidney health.",
+      "interpretation_en": "Normal: below 14 mg/dL. Higher values can follow hard exercise or fever, but a lasting rise needs review.",
+      "operational_impact_en": "Kidney strain together with dehydration raises kidney stone risk."
     },
     {
       "metric_key": "hydration_ml",
@@ -548,7 +632,10 @@
       "source": "hydration",
       "personal_target": "hydration",
       "drift": "none",
-      "model_sd_floor": 250.0
+      "model_sd_floor": 250.0,
+      "summary_en": "Total fluid you drank today. Thirst is weaker in weightlessness, so intake is logged instead of trusted to feel.",
+      "interpretation_en": "Below your personal target means you are likely under-hydrated; the target depends on body weight and sex.",
+      "operational_impact_en": "Under-hydration raises fainting risk on return, kidney stone risk and fatigue during exterior work."
     },
     {
       "metric_key": "calories_kcal",
@@ -566,7 +653,10 @@
       "plausible_max": 8000.0,
       "source": "nutrition",
       "personal_target": "calories",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Energy eaten today. Crew often eat less than they need in flight.",
+      "interpretation_en": "Below your personal target over several days leads to weight and muscle loss. The target depends on age, sex, weight and activity.",
+      "operational_impact_en": "An energy shortfall reduces strength, endurance and immune defence."
     },
     {
       "metric_key": "exercise_min",
@@ -585,7 +675,10 @@
       "source": "exercise",
       "personal_target": "exercise",
       "drift": "none",
-      "model_sd_floor": 8.0
+      "model_sd_floor": 8.0,
+      "summary_en": "Minutes of resistance and aerobic training today. Daily training is the main protection against muscle, bone and heart deconditioning.",
+      "interpretation_en": "30 minutes or more per session, 6-7 days a week, is the target; long missions usually plan up to 2.5 hours a day.",
+      "operational_impact_en": "Missed sessions add up to lower strength and fitness for exterior work and return to gravity."
     },
     {
       "metric_key": "work_shift_min",
@@ -602,7 +695,10 @@
       "plausible_min": 0.0,
       "plausible_max": 1440.0,
       "source": "cabin",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Length of today's work shift inside the habitat.",
+      "interpretation_en": "Up to 9 hours is usual. Shifts longer than 12 hours raise fatigue and error risk.",
+      "operational_impact_en": "Long shifts cut into exercise and sleep; plan rest before demanding tasks."
     },
     {
       "metric_key": "eva_shift_min",
@@ -619,7 +715,10 @@
       "plausible_min": 0.0,
       "plausible_max": 720.0,
       "source": "exercise",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Minutes spent outside the habitat in a suit (exterior work).",
+      "interpretation_en": "Up to 6.5 hours is a usual session; 9 hours or more is very long.",
+      "operational_impact_en": "Long exterior sessions bring heat, dehydration and hand fatigue; recover fluids and rest afterwards."
     },
     {
       "metric_key": "cabin_co2_ppm",
@@ -636,7 +735,10 @@
       "plausible_min": 0.0,
       "plausible_max": 50000.0,
       "source": "cabin_air",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Carbon dioxide in the cabin air. Without air convection, exhaled gas can pool around the face, so cabin levels need tight control.",
+      "interpretation_en": "Below the target zone: comfortable. Above it: headache, poor focus and faster breathing become more likely; very high levels are an emergency.",
+      "operational_impact_en": "High carbon dioxide is linked to headaches, eye pressure changes and slower thinking; check ventilation and air scrubbing."
     },
     {
       "metric_key": "cabin_temp_c",
@@ -653,7 +755,10 @@
       "plausible_min": -10.0,
       "plausible_max": 60.0,
       "source": "cabin",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Air temperature in the cabin.",
+      "interpretation_en": "Normal: 20-25 °C. Colder or warmer than that affects comfort, sleep and concentration.",
+      "operational_impact_en": "Heat adds to fatigue and fluid loss; cold reduces fine motor control."
     },
     {
       "metric_key": "cabin_humidity_pct",
@@ -670,7 +775,10 @@
       "plausible_min": 0.0,
       "plausible_max": 100.0,
       "source": "cabin",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Moisture in the cabin air.",
+      "interpretation_en": "Normal: 30-60%. Dry air irritates the eyes and airways; very humid air promotes condensation and microbial growth.",
+      "operational_impact_en": "Out-of-range humidity affects comfort, equipment and hygiene."
     },
     {
       "metric_key": "cabin_noise_dba",
@@ -687,7 +795,10 @@
       "plausible_min": 0.0,
       "plausible_max": 140.0,
       "source": "cabin",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Sound level in the cabin from fans, pumps and equipment.",
+      "interpretation_en": "Up to 55 dBA is the target for working areas. Higher levels disturb sleep and communication; 85 dBA or more needs hearing protection.",
+      "operational_impact_en": "Constant noise adds to fatigue and stress and can cause lasting hearing loss."
     },
     {
       "metric_key": "radiation_daily_msv",
@@ -704,7 +815,10 @@
       "plausible_min": 0.0,
       "plausible_max": 1000.0,
       "source": "radiation",
-      "drift": "none"
+      "drift": "none",
+      "summary_en": "Radiation dose received in the cabin each day. Outside the planet's magnetic field, crews receive far more radiation than on the ground.",
+      "interpretation_en": "The usual daily dose is well below 0.6 mSv; solar storms can raise it sharply in hours.",
+      "operational_impact_en": "During solar storms, move to the shielded area and postpone exterior work."
     }
   ],
   "personal_targets": {
@@ -857,5 +971,223 @@
     90,
     "RETURN_MINUS_30",
     "POST_FLIGHT"
+  ],
+  "help_topics": [
+    {
+      "key": "blood_pressure",
+      "label_en": "Blood Pressure",
+      "unit": "mmHg",
+      "summary_en": "Pressure in the arteries, shown as systolic (heartbeat) over diastolic (between beats). Fluid shifts toward the head in weightlessness change it early in the mission and again on return.",
+      "interpretation_en": "Normal: under 120/80 mmHg. 130/80 or more is raised; 180/120 or more is a crisis. Very low values can cause light-headedness.",
+      "operational_impact_en": "Low pressure raises fainting risk on return; high pressure adds heart strain during heavy work."
+    },
+    {
+      "key": "sleep_score",
+      "label_en": "Sleep Score",
+      "unit": "pts",
+      "summary_en": "One score for last night's sleep, built from total time, stage balance, interruptions and efficiency.",
+      "interpretation_en": "80 or more: restorative sleep. 60-79: fair. Below 60: poor; expect slower reactions today.",
+      "operational_impact_en": "Poor sleep is a major cause of errors in flight; consider lighter tasks and a rest period."
+    },
+    {
+      "key": "sleep_duration",
+      "label_en": "Total Sleep",
+      "unit": "h",
+      "summary_en": "Time actually asleep during the sleep period. Light-dark cycles, noise and workload often shorten sleep in flight.",
+      "interpretation_en": "7-9 hours is the target. Less than 6 hours is short and builds sleep debt.",
+      "operational_impact_en": "Sleep debt slows reaction time and decision making; plan rest before critical tasks."
+    },
+    {
+      "key": "sleep_efficiency",
+      "label_en": "Sleep Efficiency",
+      "unit": "%",
+      "summary_en": "Share of the time in bed actually spent asleep.",
+      "interpretation_en": "85% or more is good. Lower values mean long time awake in bed or many awakenings.",
+      "operational_impact_en": "Low efficiency over several nights calls for a review of noise, light and schedule."
+    },
+    {
+      "key": "sleep_deep",
+      "label_en": "Deep Sleep",
+      "unit": "%",
+      "summary_en": "Slow-wave sleep, when the body repairs tissue and the brain clears waste.",
+      "interpretation_en": "15-25% of the night is typical. Less than that means less physical recovery.",
+      "operational_impact_en": "Short deep sleep reduces recovery after exercise and exterior work."
+    },
+    {
+      "key": "sleep_rem",
+      "label_en": "REM Sleep",
+      "unit": "%",
+      "summary_en": "Dream sleep, important for memory, learning and mood.",
+      "interpretation_en": "20-25% of the night is typical. Less than that can affect mood and learning.",
+      "operational_impact_en": "Short REM sleep makes it harder to retain new procedures."
+    },
+    {
+      "key": "sleep_light",
+      "label_en": "Light Sleep",
+      "unit": "%",
+      "summary_en": "Transitional sleep between waking and deeper stages.",
+      "interpretation_en": "50-60% of the night is typical. A much higher share usually means deep or REM sleep was cut short.",
+      "operational_impact_en": "Read it together with deep and REM sleep."
+    },
+    {
+      "key": "sleep_awake",
+      "label_en": "Awake Time",
+      "unit": "min",
+      "summary_en": "Minutes awake during the sleep period.",
+      "interpretation_en": "Short awakenings are normal. Long or frequent ones lower sleep efficiency.",
+      "operational_impact_en": "Frequent waking reduces alertness the next day."
+    },
+    {
+      "key": "sleep_target_nights",
+      "label_en": "Nights Meeting Target",
+      "unit": "nights",
+      "summary_en": "How many recent nights reached the 7-hour sleep target.",
+      "interpretation_en": "Most nights on target is the goal. A run of short nights builds sleep debt.",
+      "operational_impact_en": "Sleep debt slows reaction time and raises error risk."
+    },
+    {
+      "key": "stress_index",
+      "label_en": "Stress Index",
+      "unit": "0-100",
+      "summary_en": "Perceived stress from your daily check-in, scaled from 0 (none) to 100 (very high). Isolation, confinement and workload all add to it.",
+      "interpretation_en": "Below 40: low. 40-69: moderate. 70 or more: high; support is advised.",
+      "operational_impact_en": "High stress reduces focus and sleep quality; talk to the crew physician or use the support options."
+    },
+    {
+      "key": "overall_mood",
+      "label_en": "Overall Mood",
+      "unit": "1-5",
+      "summary_en": "How you rate your mood today, from 1 (very low) to 5 (very good).",
+      "interpretation_en": "4-5: good. 3: neutral. 1-2: low; several low days in a row deserve a conversation.",
+      "operational_impact_en": "Lasting low mood affects teamwork and motivation on long missions."
+    },
+    {
+      "key": "motivation",
+      "label_en": "Mission Motivation",
+      "unit": "1-5",
+      "summary_en": "How engaged you feel with the mission today, from 1 to 5.",
+      "interpretation_en": "4-5: engaged. A falling trend is common in the middle of long missions.",
+      "operational_impact_en": "Low motivation is an early sign of fatigue or isolation stress."
+    },
+    {
+      "key": "isolation",
+      "label_en": "Sense of Isolation",
+      "unit": "1-5",
+      "summary_en": "How isolated you feel from family and home, from 1 (not at all) to 5 (very).",
+      "interpretation_en": "1-2: low. 4-5: high; keep up contact and shared crew time.",
+      "operational_impact_en": "High isolation is linked to low mood and poorer sleep."
+    },
+    {
+      "key": "mood_calmness",
+      "label_en": "Mood & Calmness",
+      "unit": "1-5",
+      "summary_en": "Your mood and a calmness score (the reverse of perceived stress) over recent days.",
+      "interpretation_en": "Both lines high and steady is the goal. A falling trend matters more than one bad day.",
+      "operational_impact_en": "Used by the crew physician to plan support before problems build up."
+    },
+    {
+      "key": "reaction_time",
+      "label_en": "Reaction Time",
+      "unit": "ms",
+      "summary_en": "Average time to respond to a signal in the reaction test. Fatigue, poor sleep and stress slow it.",
+      "interpretation_en": "Close to your baseline is normal. A rise of more than about 10% shows reduced alertness.",
+      "operational_impact_en": "Slow reactions raise error risk during docking, piloting and emergency tasks."
+    },
+    {
+      "key": "attention_lapses",
+      "label_en": "Attention Lapses",
+      "unit": "count",
+      "summary_en": "Responses in the reaction test that were very slow (over 500 ms), a sign of brief lapses of attention.",
+      "interpretation_en": "0-2 is typical. More lapses point to fatigue or sleep loss.",
+      "operational_impact_en": "Lapses are a strong warning before critical or monotonous tasks."
+    },
+    {
+      "key": "vigilance_score",
+      "label_en": "Vigilance Score",
+      "unit": "pts",
+      "summary_en": "A summary of speed and consistency in the reaction test.",
+      "interpretation_en": "Higher is better. A fall from your baseline shows reduced alertness.",
+      "operational_impact_en": "Plan rest before critical tasks when vigilance is low."
+    },
+    {
+      "key": "motor_precision",
+      "label_en": "Motor Precision",
+      "unit": "%",
+      "summary_en": "Accuracy of quick hand movements in the motor test. Weightlessness changes how the brain judges movement.",
+      "interpretation_en": "Close to your baseline is normal. A fall suggests fatigue or sensorimotor changes.",
+      "operational_impact_en": "Reduced precision affects fine work with tools and controls."
+    },
+    {
+      "key": "false_starts",
+      "label_en": "False Starts",
+      "unit": "count",
+      "summary_en": "Responses given before the signal appeared.",
+      "interpretation_en": "0-1 is typical. Several false starts suggest impulsive responding under fatigue or stress.",
+      "operational_impact_en": "Read together with reaction time and lapses."
+    },
+    {
+      "key": "heart_sound_rate",
+      "label_en": "Heart Sound Rate",
+      "unit": "bpm",
+      "summary_en": "Heart rate counted from the recorded heart sounds.",
+      "interpretation_en": "It should agree with the pulse. A large difference or an irregular pattern needs the physician's listening review.",
+      "operational_impact_en": "Irregular heart sounds are reviewed before high-effort tasks."
+    },
+    {
+      "key": "lung_sound_rate",
+      "label_en": "Breathing Rate from Sound",
+      "unit": "breaths/min",
+      "summary_en": "Breathing rate counted from the recorded lung sounds.",
+      "interpretation_en": "12-20 at rest is normal. Fast breathing or uneven zones need review.",
+      "operational_impact_en": "Read together with oxygen saturation and cabin carbon dioxide."
+    },
+    {
+      "key": "signal_quality",
+      "label_en": "Signal Quality",
+      "unit": "%",
+      "summary_en": "How clearly the recording separates body sounds from background noise.",
+      "interpretation_en": "70% or more is reliable. Lower values may need a new recording in a quieter spot.",
+      "operational_impact_en": "Low quality recordings are not used for screening decisions."
+    },
+    {
+      "key": "crew_score",
+      "label_en": "Crew Score",
+      "unit": "pts",
+      "summary_en": "A combined readiness score for the whole crew, from vitals, sleep and daily habits.",
+      "interpretation_en": "80 or more: ready. Lower values point to members needing rest or support.",
+      "operational_impact_en": "Used to plan the day's workload across the crew."
+    },
+    {
+      "key": "habit_streak",
+      "label_en": "Habit Streak",
+      "unit": "days",
+      "summary_en": "Consecutive days on which the daily habits (hydration, nutrition, exercise, sleep) were met.",
+      "interpretation_en": "Longer is better; one missed habit resets the streak.",
+      "operational_impact_en": "Daily habits are the main protection against deconditioning on long missions."
+    },
+    {
+      "key": "solar_activity",
+      "label_en": "Solar Activity (Kp)",
+      "unit": "Kp 0-9",
+      "summary_en": "Geomagnetic activity index driven by the sun, from 0 (quiet) to 9 (extreme storm).",
+      "interpretation_en": "0-3: quiet. 4: active. 5 or more: storm; radiation can rise quickly.",
+      "operational_impact_en": "During storms, postpone exterior work and stay close to the shielded area."
+    },
+    {
+      "key": "radiation_mission_dose",
+      "label_en": "Mission Radiation Dose",
+      "unit": "mSv",
+      "summary_en": "Total radiation dose received since launch, compared with the yearly limit.",
+      "interpretation_en": "Well below the limit is expected; solar storms add to it quickly.",
+      "operational_impact_en": "Exterior work is planned to keep the total dose as low as possible."
+    },
+    {
+      "key": "mission_elapsed",
+      "label_en": "Mission Elapsed Time",
+      "unit": "days",
+      "summary_en": "Days elapsed since launch, counted on the onboard clock.",
+      "interpretation_en": "Many changes (bone, muscle, eyes, mood) grow with time in flight, so checks become more frequent.",
+      "operational_impact_en": "Used to time periodic exams."
+    }
   ]
 }

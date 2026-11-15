@@ -40,7 +40,8 @@ interface Overview {
 }
 
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<Overview>('/crew-overview'), 15_000)
+const { data, loading, error, refresh } = useResource(() => api<Overview>('/crew-overview'), 15_000,
+  ['vitals', 'vision', 'sleep', 'psych', 'auscultation', 'alerts', 'streaks'])
 const { cabin: liveCabin } = useMission()
 const cabin = computed(() => liveCabin.value ?? data.value?.cabin ?? null)
 
@@ -79,13 +80,13 @@ const toneText: Record<Tone, string> = {
 function tiles(member: OverviewCrew) {
   const v = member.vitals
   return [
-    { label: 'Heart Rate', value: formatNumber(v.resting_hr_bpm), note: 'bpm', tone: toneOf(v.resting_hr_status),
+    { label: 'Heart Rate', help: 'resting_hr_bpm', value: formatNumber(v.resting_hr_bpm), note: 'bpm', tone: toneOf(v.resting_hr_status),
       pct: scalePct(v.resting_hr_bpm, 30, 110) },
-    { label: 'HRV', value: formatNumber(v.hrv_rmssd_ms), note: 'ms', tone: hrvTone(member),
+    { label: 'HRV', help: 'hrv_rmssd_ms', value: formatNumber(v.hrv_rmssd_ms), note: 'ms', tone: hrvTone(member),
       pct: scalePct(v.hrv_rmssd_ms, 10, 100) },
-    { label: 'Sleep (24h)', value: formatDuration(v.sleep_min_24h), note: sleepNote(member), tone: sleepTone(member),
+    { label: 'Sleep (24h)', help: 'sleep_duration', value: formatDuration(v.sleep_min_24h), note: sleepNote(member), tone: sleepTone(member),
       pct: scalePct(v.sleep_min_24h, 0, 520), wide: true },
-    { label: 'Oxygen (SpO₂)', value: v.spo2_pct === null ? '—' : `${formatNumber(v.spo2_pct)}%`,
+    { label: 'Oxygen (SpO₂)', help: 'spo2_pct', value: v.spo2_pct === null ? '—' : `${formatNumber(v.spo2_pct)}%`,
       note: v.spo2_status === 'NOMINAL' ? 'Optimal' : v.spo2_status === 'NO_DATA' ? 'No reading' : 'Low',
       tone: toneOf(v.spo2_status), pct: scalePct(v.spo2_pct, 85, 100), wide: true },
   ]
@@ -104,7 +105,7 @@ const cabinState = computed(() => {
 <template>
   <UiStateNote v-if="!data" :loading="loading" :error="error" empty="No crew data yet." @retry="refresh()" />
   <div v-else class="flex-1 min-h-0 flex flex-col gap-[14px]">
-    <div class="flex gap-[19px] h-[592px] shrink-0">
+    <div class="flex gap-[19px] flex-1 min-h-0">
       <ShellHudWindow
         v-for="member in data.crew"
         :key="member.id"
@@ -122,9 +123,9 @@ const cabinState = computed(() => {
           </UiStatusPill>
         </template>
         <div class="flex-1 flex flex-col px-[16px] pb-[16px]">
-          <div class="flex-1 flex items-center justify-center">
+          <div class="flex-1 min-h-0 flex items-center justify-center py-[8px]">
             <UiHoloFigure
-figure="body" :tone="crewTone(member.status)" :size="128"
+figure="body" :tone="crewTone(member.status)" size="clamp(72px, 15dvh, 168px)"
                           :label="`${member.full_name}: ${member.status}`" />
           </div>
           <div class="tile h-[56px] px-[12px] flex flex-col justify-center">
@@ -137,11 +138,11 @@ figure="body" :tone="crewTone(member.status)" :size="128"
               <span v-else class="text-cabin-dim">No shift logged today</span>
             </p>
           </div>
-          <div class="grid grid-cols-2 gap-[11px] mt-[21px]">
-            <div v-for="tile in tiles(member)" :key="tile.label" class="tile h-[123px] px-[12px] pt-[16px] pb-[14px] flex flex-col">
-              <p class="label-caps">{{ tile.label }}</p>
-              <p class="text-[22px] font-bold mt-[13px] leading-none">{{ tile.value }}</p>
-              <p class="text-[10.5px] font-semibold mt-[13px]" :class="toneText[tile.tone]">{{ tile.note }}</p>
+          <div class="grid grid-cols-2 gap-[11px] mt-[clamp(10px,2.2dvh,21px)]">
+            <div v-for="tile in tiles(member)" :key="tile.label" class="tile h-[clamp(92px,13dvh,150px)] px-[12px] pt-[clamp(10px,1.7dvh,16px)] pb-[clamp(8px,1.5dvh,14px)] flex flex-col">
+              <p class="label-caps flex items-center gap-[6px]">{{ tile.label }}<UiParamHelp :metric-key="tile.help" /></p>
+              <p class="text-[22px] font-bold mt-[clamp(6px,1.4dvh,13px)] leading-none">{{ tile.value }}</p>
+              <p class="text-[10.5px] font-semibold mt-[clamp(6px,1.4dvh,13px)]" :class="toneText[tile.tone]">{{ tile.note }}</p>
               <UiProgressBar :pct="tile.pct" :tone="tile.tone" class="mt-auto" />
             </div>
           </div>
@@ -150,32 +151,33 @@ figure="body" :tone="crewTone(member.status)" :size="128"
     </div>
 
     <ShellHudWindow
-      class="flex-1"
+      class="shrink-0 h-[clamp(128px,19dvh,200px)]"
       title="Crew Readiness & Cabin Environment"
       icon="rocket"
+      help-key="crew_score"
       :tag-text="data.crew_score === null ? undefined : `READINESS ${data.crew_score} / 100`"
       flush
     >
-      <div class="flex-1 flex items-center px-[50px] gap-[58px]">
+      <div class="flex-1 min-h-0 flex items-center px-[clamp(20px,3vw,50px)] gap-[clamp(20px,3.6vw,58px)]">
         <UiArcGauge
 :fraction="(data.crew_score ?? 0) / 100" label="Crew Score"
                     :value="formatNumber(data.crew_score)" caption="of 100" :size="100" />
         <div
 v-for="item in [
-          { label: 'Hydration', pct: data.readiness.hydration_pct,
+          { label: 'Hydration', help: 'hydration_ml', pct: data.readiness.hydration_pct,
             note: `Avg ${litres(data.readiness.hydration_avg_ml)} L / ${litres(data.readiness.hydration_target_ml)} L goal` },
-          { label: 'Sleep Target', pct: data.readiness.sleep_target_pct,
+          { label: 'Sleep Target', help: 'sleep_target_nights', pct: data.readiness.sleep_target_pct,
             note: `${data.readiness.sleep_below_count} of ${data.crew_count} below ≥${data.readiness.sleep_target_min / 60}h target` },
-          { label: 'Daily Exercise', pct: data.readiness.exercise_pct, note: 'Share of today\'s exercise goals met' },
-        ]" :key="item.label" class="w-[248px]">
+          { label: 'Daily Exercise', help: 'exercise_min', pct: data.readiness.exercise_pct, note: 'Share of today\'s exercise goals met' },
+        ]" :key="item.label" class="flex-1 min-w-0 max-w-[320px]">
           <div class="flex items-baseline justify-between">
-            <span class="text-[12.5px] font-bold">{{ item.label }}</span>
+            <span class="text-[12.5px] font-bold flex items-center gap-[6px]">{{ item.label }}<UiParamHelp :metric-key="item.help" /></span>
             <span class="text-[15px] font-bold">{{ item.pct === null ? '—' : `${item.pct}%` }}</span>
           </div>
           <UiProgressBar :pct="item.pct ?? 0" :tone="(item.pct ?? 0) >= 80 ? 'ok' : 'watch'" thick class="mt-[10px]" />
           <p class="text-[10.5px] text-cabin-ice mt-[12px]">{{ item.note }}</p>
         </div>
-        <div class="tile-hi flex-1 h-[82px] px-[20px] flex flex-col justify-center">
+        <div class="tile-hi flex-1 min-w-0 h-[82px] px-[20px] flex flex-col justify-center">
           <p
 class="text-[9.5px] font-bold tracking-[0.04em] uppercase"
              :class="cabinState === 'NOMINAL' ? 'text-cabin-ok' : 'text-cabin-text'">

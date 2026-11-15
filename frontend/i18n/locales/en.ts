@@ -1,8 +1,18 @@
 // Single interface language: clear English, with no internal technology names.
 export default defineI18nLocale(() => ({
   brand: {
-    name: 'Scan Space',
-    mission: 'ARES VII',
+    name: 'SpaceScan',
+  },
+  ai: {
+    used: 'AI Used',
+  },
+  help: {
+    open: 'About {name}',
+    measures: 'What it measures',
+    reading: 'How to read it',
+    impact: 'Mission impact',
+    normal: 'Normal range',
+    personal: 'Your baseline',
   },
   header: {
     missionClock: 'MISSION CLOCK',

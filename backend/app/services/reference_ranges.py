@@ -120,6 +120,42 @@ def classify_relative(
     return None
 
 
+HELP_FIELDS = ("summary_en", "interpretation_en", "operational_impact_en")
+
+
+def help_entries() -> list[dict[str, Any]]:
+    """Plain-language explanation for every parameter shown on screen.
+
+    Catalog metrics carry their own help text and usual range; parameters that are not
+    single catalog readings (sleep stages, check-in scores, test results, solar activity)
+    come from ``help_topics``.
+    """
+    ref = load_reference()
+    entries = [
+        {
+            "key": m["metric_key"],
+            "label_en": m["display_name_en"],
+            "unit": m["unit"],
+            **{field: m[field] for field in HELP_FIELDS},
+            "nominal_min": m["nominal_min"],
+            "nominal_max": m["nominal_max"],
+        }
+        for m in ref["metrics"]
+    ]
+    entries.extend(
+        {
+            "key": t["key"],
+            "label_en": t["label_en"],
+            "unit": t["unit"],
+            **{field: t[field] for field in HELP_FIELDS},
+            "nominal_min": t.get("nominal_min"),
+            "nominal_max": t.get("nominal_max"),
+        }
+        for t in ref.get("help_topics", [])
+    )
+    return entries
+
+
 def is_plausible(metric_key: str, value: float) -> bool:
     """Reject physically impossible readings (typing errors such as HR 5000)."""
     entry = metric(metric_key)

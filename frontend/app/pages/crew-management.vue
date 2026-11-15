@@ -81,7 +81,7 @@ const isLocked = (member: CrewRecord) => Boolean(member.locked_until_utc && new 
     <ShellProfileTabs />
     <UiStateNote v-if="!data" :loading="loading" :error="error" @retry="refresh()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
-      <ShellHudWindow class="w-[860px]" title="Crew Roster & Access" icon="profile" :tag-text="`${data.length} PROFILES`" flush>
+      <ShellHudWindow class="w-[57%] shrink-0" title="Crew Roster & Access" icon="profile" :tag-text="`${data.length} PROFILES`" flush>
         <div class="flex-1 min-h-0 hud-scroll flex flex-col gap-[12px] p-[22px]">
           <div v-for="member in data" :key="member.id" class="tile h-[74px] shrink-0 px-[20px] flex items-center gap-[18px]">
             <span class="mono text-[11px] w-[52px]">{{ member.code }}</span>

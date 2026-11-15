@@ -1,6 +1,7 @@
 // Mission clock, cabin environment and cabin alert mode, shared by every screen.
 // The cabin values arrive on the public live stream; the clock follows the
 // onboard server time so every display in the cabin shows the same minute.
+import { knownDomains, useDataSync } from '~/composables/useDataSync'
 
 export interface CabinSnapshot {
   location_en: string
@@ -81,6 +82,7 @@ export function useMissionFeed() {
   const { apply, load, now, offsetMs, unread } = useMission()
   const { isAuthenticated } = useSession()
   const { api } = useApi()
+  const { bump, signature } = useDataSync()
   const base = useRuntimeConfig().public.apiBase
   let stream: EventSource | null = null
   let clock: ReturnType<typeof setInterval> | null = null
@@ -116,6 +118,15 @@ export function useMissionFeed() {
         // A damaged frame is skipped; the next one arrives in two seconds.
       }
     })
+    // Another display saved something: reload the screens that show that kind of data.
+    stream.addEventListener('sync', (event) => {
+      try {
+        bump(...knownDomains(JSON.parse((event as MessageEvent<string>).data).domains))
+      }
+      catch {
+        // Skipped; screens still refresh on their own timers.
+      }
+    })
   })
   onBeforeUnmount(() => {
     stream?.close()
@@ -123,6 +134,7 @@ export function useMissionFeed() {
     if (badge) clearInterval(badge)
   })
   watch(isAuthenticated, () => void loadUnread())
+  watch(signature(['alerts']), () => void loadUnread())
 
   return { loadUnread }
 }

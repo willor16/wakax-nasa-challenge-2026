@@ -34,7 +34,7 @@ interface Results {
 
 const { crew } = useSession()
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<Results>(`/auscultation/${crew.value!.id}`), 60_000)
+const { data, loading, error, refresh } = useResource(() => api<Results>(`/auscultation/${crew.value!.id}`), 60_000, ['auscultation', 'alerts'])
 
 usePageHeader(() => ({
   title: 'Cardiac & Pulmonary Auscultation',
@@ -76,14 +76,15 @@ const fitnessScale: Record<string, [number, number]> = {
     <UiStateNote v-if="!data" :loading="loading" :error="error" @retry="refresh()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-class="w-[456px]" title="Cardiac & Pulmonary Audio Results" icon="stethoscope" flush
+class="w-[30.2%] shrink-0" title="Cardiac & Pulmonary Audio Results" icon="stethoscope" flush
                       :tag-text="data.status === 'NO_DATA' ? 'NO DATA' : data.status === 'NOMINAL' ? 'NOMINAL' : 'REVIEW'"
                       :tag-tone="data.status === 'WARNING' ? 'critical' : 'reference'">
-        <div class="flex-1 flex flex-col px-[19px] pt-[17px] pb-[14px]">
+        <div class="flex-1 min-h-0 flex flex-col px-[19px] pt-[clamp(10px,1.8dvh,17px)] pb-[14px]">
           <div
 v-for="organ in ([['cardiac', 'heart'], ['pulmonary', 'lungs']] as const)" :key="organ[0]"
-               class="tile h-[148px] shrink-0 mb-[16px] flex items-center px-[22px] gap-[22px]">
-            <UiHoloFigure :figure="organ[1]" :size="98" :label="organ[0] === 'cardiac' ? 'Heart' : 'Lungs'" />
+               class="tile relative h-[clamp(112px,15.7dvh,170px)] shrink-0 mb-[clamp(8px,1.7dvh,16px)] flex items-center px-[clamp(14px,1.5vw,22px)] gap-[clamp(14px,1.5vw,22px)]">
+            <span class="absolute top-[7px] right-[7px]"><UiParamHelp :metric-key="organ[0] === 'cardiac' ? 'heart_sound_rate' : 'lung_sound_rate'" /></span>
+            <UiHoloFigure :figure="organ[1]" size="clamp(72px, 10.4dvh, 112px)" :label="organ[0] === 'cardiac' ? 'Heart' : 'Lungs'" />
             <div v-if="data[organ[0]]" class="min-w-0">
               <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok">{{ organ[0] }} audio · 30s sample</p>
               <p class="mt-[8px] flex items-baseline gap-[12px]">
@@ -104,9 +105,9 @@ v-for="organ in ([['cardiac', 'heart'], ['pulmonary', 'lungs']] as const)" :key=
             </div>
             <p v-else class="text-[12px] text-cabin-ice">No {{ organ[0] }} recording yet. Record in Capture · Auscultation Audio.</p>
           </div>
-          <div class="flex-1 flex flex-col justify-around">
+          <div class="flex-1 min-h-0 flex flex-col justify-around gap-[6px]">
             <UiBandRow
-v-for="view in data.fitness" :key="view.metric_key" :label="fitnessLabel[view.metric_key] ?? view.label"
+v-for="view in data.fitness" :key="view.metric_key" :label="fitnessLabel[view.metric_key] ?? view.label" :help-key="view.metric_key"
                        :reference="fitnessRef(view)" :value-text="fitnessValue(view)" :unit="fitnessUnit[view.metric_key]"
                        :status="view.status" :status-text="view.status_text" :value="view.value"
                        :scale-min="fitnessScale[view.metric_key]?.[0]" :scale-max="fitnessScale[view.metric_key]?.[1]"
@@ -117,9 +118,9 @@ v-for="view in data.fitness" :key="view.metric_key" :label="fitnessLabel[view.me
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-class="h-[438px] shrink-0" title="Recorded Cardiac & Pulmonary Acoustic Waveforms" icon="mic" flush
+class="flex-[1.6] min-h-0" title="Recorded Cardiac & Pulmonary Acoustic Waveforms" icon="mic" help-key="signal_quality" flush
                         :tag-text="data.signal_quality_pct === null ? undefined : `SIGNAL ${data.signal_quality_pct}%`">
-          <div class="flex-1 flex flex-col gap-[16px] p-[20px]">
+          <div class="flex-1 min-h-0 flex flex-col gap-[clamp(10px,1.7dvh,16px)] p-[clamp(12px,2.1dvh,20px)]">
             <div
 v-for="channel in ([
               ['cardiac', cardiacChart, `Channel 1 · Cardiac phonocardiogram (${SITE_NAMES[data.cardiac?.waveform_site ?? 'mitral']} S1 / S2)`],
@@ -141,10 +142,10 @@ v-if="channel[1]" :option="channel[1]" theme="spacescan-hud" autoresize class="a
         </ShellHudWindow>
 
         <ShellHudWindow
-class="flex-1" title="24-Hour Cabin CO₂ Trend (mmHg)" icon="rocket" flush
+class="flex-1 min-h-0" title="24-Hour Cabin CO₂ Trend (mmHg)" icon="rocket" help-key="cabin_co2_ppm" flush
                         :tag-text="data.co2.current_mmhg === null ? undefined : `${data.co2.current_mmhg.toFixed(1)} mmHg · ${data.co2.status === 'NOMINAL' ? 'NOMINAL' : 'HIGH'}`"
                         :tag-tone="toneOf(data.co2.status) === 'critical' ? 'critical' : 'reference'">
-          <div class="flex-1 relative m-[18px] tile">
+          <div class="flex-1 min-h-0 relative m-[clamp(12px,1.9dvh,18px)] tile">
             <template v-if="co2Chart">
               <span class="absolute top-[8px] right-[26px] z-10 text-[10px] font-bold">ALERT LIMIT ({{ data.co2.limits_mmhg.alert.toFixed(1) }} mmHg)</span>
               <span class="absolute bottom-[54px] left-[56px] z-10 text-[10px] font-bold">TARGET ZONE (&lt; {{ data.co2.limits_mmhg.target.toFixed(1) }} mmHg)</span>

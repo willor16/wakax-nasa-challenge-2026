@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.auth_utils import STREAM_SCOPE, CurrentCrew, decode_access_token, verify_session_claims
 from app.db import open_connection
+from app.services import change_feed
 from app.services.environment import cabin_mode, cabin_snapshot, record_reading
 from app.services.mission_clock import mission_day, to_iso, utc_now
 
@@ -85,12 +86,19 @@ async def _keep_streaming(request: Request, started: float) -> bool:
 
 @router.get("/stream/telemetry")
 async def stream_cabin_telemetry(request: Request) -> StreamingResponse:
-    """Public live stream: cabin environment and cabin mode only."""
+    """Public live stream: cabin environment, cabin mode and which kinds of data changed.
+
+    The ``sync`` event names data domains only (never crew values), so it stays public.
+    """
 
     async def event_generator():
         started = time.monotonic()
+        seen = change_feed.current()
         yield "retry: 2000\n\n"
         while await _keep_streaming(request, started):
+            seen, changed = change_feed.changes_since(seen)
+            if changed:
+                yield _sse("sync", {"domains": changed})
             with open_connection() as conn:
                 payload = {
                     "cabin": cabin_snapshot(conn),

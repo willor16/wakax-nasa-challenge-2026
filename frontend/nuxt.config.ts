@@ -1,12 +1,17 @@
+import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 
 // Build output must not carry paths from the build machine (folder names, home directory).
-const projectRoot = decodeURIComponent(new URL('.', import.meta.url).pathname).replace(/\/$/, '')
+// The root is matched with both separators so Windows and Linux builds are cleaned alike.
+const projectRoot = fileURLToPath(new URL('.', import.meta.url)).replace(/[\\/]$/, '')
+const rootForms = [...new Set([projectRoot, projectRoot.replaceAll('\\', '/'), projectRoot.replaceAll('/', '\\')])]
 const stripLocalPaths = {
   name: 'strip-local-paths',
   enforce: 'post' as const,
   renderChunk(code: string) {
-    return code.includes(projectRoot) ? { code: code.split(projectRoot).join('.'), map: null } : null
+    const found = rootForms.filter(form => code.includes(form))
+    if (found.length === 0) return null
+    return { code: found.reduce((text, form) => text.split(form).join('.'), code), map: null }
   },
 }
 

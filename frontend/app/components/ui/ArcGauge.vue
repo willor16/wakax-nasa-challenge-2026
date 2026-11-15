@@ -10,17 +10,19 @@ const props = withDefaults(defineProps<{
   label: string
   value: string
   caption?: string
-  size?: number
+  /** Pixels, or any CSS length (``clamp(...)``) for windows that resize. */
+  size?: number | string
   valueSize?: number
 }>(), { tone: 'ok', caption: undefined, size: 104, valueSize: 21 })
 
+const box = computed(() => (typeof props.size === 'number' ? `${props.size}px` : props.size))
 const option = computed(() => arcGaugeOption(props.fraction, props.tone))
 </script>
 
 <template>
   <div
     class="relative shrink-0"
-    :style="{ width: `${size}px`, height: `${size}px` }"
+    :style="{ width: box, height: box }"
     role="img"
     :aria-label="`${label}: ${value}${caption ? `, ${caption}` : ''}`"
   >

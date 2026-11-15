@@ -1,4 +1,4 @@
--- SpaceScan (Scan Space · ARES VII) — Phase 0 Canonical Database Schema
+-- SpaceScan — Phase 0 Canonical Database Schema
 -- Engine: SQLite 3 (STRICT tables, WAL mode, Append-Only measurements, FTS5, JSON1)
 
 PRAGMA journal_mode = WAL;

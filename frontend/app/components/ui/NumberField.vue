@@ -1,14 +1,19 @@
 <script setup lang="ts">
 // Labelled numeric entry for Capture forms (label + hint above, unit inside the field).
 defineProps<{ label: string, hint?: string, unit?: string, placeholder?: string, error?: string | null
-  inputmode?: 'decimal' | 'numeric' | 'text', id: string }>()
+  inputmode?: 'decimal' | 'numeric' | 'text', id: string
+  /** Parameter key for the "?" help button next to the label. */
+  helpKey?: string }>()
 const model = defineModel<string>({ required: true })
 </script>
 
 <template>
   <div>
     <div class="flex items-baseline justify-between gap-2 mb-[8px]">
-      <label :for="id" class="label-caps">{{ label }}</label>
+      <span class="flex items-center gap-[6px] min-w-0">
+        <label :for="id" class="label-caps">{{ label }}</label>
+        <UiParamHelp v-if="helpKey" :metric-key="helpKey" />
+      </span>
       <span v-if="hint" class="text-[9.5px] text-cabin-ice truncate">{{ hint }}</span>
     </div>
     <div class="hud-field" :data-invalid="error ? 'true' : undefined">

@@ -121,7 +121,7 @@ v-for="p in panels" :key="p.organ" class="flex-1" flush
                       :title="p.organ === 'CARDIAC' ? 'Cardiac Audio Recording' : 'Pulmonary Audio Recording'"
                       :icon="p.organ === 'CARDIAC' ? 'heart' : 'stethoscope'"
                       :tag-text="p.organ === 'CARDIAC' ? 'HEART · 30S' : 'LUNGS · 30S'">
-        <div class="flex-1 flex flex-col px-[19px] pt-[16px] pb-[20px]">
+        <div class="flex-1 min-h-0 flex flex-col px-[19px] pt-[clamp(10px,1.7dvh,16px)] pb-[clamp(12px,2.1dvh,20px)]">
           <p class="label-caps">{{ p.organ === 'CARDIAC' ? 'Select cardiac valve placement' : 'Select bilateral lung zone' }}</p>
           <div class="grid grid-cols-4 gap-[9px] mt-[10px]" role="radiogroup" :aria-label="p.organ === 'CARDIAC' ? 'Valve placement' : 'Lung zone'">
             <button
@@ -131,8 +131,9 @@ v-for="site in p.sites" :key="site.id" type="button" role="radio" :aria-checked=
                     @click="pickSite(p, site.id)">{{ site.label }}</button>
           </div>
 
-          <div class="tile-hi h-[162px] shrink-0 mt-[16px] flex items-center px-[24px] gap-[26px]">
-            <UiHoloFigure :figure="p.organ === 'CARDIAC' ? 'heart' : 'lungs'" :size="108" :label="p.organ === 'CARDIAC' ? 'Heart' : 'Lungs'" />
+          <div class="tile-hi relative h-[clamp(140px,17.2dvh,180px)] shrink-0 mt-[clamp(10px,1.7dvh,16px)] flex items-center px-[clamp(14px,1.6vw,24px)] gap-[clamp(14px,1.7vw,26px)]">
+            <span class="absolute top-[7px] right-[7px]"><UiParamHelp metric-key="signal_quality" /></span>
+            <UiHoloFigure :figure="p.organ === 'CARDIAC' ? 'heart' : 'lungs'" size="clamp(80px, 11.5dvh, 120px)" :label="p.organ === 'CARDIAC' ? 'Heart' : 'Lungs'" />
             <div class="min-w-0 flex-1">
               <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok truncate">
                 {{ p.organ === 'CARDIAC' ? 'Digital stethoscope' : 'Pulmonary pickup' }} · {{ p.sites.find(s => s.id === p.site.value)?.pickup }}
@@ -159,7 +160,7 @@ class="flex-1" thick :pct="p.recorder.inputDb.value === null ? 0 : Math.max(0, 1
             </div>
           </div>
 
-          <div class="tile relative flex-1 mt-[16px] min-h-0">
+          <div class="tile relative flex-1 mt-[clamp(10px,1.7dvh,16px)] min-h-[110px]">
             <p
 class="absolute top-[14px] left-[18px] mono text-[10.5px] z-10"
                :class="p.recorder.state.value === 'recording' ? '' : p.recorder.state.value === 'captured' || p.recorder.state.value === 'saved' ? 'text-cabin-ok' : 'text-cabin-ice'">
@@ -179,7 +180,7 @@ v-if="liveChart(p)" :option="liveChart(p)!" theme="spacescan-hud" autoresize cla
             </div>
           </div>
 
-          <div class="tile h-[74px] shrink-0 mt-[14px] px-[18px] flex flex-col justify-center">
+          <div class="tile h-[clamp(58px,7.9dvh,80px)] shrink-0 mt-[clamp(8px,1.5dvh,14px)] px-[18px] flex flex-col justify-center">
             <p class="label-caps">{{ p.organ === 'CARDIAC' ? 'Cardiac' : 'Pulmonary' }} recording progress</p>
             <p class="text-[11.5px] font-semibold mt-[9px] truncate">{{ progressLine(p) }}</p>
           </div>
