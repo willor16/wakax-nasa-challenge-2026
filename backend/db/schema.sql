@@ -254,7 +254,10 @@ CREATE TABLE IF NOT EXISTS psych_tests (
   motivation_score INTEGER NOT NULL CHECK (motivation_score BETWEEN 1 AND 5),
   wellbeing_index REAL NOT NULL CHECK (wellbeing_index BETWEEN 0 AND 100),
   notes_en TEXT,
-  recorded_at_utc TEXT NOT NULL
+  recorded_at_utc TEXT NOT NULL,
+  mood_state TEXT CHECK (mood_state IS NULL OR mood_state IN ('CALM', 'FOCUSED', 'TIRED', 'STRESSED')),
+  sleep_onset_utc TEXT,                             -- 'HH:MM' reported on screen 13
+  wake_utc TEXT                                     -- 'HH:MM' reported on screen 13
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_psych_tests_crew_ts
@@ -269,7 +272,11 @@ CREATE TABLE IF NOT EXISTS cognitive_tests (
   accuracy_pct REAL NOT NULL CHECK (accuracy_pct BETWEEN 0 AND 100),
   attention_score REAL NOT NULL CHECK (attention_score BETWEEN 0 AND 100),
   duration_sec INTEGER NOT NULL DEFAULT 120 CHECK (duration_sec > 0),
-  recorded_at_utc TEXT NOT NULL
+  recorded_at_utc TEXT NOT NULL,
+  trials_total INTEGER NOT NULL DEFAULT 0 CHECK (trials_total >= 0),
+  valid_responses INTEGER NOT NULL DEFAULT 0 CHECK (valid_responses >= 0),
+  false_starts INTEGER NOT NULL DEFAULT 0 CHECK (false_starts >= 0),
+  lapses INTEGER NOT NULL DEFAULT 0 CHECK (lapses >= 0)
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_cognitive_tests_crew_ts
