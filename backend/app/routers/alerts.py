@@ -5,7 +5,6 @@ Feeds the Notifications screen (16), opened only from the header bell.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
@@ -15,6 +14,7 @@ from app.auth_utils import get_current_crew
 from app.db import open_connection
 from app.services.alert_engine import load_quiet_hours
 from app.services.alert_rules import is_quiet_hours
+from app.services.guide import normalize_steps
 from app.services.scheduled_checks import PLAN_BY_TYPE
 
 router = APIRouter(prefix="/api/v1", tags=["alerts"])
@@ -22,24 +22,6 @@ router = APIRouter(prefix="/api/v1", tags=["alerts"])
 View = Literal["all", "advisories", "checks"]
 Crew = Annotated[dict, Depends(get_current_crew)]
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
-
-
-def _care_steps(raw: str) -> list[dict[str, str]]:
-    """Steps as ``{title_en, detail_en}``; older rows stored plain sentences."""
-    try:
-        steps = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
-    normalized = []
-    for step in steps:
-        if isinstance(step, dict):
-            normalized.append({
-                "title_en": str(step.get("title_en", "")),
-                "detail_en": str(step.get("detail_en", "")),
-            })
-        elif isinstance(step, str) and step.strip():
-            normalized.append({"title_en": step.strip(), "detail_en": ""})
-    return normalized
 
 
 def _advisory(row: Any) -> dict:
@@ -50,7 +32,7 @@ def _advisory(row: Any) -> dict:
         "category": row["category"],
         "title_en": row["title_en"],
         "message_en": row["message_en"],
-        "care_steps": _care_steps(row["recommended_actions_json"]),
+        "care_steps": normalize_steps(row["recommended_actions_json"]),
         "guide_article_id": row["wiki_article_id"],
         "is_quiet_deferred": bool(row["is_quiet_deferred"]),
         "created_at_utc": row["created_at_utc"],

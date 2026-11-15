@@ -10,6 +10,11 @@ export default defineI18nLocale(() => ({
     cabinCritical: 'CABIN ALERT',
   },
   nav: {
+    profileTabs: {
+      personal: 'Personal Data',
+      psychological: 'Psychological',
+      physical: 'Physical',
+    },
     public: {
       signIn: 'Sign In',
       crewOverview: 'Crew Overview',
@@ -123,5 +128,25 @@ export default defineI18nLocale(() => ({
       noData: 'No results yet. Complete a check-in and a reaction test in Data Capture.',
       loadError: 'Results could not be loaded. Try again in a moment.',
     },
+  },
+  guide: {
+    searchPlaceholder: 'Describe a symptom, for example: elevated cabin co2 headache',
+    search: 'Search Guide',
+    emergency: 'Emergency Index',
+    emergencyTitle: 'Emergency Index · When to Call the Physician',
+    emergencyTag: 'ALL PROTOCOLS',
+    protocol: 'Care Protocol · {title}',
+    quickGuide: 'QUICK GUIDE',
+    otherMatches: 'OTHER MATCHES',
+    escalate: 'ESCALATE IMMEDIATELY TO MEDICAL OFFICER{name}',
+    source: 'Source: {source}',
+    noResults: 'No protocol matches these words. Try a shorter symptom or pick a topic above.',
+    pick: 'Search a symptom or pick a topic to open its protocol.',
+    loadError: 'The guide could not be loaded. Try again in a moment.',
+    kit: 'Medical Kit Locator',
+    active: '{code} · ACTIVE',
+    contents: 'CONTENTS IN {code}',
+    illuminate: 'Illuminate {code} Light',
+    lightOn: '{code} highlighted on screen',
   },
 }))

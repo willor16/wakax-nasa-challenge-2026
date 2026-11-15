@@ -64,19 +64,19 @@ onMounted(() => {
         to="/profile/personal"
         class="px-6 h-9 rounded-[4px] bg-cabin-inset border border-cabin-card/60 text-[11.5px] font-semibold flex items-center text-cabin-muted hover:text-cabin-text"
       >
-        Personal Data
+        {{ $t('nav.profileTabs.personal') }}
       </NuxtLink>
       <NuxtLink
         to="/profile/psychological"
         class="px-6 h-9 rounded-[4px] menu-item-active text-[11.5px] font-bold flex items-center text-cabin-text"
       >
-        Psychological
+        {{ $t('nav.profileTabs.psychological') }}
       </NuxtLink>
       <NuxtLink
         to="/profile/physical"
         class="px-6 h-9 rounded-[4px] bg-cabin-inset border border-cabin-card/60 text-[11.5px] font-semibold flex items-center text-cabin-muted hover:text-cabin-text"
       >
-        Physical
+        {{ $t('nav.profileTabs.physical') }}
       </NuxtLink>
     </div>
 
@@ -111,7 +111,7 @@ onMounted(() => {
               </span>
               <span class="text-[12px] text-cabin-text">{{ state.detail }}</span>
             </span>
-            <span class="shrink-0 h-[22px] px-3 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/70 text-[9.8px] font-semibold inline-flex items-center">
+            <span class="shrink-0 h-[22px] px-3 rounded-full border bg-cabin-navy/42 border-cabin-navy-edge/70 font-mono text-[9.8px] font-semibold inline-flex items-center">
               {{ $t('mind.profile.logTime', { time: logTime }) }}
             </span>
           </div>

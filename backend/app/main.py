@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import AUDIO_STORAGE_DIR, STATIC_SPA_DIR
 from app.db import init_db
-from app.routers import alerts, auth, comms, crew, measurements, mind, streaks, system
+from app.routers import alerts, auth, comms, crew, guide, measurements, mind, streaks, system
 from app.services.comms_service import run_outbox_scheduler_tick
 from app.services.scheduled_checks import run_scheduled_checks_tick
 
@@ -53,6 +53,7 @@ app.include_router(streaks.router)
 app.include_router(comms.router)
 app.include_router(alerts.router)
 app.include_router(mind.router)
+app.include_router(guide.router)
 
 if STATIC_SPA_DIR.exists():
     app.mount("/", StaticFiles(directory=STATIC_SPA_DIR, html=True), name="spa")
