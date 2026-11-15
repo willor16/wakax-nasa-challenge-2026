@@ -19,6 +19,7 @@ from app.routers import (
     measurements,
     mind,
     profile,
+    sleep,
     streaks,
     system,
 )
@@ -62,6 +63,7 @@ app.include_router(system.router)
 app.include_router(auth.router)
 app.include_router(crew.router)
 app.include_router(profile.router)
+app.include_router(sleep.router)
 app.include_router(measurements.router)
 app.include_router(streaks.router)
 app.include_router(comms.router)
