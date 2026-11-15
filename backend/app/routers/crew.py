@@ -94,7 +94,7 @@ def get_crew_overview() -> dict:
     """Public read-only summary: status and four key signs per crew member, plus the cabin."""
     with open_connection() as conn:
         members = conn.execute(
-            "SELECT id, code, full_name, role, title_en FROM crew_members "
+            "SELECT id, code, full_name, role, title_en, sex FROM crew_members "
             "WHERE is_active = 1 ORDER BY code ASC"
         ).fetchall()
         day = habits.current_day(conn)
@@ -111,6 +111,8 @@ def get_crew_overview() -> dict:
                     "code": m["code"],
                     "full_name": m["full_name"],
                     "title_en": display_title(m),
+                    # Picks the female or male anatomical figure on the card.
+                    "sex": m["sex"],
                     "status": summary["status"],
                     "readiness_score": summary["readiness_score"],
                     "work_shift": _work_shift(conn, m["id"]),

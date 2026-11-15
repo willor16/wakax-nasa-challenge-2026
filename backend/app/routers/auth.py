@@ -32,7 +32,7 @@ def list_crew_profiles() -> list[dict]:
     with open_connection() as conn:
         members = conn.execute(
             """
-            SELECT id, code, full_name, role, title_en, failed_attempts, locked_until_utc
+            SELECT id, code, full_name, role, title_en, sex, failed_attempts, locked_until_utc
             FROM crew_members
             WHERE is_active = 1
             ORDER BY code ASC
@@ -52,6 +52,8 @@ def list_crew_profiles() -> list[dict]:
                     "short_name": short_name(m["full_name"]),
                     "role": m["role"],
                     "title_en": display_title(m),
+                    # Picks the female or male anatomical figure on the card.
+                    "sex": m["sex"],
                     "status": readiness["status"],
                     "is_locked": is_locked,
                     "locked_until_utc": locked_until if is_locked else None,

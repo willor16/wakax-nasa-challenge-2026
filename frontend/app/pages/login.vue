@@ -8,6 +8,7 @@ interface CrewProfile {
   code: string
   full_name: string
   title_en: string
+  sex: 'F' | 'M' | null
   status: string
   is_locked: boolean
 }
@@ -95,7 +96,7 @@ v-if="loading || error || !profiles?.length" :loading="loading" :error="error"
           {{ profile.is_locked ? 'LOCKED' : profile.id === selectedId ? 'SELECTED' : profile.status.toUpperCase() }}
         </UiStatusPill>
         <UiHoloFigure
-figure="body" :tone="crewTone(profile.status)" size="clamp(80px, 11dvh, 124px)" class="mt-[clamp(44px,7dvh,72px)]"
+figure="body" :sex="profile.sex" :tone="crewTone(profile.status)" size="clamp(80px, 11dvh, 124px)" class="mt-[clamp(44px,7dvh,72px)]"
                       :label="`${profile.full_name}: ${profile.status}`" />
         <span class="mt-[clamp(14px,2.1dvh,22px)] text-[15px] font-bold">{{ profile.full_name }}</span>
         <span class="mt-[5px] text-[11.5px] text-cabin-ice">{{ profile.title_en }}</span>

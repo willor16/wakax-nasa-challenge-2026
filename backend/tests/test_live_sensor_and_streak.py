@@ -125,3 +125,11 @@ def test_personal_streak_matches_public_board(client, login):
     assert mine["active_streak_days"] == public["active_streak_days"]
     assert mine["best_streak_days"] == public["best_streak_days"]
     assert mine["last_14_days"][-7:] == public["last_7_days"]
+
+
+def test_crew_cards_carry_sex_for_the_anatomical_figure(client):
+    login_cards = {c["id"]: c["sex"] for c in client.get("/api/v1/crew/profiles").json()}
+    overview = {c["id"]: c["sex"] for c in client.get("/api/v1/crew-overview").json()["crew"]}
+    for cards in (login_cards, overview):
+        assert cards["ID-01"] == "F" and cards["ID-03"] == "F"
+        assert cards["ID-02"] == "M" and cards["ID-04"] == "M"

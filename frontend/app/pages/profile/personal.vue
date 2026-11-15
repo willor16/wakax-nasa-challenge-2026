@@ -101,7 +101,7 @@ class="w-[30.8%] shrink-0" title="Biometric Scan" icon="vitruvian"
                     :tag-text="profile.status.toUpperCase()" :tag-tone="profile.status === 'Attention' ? 'critical' : 'reference'" flush>
       <div class="flex-1 flex flex-col items-center px-[19px] pb-[19px]">
         <UiHoloFigure
-figure="body-scan" size="min(clamp(220px, 50dvh, 760px), calc(30.8vw - 60px))" class="mt-[clamp(10px,3.6dvh,34px)]"
+figure="body-scan" :sex="profile.crew.sex" size="min(clamp(220px, 50dvh, 760px), calc(30.8vw - 60px))" class="mt-[clamp(10px,3.6dvh,34px)]"
                       :label="`Biometric scan of ${profile.crew.full_name}: ${profile.status}`" />
         <div class="mt-auto w-full grid grid-cols-2 gap-[12px]">
           <div class="tile h-[clamp(60px,7.7dvh,84px)] px-[16px] flex flex-col justify-center">

@@ -1,8 +1,12 @@
 <script setup lang="ts">
 // Holographic artwork from the design file with a status ring. The artwork was generated
-// with AI tools, so it carries the general "AI Used" mark.
+// with AI tools, so it carries the general "AI Used" mark. Whole-body figures follow the
+// crew member's sex: the female figures are derived from the same artwork (narrower
+// shoulders and waist, wider hips, shoulder-length hair).
 import bodyUrl from '~/assets/hologram/body_small.svg'
 import bodyScanUrl from '~/assets/hologram/body_scan.svg'
+import bodyScanFemaleUrl from '~/assets/hologram/body_scan_f.svg'
+import bodyFemaleUrl from '~/assets/hologram/body_small_f.svg'
 import brainUrl from '~/assets/hologram/brain.svg'
 import heartUrl from '~/assets/hologram/heart.svg'
 import lungsUrl from '~/assets/hologram/lungs.svg'
@@ -15,9 +19,13 @@ const props = withDefaults(defineProps<{
   size?: number | string
   label: string
   watermark?: boolean
-}>(), { tone: 'ok', size: 104, watermark: true })
+  /** ``F`` draws the female body; anything else the male one. Organs are the same for both. */
+  sex?: 'F' | 'M' | string | null
+}>(), { tone: 'ok', size: 104, watermark: true, sex: null })
 
 const sources = { 'body': bodyUrl, 'body-scan': bodyScanUrl, 'heart': heartUrl, 'lungs': lungsUrl, 'brain': brainUrl }
+const female = { 'body': bodyFemaleUrl, 'body-scan': bodyScanFemaleUrl } as Record<string, string>
+const src = computed(() => (props.sex === 'F' ? female[props.figure] : undefined) ?? sources[props.figure])
 const box = computed(() => (typeof props.size === 'number' ? `${props.size}px` : props.size))
 const ring = computed(() => props.figure === 'body' || props.figure === 'brain')
 </script>
@@ -30,7 +38,7 @@ const ring = computed(() => props.figure === 'body' || props.figure === 'brain')
     role="img"
     :aria-label="label"
   >
-    <img :src="sources[figure]" alt="" class="absolute inset-0 w-full h-full">
+    <img :src="src" alt="" class="absolute inset-0 w-full h-full">
     <span
       v-if="ring"
       class="absolute rounded-full border-[1.3px] border-dashed"

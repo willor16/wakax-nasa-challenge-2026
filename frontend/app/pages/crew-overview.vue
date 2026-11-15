@@ -9,6 +9,7 @@ interface OverviewCrew {
   code: string
   full_name: string
   title_en: string
+  sex: 'F' | 'M' | null
   status: string
   work_shift: { mode: string, minutes: number, location_en: string | null } | null
   vitals: {
@@ -125,7 +126,7 @@ const cabinState = computed(() => {
         <div class="flex-1 flex flex-col px-[16px] pb-[16px]">
           <div class="flex-1 min-h-0 flex items-center justify-center py-[8px]">
             <UiHoloFigure
-figure="body" :tone="crewTone(member.status)" size="clamp(72px, 15dvh, 168px)"
+figure="body" :sex="member.sex" :tone="crewTone(member.status)" size="clamp(72px, 15dvh, 168px)"
                           :label="`${member.full_name}: ${member.status}`" />
           </div>
           <div class="tile h-[56px] px-[12px] flex flex-col justify-center">
