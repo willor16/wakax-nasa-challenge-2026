@@ -14,6 +14,7 @@ from app.services.alert_rules import (
     classify_z,
     decide,
     is_quiet_hours,
+    is_role_focus,
     should_defer,
     z_score,
 )
@@ -113,13 +114,22 @@ def test_decide_nominal_reading_returns_none() -> None:
     assert decide(61, HR, BASE, DAY) is None
 
 
-def test_decide_takes_highest_of_fixed_and_drift() -> None:
-    # 80 bpm is nominal but 4 SD above this person's mean -> WARNING from drift.
+def test_drift_inside_usual_range_is_only_info() -> None:
+    # 80 bpm is nominal but 4 SD above this person's mean -> a trend to watch.
     result = decide(80, HR, BASE, DAY)
+    assert result is not None
+    assert result.severity is Severity.INFO
+    assert result.is_above is True
+    assert result.z == pytest.approx(4.0)
+
+
+def test_decide_takes_highest_of_fixed_and_drift() -> None:
+    # 88 bpm is just outside the usual range (INFO) and 5.6 SD above the mean
+    # (WARNING by drift) -> WARNING.
+    result = decide(88, HR, BASE, DAY)
     assert result is not None
     assert result.severity is Severity.WARNING
     assert result.is_above is True
-    assert result.z == pytest.approx(4.0)
 
 
 def test_decide_critical_at_night_is_not_deferred() -> None:
@@ -146,8 +156,52 @@ def test_alert_texts_are_plain_english() -> None:
     result = decide(120, HR, None, DAY)
     assert result is not None
     title, message = build_alert_texts("Resting Heart Rate", "bpm", 120, result, HR)
-    assert title == "Resting Heart Rate is higher than expected"
-    assert "120 bpm" in message
+    assert title == "Resting Heart Rate well above the safe limit (120 bpm)"
+    assert message.startswith("Above the usual range (50 bpm to 85 bpm).")
     assert "crew physician" in message
-    for jargon in ("z-score", "threshold", "baseline", "SD"):
+    for jargon in ("z-score", "threshold", "SD", "nominal", "critical"):
         assert jargon not in title + message
+
+
+def test_alert_texts_follow_notifications_screen_style() -> None:
+    # Screen 16: "Right optic nerve sheath slightly elevated (5.9 mm)" /
+    # "Above personal baseline (4.7 mm). Review preventive care on the right."
+    sheath = MetricThresholds(nominal_min=3.0, nominal_max=5.0, warning_max=5.3,
+                              critical_threshold=5.8)
+    base = Baseline(mean_val=4.7, std_dev=0.2, sample_count=5)
+    result = decide(5.1, sheath, base, DAY)
+    assert result is not None and result.severity is Severity.INFO
+    title, message = build_alert_texts("Right optic nerve sheath", "mm", 5.1, result, sheath,
+                                       baseline_mean=4.7)
+    assert title == "Right optic nerve sheath slightly elevated (5.1 mm)"
+    assert message == "Above personal baseline (4.7 mm). Review preventive care on the right."
+
+
+def test_quiet_hours_message_and_percent_format() -> None:
+    spo2 = MetricThresholds(nominal_min=95, nominal_max=100, warning_min=92, critical_min=90)
+    result = decide(94, spo2, None, NIGHT)
+    assert result is not None and result.is_quiet_deferred
+    title, message = build_alert_texts("Blood Oxygen Saturation", "%", 94, result, spo2)
+    assert title == "Blood Oxygen Saturation slightly low (94%)"
+    assert message.endswith("This can wait until the rest period ends.")
+
+
+def test_role_focus_raises_info_to_warning_only() -> None:
+    assert is_role_focus("PILOT", "optic_sheath_right_mm")
+    assert is_role_focus("OPERATOR", "resting_hr_bpm")
+    assert not is_role_focus("PILOT", "resting_hr_bpm")
+    assert not is_role_focus("ASTRONAUT", "optic_sheath_right_mm")
+    assert not is_role_focus(None, "resting_hr_bpm")
+
+    info = decide(88, HR, None, DAY, role_focus=True)
+    assert info is not None
+    assert info.severity is Severity.WARNING and info.role_focus
+    title, message = build_alert_texts("Resting Heart Rate", "bpm", 88, info, HR,
+                                       role="OPERATOR")
+    assert "Important for spacewalk duty." in message
+
+    # Never creates an alert by itself and never reaches CRITICAL.
+    assert decide(70, HR, None, DAY, role_focus=True) is None
+    critical = decide(120, HR, None, DAY, role_focus=True)
+    assert critical is not None
+    assert critical.severity is Severity.CRITICAL and not critical.role_focus

@@ -3,12 +3,16 @@
 The functions here decide *whether* a single reading deserves an alert, how
 severe it is and whether it may wait until Quiet Hours end. Wiring to SQLite
 (reading ``metric_catalog`` / ``baselines`` and inserting ``alerts`` rows) is
-done by ``app.services.contracts.evaluate_alerts``.
+done by ``app.services.alert_engine``, called from
+``app.services.contracts.evaluate_alerts``.
 
 Rules:
 * Fixed limits come from ``metric_catalog`` (nominal / warning / critical).
 * Personal drift is a z-score against the crew member's own ``baselines`` row.
-* The final severity is the highest of both checks.
+* The final severity is the highest of both checks. Drift alone stays INFO
+  while the value is still inside the usual (nominal) range.
+* Role focus: metrics that define fitness for a crew member's role (vision for a
+  PILOT, heart and lungs for an OPERATOR) are raised from INFO to WARNING.
 * Non-critical alerts raised during Quiet Hours are deferred; CRITICAL never is.
 """
 
@@ -30,6 +34,18 @@ DEFAULT_QUIET_END = "06:00"
 Z_INFO = 2.0
 Z_WARNING = 3.0
 MIN_BASELINE_SAMPLES = 3
+
+# Requirements spec section 2 and RNF 2: a PILOT is cleared on vision and
+# reaction, an OPERATOR (spacewalks) on heart, lungs and recovery after effort.
+ROLE_FOCUS_METRICS: dict[str, frozenset[str]] = {
+    "PILOT": frozenset({
+        "optic_sheath_left_mm", "optic_sheath_right_mm", "iop_left_mmhg", "iop_right_mmhg",
+    }),
+    "OPERATOR": frozenset({
+        "resting_hr_bpm", "hrv_rmssd_ms", "bp_systolic_mmhg", "spo2_pct", "vo2_max_ml_kg_min",
+    }),
+}
+ROLE_LABELS = {"PILOT": "piloting", "OPERATOR": "spacewalk duty"}
 
 
 class Severity(IntEnum):
@@ -77,6 +93,7 @@ class AlertDecision:
     is_above: bool
     z: float | None
     is_quiet_deferred: bool
+    role_focus: bool = False
 
 
 def classify_value(value: float, limits: MetricThresholds) -> Severity | None:
@@ -144,21 +161,38 @@ def parse_utc(timestamp_utc: str) -> datetime:
     return datetime.fromisoformat(timestamp_utc.replace("Z", "+00:00"))
 
 
+def is_role_focus(role: str | None, metric_key: str) -> bool:
+    """True when the metric is part of the fitness check for this crew role."""
+    return metric_key in ROLE_FOCUS_METRICS.get(role or "", frozenset())
+
+
 def decide(
     value: float,
     limits: MetricThresholds,
     baseline: Baseline | None,
     recorded_at_utc: str,
     quiet: QuietHours | None = None,
+    role_focus: bool = False,
 ) -> AlertDecision | None:
-    """Evaluate one reading. Returns None when no alert is needed."""
+    """Evaluate one reading. Returns None when no alert is needed.
+
+    ``role_focus`` raises an INFO result to WARNING; it never creates an alert
+    on its own and never reaches CRITICAL.
+    """
     fixed = classify_value(value, limits)
     z = z_score(value, baseline)
     drift = classify_z(z)
+    if fixed is None and drift is not None:
+        # Inside the usual range a personal drift is a trend to watch, not a
+        # warning: it informs without changing the crew member's readiness.
+        drift = Severity.INFO
     candidates = [s for s in (fixed, drift) if s is not None]
     if not candidates:
         return None
     severity = max(candidates)
+    raised = role_focus and severity is Severity.INFO
+    if raised:
+        severity = Severity.WARNING
     if fixed is not None:
         is_above = value > limits.nominal_max
     else:
@@ -168,20 +202,52 @@ def decide(
         is_above=is_above,
         z=z,
         is_quiet_deferred=should_defer(severity, parse_utc(recorded_at_utc), quiet),
+        role_focus=raised,
     )
 
 
-def build_alert_texts(display_name: str, unit: str, value: float, decision: AlertDecision,
-                      limits: MetricThresholds) -> tuple[str, str]:
-    """Plain-language title and message for the crew (no clinical jargon)."""
-    direction = "higher" if decision.is_above else "lower"
-    title = f"{display_name} is {direction} than expected"
-    message = (
-        f"Your reading was {value:g} {unit}. The usual range is "
-        f"{limits.nominal_min:g} to {limits.nominal_max:g} {unit}."
-    )
+def format_amount(value: float, unit: str) -> str:
+    """``5.9 mm``, ``98%`` - numbers rounded for reading, never scientific notation."""
+    text = f"{round(value, 2):g}"
+    return f"{text}{unit}" if unit == "%" else f"{text} {unit}"
+
+
+_QUALIFIERS = {
+    Severity.INFO: ("slightly elevated", "slightly low"),
+    Severity.WARNING: ("elevated", "low"),
+    Severity.CRITICAL: ("well above the safe limit", "well below the safe limit"),
+}
+
+
+def build_alert_texts(
+    display_name: str,
+    unit: str,
+    value: float,
+    decision: AlertDecision,
+    limits: MetricThresholds,
+    baseline_mean: float | None = None,
+    role: str | None = None,
+) -> tuple[str, str]:
+    """Plain-language title and message, in the style of the Notifications screen.
+
+    Example: ``Right Optic Nerve Sheath Diameter elevated (5.9 mm)`` /
+    ``Above personal baseline (4.3 mm). Review preventive care on the right.``
+    """
+    above, below = _QUALIFIERS[decision.severity]
+    title = f"{display_name} {above if decision.is_above else below} ({format_amount(value, unit)})"
+
+    side = "Above" if decision.is_above else "Below"
+    if baseline_mean is not None and decision.z is not None:
+        message = f"{side} personal baseline ({format_amount(baseline_mean, unit)})."
+    else:
+        low, high = format_amount(limits.nominal_min, unit), format_amount(limits.nominal_max, unit)
+        message = f"{side} the usual range ({low} to {high})."
+    if decision.role_focus and role in ROLE_LABELS:
+        message += f" Important for {ROLE_LABELS[role]}."
     if decision.severity is Severity.CRITICAL:
-        message += " Please follow the guide steps now and tell the crew physician."
+        message += " Follow the care steps now and call the crew physician."
     elif decision.is_quiet_deferred:
         message += " This can wait until the rest period ends."
+    else:
+        message += " Review preventive care on the right."
     return title, message
