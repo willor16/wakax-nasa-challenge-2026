@@ -19,7 +19,7 @@ Rules:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import UTC, datetime, time
 from enum import IntEnum
 
 DEFAULT_QUIET_START = "22:00"
@@ -111,13 +111,19 @@ def classify_value(value: float, limits: MetricThresholds) -> Severity | None:
     return None
 
 
-def z_score(value: float, baseline: Baseline | None) -> float | None:
-    """Distance from the personal mean in standard deviations, if it is meaningful."""
+def z_score(value: float, baseline: Baseline | None, sd_floor: float = 0.0) -> float | None:
+    """Distance from the personal mean in standard deviations, if it is meaningful.
+
+    ``sd_floor`` is the repeatability of the measurement itself: a short
+    pre-flight series can show a spread smaller than the instrument can
+    resolve, which would turn ordinary readings into false drift.
+    """
     if baseline is None or baseline.sample_count < MIN_BASELINE_SAMPLES:
         return None
-    if baseline.std_dev <= 0:
+    spread = max(baseline.std_dev, sd_floor)
+    if spread <= 0:
         return None
-    return (value - baseline.mean_val) / baseline.std_dev
+    return (value - baseline.mean_val) / spread
 
 
 def classify_z(z: float | None) -> Severity | None:
@@ -157,8 +163,12 @@ def should_defer(severity: Severity, moment_utc: datetime, quiet: QuietHours | N
 
 
 def parse_utc(timestamp_utc: str) -> datetime:
-    """Parse an ISO-8601 UTC timestamp such as ``2026-11-14T23:30:00Z``."""
-    return datetime.fromisoformat(timestamp_utc.replace("Z", "+00:00"))
+    """Parse an ISO-8601 UTC timestamp such as ``2026-11-14T23:30:00Z``.
+
+    Timestamps without an offset are taken as UTC so they never mix with aware ones.
+    """
+    parsed = datetime.fromisoformat(timestamp_utc.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def is_role_focus(role: str | None, metric_key: str) -> bool:
@@ -173,14 +183,21 @@ def decide(
     recorded_at_utc: str,
     quiet: QuietHours | None = None,
     role_focus: bool = False,
+    drift_direction: str = "both",
+    sd_floor: float = 0.0,
 ) -> AlertDecision | None:
     """Evaluate one reading. Returns None when no alert is needed.
 
-    ``role_focus`` raises an INFO result to WARNING; it never creates an alert
-    on its own and never reaches CRITICAL.
+    ``role_focus`` raises an out-of-range INFO result to WARNING; it never
+    creates an alert on its own and never reaches CRITICAL. ``drift_direction``
+    is ``both``, ``up``, ``down`` or ``none`` (which side of the personal
+    baseline matters for this metric).
     """
     fixed = classify_value(value, limits)
-    z = z_score(value, baseline)
+    z = None if drift_direction == "none" else z_score(value, baseline, sd_floor)
+    if z is not None and ((drift_direction == "up" and z < 0)
+                          or (drift_direction == "down" and z > 0)):
+        z = None  # movement in the harmless direction is not a finding
     drift = classify_z(z)
     if fixed is None and drift is not None:
         # Inside the usual range a personal drift is a trend to watch, not a
@@ -190,7 +207,8 @@ def decide(
     if not candidates:
         return None
     severity = max(candidates)
-    raised = role_focus and severity is Severity.INFO
+    # Role focus only raises readings that already left the usual range.
+    raised = role_focus and severity is Severity.INFO and fixed is Severity.INFO
     if raised:
         severity = Severity.WARNING
     if fixed is not None:
@@ -202,7 +220,8 @@ def decide(
         is_above=is_above,
         z=z,
         is_quiet_deferred=should_defer(severity, parse_utc(recorded_at_utc), quiet),
-        role_focus=raised,
+        # The role note is shown on every WARNING of a role-defining metric.
+        role_focus=role_focus and severity is Severity.WARNING,
     )
 
 

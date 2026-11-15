@@ -1,220 +1,134 @@
 <script setup lang="ts">
-interface CrewRecord {
-  id: string
-  code: string
-  full_name: string
-  role: 'ASTRONAUT' | 'PILOT' | 'OPERATOR' | 'PHYSICIAN'
-  age: number | null
-  sex: 'F' | 'M' | 'X' | null
-  blood_type: string | null
-  height_cm: number | null
-  is_active: number
-  failed_attempts: number
-}
+// Crew administration (operator only, requirement 3.1): roster, accounts and mission stage.
+import { z } from 'zod'
+import { apiErrorMessage } from '~/composables/useApi'
+import { sexText } from '~/utils/format'
 
-interface BaselineRecord {
-  metric_key: string
-  display_name_en: string
-  unit: string
-  mean_val: number
-  std_dev: number
-  sample_count: number
-}
+interface CrewRecord { id: string, code: string, full_name: string, role: string, title_en: string | null
+  age: number | null, sex: string | null, is_active: number, failed_attempts: number, locked_until_utc: string | null }
 
-const { activeCrew, authHeaders } = useSession()
+const { api } = useApi()
+const { mission, load: loadMission } = useMission()
+const { data, loading, error, refresh } = useResource(() => api<CrewRecord[]>('/crew'))
+const notice = ref<{ tone: 'ok' | 'critical', title: string, text: string } | null>(null)
+const busy = ref(false)
 
-const roster = ref<CrewRecord[]>([])
-const baselines = ref<BaselineRecord[]>([])
-const selectedCrewId = ref('ID-01')
-const feedbackMessage = ref('')
-const errorMessage = ref('')
-const isBusy = ref(false)
+usePageHeader(() => ({ title: 'Crew Administration', subtitle: 'Operator only',
+  status: data.value ? { text: `${data.value.filter(c => c.is_active).length} active crew`, tone: 'ok' } : null }))
 
-const newCrew = reactive({
-  id: 'ID-05',
-  code: 'ID·05',
-  full_name: '',
-  role: 'ASTRONAUT' as CrewRecord['role'],
-  pin: '',
-  age: 33,
-  sex: 'F' as 'F' | 'M' | 'X',
-  blood_type: 'O+',
-  height_cm: 170,
+const ROLES = ['ASTRONAUT', 'PILOT', 'OPERATOR', 'PHYSICIAN'] as const
+const form = reactive({ id: '', full_name: '', role: 'ASTRONAUT' as typeof ROLES[number], title_en: '', pin: '', age: '', sex: 'F' })
+const schema = z.object({
+  id: z.string().regex(/^ID-\d{2,4}$/, 'Crew ID: use the ID-05 format'),
+  full_name: z.string().trim().min(2, 'Full name: at least 2 characters'),
+  role: z.enum(ROLES),
+  title_en: z.string().trim().max(40).optional(),
+  pin: z.string().regex(/^\d{4}$/, 'PIN: exactly 4 digits'),
+  age: z.number().int().min(18, 'Age: 18 or older').max(80, 'Age: 80 or younger').optional(),
+  sex: z.enum(['F', 'M', 'X']),
 })
 
-const isOperator = computed(() => activeCrew.value?.role === 'OPERATOR')
-
-async function loadRoster() {
-  if (!isOperator.value) return
+async function run(action: () => Promise<unknown>, done: string) {
+  busy.value = true
+  notice.value = null
   try {
-    roster.value = await $fetch<CrewRecord[]>('/api/v1/crew', { headers: authHeaders() })
+    await action()
+    notice.value = { tone: 'ok', title: 'Saved', text: done }
+    await refresh(true)
   }
-  catch {
-    errorMessage.value = 'Unable to load crew administration roster.'
-  }
-}
-
-async function loadBaselines(crewId: string) {
-  selectedCrewId.value = crewId
-  try {
-    baselines.value = await $fetch<BaselineRecord[]>(`/api/v1/crew/${crewId}/baselines`)
-  }
-  catch {
-    baselines.value = []
-  }
-}
-
-async function createMember() {
-  feedbackMessage.value = ''
-  errorMessage.value = ''
-  isBusy.value = true
-  try {
-    await $fetch('/api/v1/crew', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: newCrew,
-    })
-    feedbackMessage.value = `Created profile ${newCrew.code}.`
-    newCrew.full_name = ''
-    newCrew.pin = ''
-    await loadRoster()
-  }
-  catch (err: unknown) {
-    const detail = (err as { data?: { detail?: string } })?.data?.detail
-    errorMessage.value = detail || 'Unable to create crew profile.'
+  catch (reason) {
+    notice.value = { tone: 'critical', title: 'Not saved', text: apiErrorMessage(reason) }
   }
   finally {
-    isBusy.value = false
+    busy.value = false
   }
 }
-
-async function toggleActive(member: CrewRecord) {
-  feedbackMessage.value = ''
-  errorMessage.value = ''
-  try {
-    await $fetch(`/api/v1/crew/${member.id}`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: { is_active: member.is_active === 0, unlock_account: true },
-    })
-    await loadRoster()
+async function create() {
+  const parsed = schema.safeParse({ ...form, title_en: form.title_en || undefined, age: form.age ? Number(form.age) : undefined })
+  if (!parsed.success) {
+    notice.value = { tone: 'critical', title: 'Not saved', text: parsed.error.issues[0]!.message }
+    return
   }
-  catch {
-    errorMessage.value = 'Unable to update crew member status.'
-  }
+  const body = { ...parsed.data, code: parsed.data.id.replace('-', '·') }
+  await run(() => api('/crew', { method: 'POST', body }), `${parsed.data.full_name} can now sign in with the new PIN.`)
+  if (notice.value?.tone === 'ok') Object.assign(form, { id: '', full_name: '', title_en: '', pin: '', age: '' })
 }
+const setActive = (member: CrewRecord, active: boolean) => run(
+  () => api(`/crew/${member.id}`, { method: 'PATCH', body: { is_active: active } }),
+  `${member.full_name} is now ${active ? 'active' : 'inactive'}.`)
+const unlock = (member: CrewRecord) => run(
+  () => api(`/crew/${member.id}`, { method: 'PATCH', body: { unlock_account: true } }), `${member.full_name} can try the PIN again.`)
 
-async function recomputeBaselines(crewId: string) {
-  feedbackMessage.value = ''
-  errorMessage.value = ''
-  try {
-    const res = await $fetch<{ updated_count: number }>(`/api/v1/crew/${crewId}/baselines/recompute`, {
-      method: 'POST',
-      headers: authHeaders(),
-    })
-    feedbackMessage.value = `Recomputed ${res.updated_count} pre-flight baselines for ${crewId}.`
-    await loadBaselines(crewId)
+const NEXT_STAGE: Record<string, string | undefined> = { LAUNCH: 'MISSION', MISSION: 'RETURN' }
+const nextStage = computed(() => NEXT_STAGE[mission.value?.current_stage ?? ''])
+const confirmStage = ref(false)
+async function advanceStage() {
+  if (!nextStage.value) return
+  if (!confirmStage.value) {
+    confirmStage.value = true
+    return
   }
-  catch {
-    errorMessage.value = 'Unable to recompute pre-flight baselines.'
-  }
+  confirmStage.value = false
+  await run(() => api('/mission/stage', { method: 'POST', body: { stage: nextStage.value } }),
+    `The mission is now in the ${nextStage.value!.toLowerCase()} stage. New readings are filed under it.`)
+  await loadMission()
 }
-
-onMounted(async () => {
-  await loadRoster()
-  await loadBaselines(selectedCrewId.value)
-})
+const isLocked = (member: CrewRecord) => Boolean(member.locked_until_utc && new Date(member.locked_until_utc) > new Date())
 </script>
 
 <template>
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-[18px] flex-1">
-    <ShellHudWindow
-      class="lg:col-span-7"
-      title="Crew Roster & Access Administration"
-      subtitle="Operator management for onboard crew profiles and pre-flight baselines"
-      icon="profile"
-      tag-text="OPERATOR ONLY"
-    >
-      <p
-        v-if="!isOperator"
-        class="px-4 py-3 rounded-[6px] bg-cabin-crit/20 border border-cabin-crit text-[12px] text-cabin-text"
-      >
-        Sign in with an Operator profile to create, edit, or deactivate crew members.
-      </p>
-
-      <template v-else>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4">
-          <div
-            v-for="member in roster"
-            :key="member.id"
-            class="p-3 rounded-[6px] bg-cabin-inset border border-cabin-card/70 flex items-center justify-between gap-2"
-          >
-            <div>
-              <div class="font-mono text-[10.5px] text-cabin-muted">
-                {{ member.code }} · {{ member.role }}
-              </div>
-              <div class="text-[13px] font-bold text-cabin-text">{{ member.full_name }}</div>
+  <div class="page">
+    <ShellProfileTabs />
+    <UiStateNote v-if="!data" :loading="loading" :error="error" @retry="refresh()" />
+    <div v-else class="flex-1 min-h-0 flex gap-[18px]">
+      <ShellHudWindow class="w-[860px]" title="Crew Roster & Access" icon="profile" :tag-text="`${data.length} PROFILES`" flush>
+        <div class="flex-1 min-h-0 hud-scroll flex flex-col gap-[12px] p-[22px]">
+          <div v-for="member in data" :key="member.id" class="tile h-[74px] shrink-0 px-[20px] flex items-center gap-[18px]">
+            <span class="mono text-[11px] w-[52px]">{{ member.code }}</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-[14px] font-bold truncate" :class="member.is_active ? '' : 'text-cabin-dim'">{{ member.full_name }}</p>
+              <p class="text-[11px] text-cabin-ice mt-[4px]">{{ member.title_en ?? member.role }} · {{ member.role.toLowerCase() }} · {{ sexText(member.sex) }}{{ member.age ? ` · ${member.age} yrs` : '' }}</p>
             </div>
-            <div class="flex items-center gap-1.5">
-              <button
-                type="button"
-                class="px-2.5 h-7 rounded-[4px] bg-cabin-navy/45 border border-cabin-navy-edge/80 text-[10px] font-bold uppercase text-cabin-text cursor-pointer"
-                @click="recomputeBaselines(member.id)"
-              >
-                Baselines
-              </button>
-              <button
-                type="button"
-                class="px-2.5 h-7 rounded-[4px] border text-[10px] font-bold uppercase cursor-pointer"
-                :class="member.is_active ? 'bg-cabin-card/45 border-cabin-card text-cabin-text' : 'bg-cabin-crit/25 border-cabin-crit text-cabin-text'"
-                @click="toggleActive(member)"
-              >
-                {{ member.is_active ? 'Active' : 'Inactive' }}
-              </button>
-            </div>
+            <UiStatusPill :tone="isLocked(member) ? 'critical' : 'reference'">{{ isLocked(member) ? 'LOCKED' : member.is_active ? 'ACTIVE' : 'INACTIVE' }}</UiStatusPill>
+            <button v-if="isLocked(member)" type="button" class="hud-button !w-[96px] !h-[34px] !text-[11px]" :disabled="busy" @click="unlock(member)">Unlock</button>
+            <button
+type="button" class="hud-button !w-[110px] !h-[34px] !text-[11px]" :class="member.is_active ? 'hud-button-critical' : ''" :disabled="busy"
+                    @click="setActive(member, !member.is_active)">{{ member.is_active ? 'Deactivate' : 'Activate' }}</button>
           </div>
         </div>
+      </ShellHudWindow>
 
-        <form class="p-4 rounded-[6px] bg-cabin-inset border border-cabin-card/65 grid grid-cols-2 md:grid-cols-3 gap-3" @submit.prevent="createMember">
-          <input v-model="newCrew.id" type="text" placeholder="ID-05" class="h-9 px-3 rounded-[4px] bg-cabin-bg border border-cabin-card/80 font-mono text-[12px] text-cabin-text">
-          <input v-model="newCrew.code" type="text" placeholder="ID·05" class="h-9 px-3 rounded-[4px] bg-cabin-bg border border-cabin-card/80 font-mono text-[12px] text-cabin-text">
-          <input v-model="newCrew.full_name" type="text" placeholder="Full Name" class="h-9 px-3 rounded-[4px] bg-cabin-bg border border-cabin-card/80 text-[12px] text-cabin-text">
-          <select v-model="newCrew.role" class="h-9 px-3 rounded-[4px] bg-cabin-bg border border-cabin-card/80 text-[12px] text-cabin-text">
-            <option value="ASTRONAUT">ASTRONAUT</option>
-            <option value="PILOT">PILOT</option>
-            <option value="OPERATOR">OPERATOR</option>
-            <option value="PHYSICIAN">PHYSICIAN</option>
-          </select>
-          <input v-model="newCrew.pin" type="password" maxlength="4" placeholder="4-digit PIN" class="h-9 px-3 rounded-[4px] bg-cabin-bg border border-cabin-card/80 font-mono text-[12px] text-cabin-text">
-          <button type="submit" :disabled="isBusy" class="h-9 px-4 rounded-[4px] bg-cabin-card hover:bg-cabin-card/85 text-[11px] font-bold uppercase text-cabin-text cursor-pointer">
-            Add Crew Member
-          </button>
-        </form>
-
-        <p v-if="feedbackMessage" class="mt-3 text-[11.5px] text-cabin-ok">{{ feedbackMessage }}</p>
-        <p v-if="errorMessage" class="mt-3 text-[11.5px] text-cabin-crit">{{ errorMessage }}</p>
-      </template>
-    </ShellHudWindow>
-
-    <ShellHudWindow
-      class="lg:col-span-5"
-      title="Pre-Flight Personal Baselines"
-      subtitle="Reference mean and deviation computed from Launch stage"
-      icon="vitruvian"
-      :tag-text="selectedCrewId"
-    >
-      <div class="max-h-[420px] overflow-y-auto flex flex-col gap-2">
-        <div
-          v-for="item in baselines"
-          :key="item.metric_key"
-          class="px-3 py-2 rounded-[4px] bg-cabin-inset border border-cabin-card/55 flex items-center justify-between text-[11.5px]"
-        >
-          <span class="text-cabin-text">{{ item.display_name_en }}</span>
-          <span class="font-mono text-cabin-ok">
-            {{ item.mean_val }} ± {{ item.std_dev }} {{ item.unit }}
-          </span>
-        </div>
+      <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
+        <ShellHudWindow class="flex-1" title="Add Crew Member" icon="capture" tag-text="LOCAL" flush>
+          <form class="flex-1 flex flex-col gap-[14px] px-[22px] pt-[18px] pb-[18px]" novalidate @submit.prevent="create">
+            <div class="grid grid-cols-2 gap-[14px]">
+              <UiNumberField id="new-id" v-model="form.id" label="Crew ID" placeholder="ID-05" inputmode="text" />
+              <UiNumberField id="new-pin" v-model="form.pin" label="4-Digit PIN" placeholder="••••" inputmode="numeric" />
+            </div>
+            <UiNumberField id="new-name" v-model="form.full_name" label="Full Name" placeholder="First and last name" inputmode="text" />
+            <div class="grid grid-cols-2 gap-[14px]">
+              <UiNumberField id="new-title" v-model="form.title_en" label="Position" placeholder="e.g. Flight Engineer" inputmode="text" />
+              <UiNumberField id="new-age" v-model="form.age" label="Age" placeholder="e.g. 35" inputmode="numeric" />
+            </div>
+            <div class="flex gap-[8px]" role="radiogroup" aria-label="Role">
+              <button
+v-for="role in ROLES" :key="role" type="button" role="radio" :aria-checked="form.role === role"
+                      class="focus-ring flex-1 h-[34px] rounded-[4px] text-[10.5px] font-bold border-[1.3px]"
+                      :class="form.role === role ? 'menu-item-active' : 'bg-cabin-tile border-cabin-line text-cabin-ice'" @click="form.role = role">{{ role }}</button>
+            </div>
+            <button type="submit" class="hud-button !h-[48px] mt-auto" :disabled="busy">Create Crew Profile</button>
+          </form>
+        </ShellHudWindow>
+        <ShellHudWindow class="h-[214px] shrink-0" title="Mission Stage" icon="rocket" :tag-text="mission?.current_stage" flush>
+          <div class="flex-1 flex flex-col justify-center gap-[14px] px-[22px]">
+            <UiSaveResult v-if="notice" v-bind="notice" />
+            <p v-else class="text-[12.5px] text-cabin-ice">Readings are filed under the current stage. Stages only move forward: Launch → Mission → Return.</p>
+            <button type="button" class="hud-button !h-[48px]" :class="confirmStage ? 'hud-button-critical' : ''" :disabled="!nextStage || busy" @click="advanceStage">
+              {{ !nextStage ? 'Mission complete' : confirmStage ? `Confirm: start the ${nextStage.toLowerCase()} stage` : `Start ${nextStage.toLowerCase()} stage` }}
+            </button>
+          </div>
+        </ShellHudWindow>
       </div>
-    </ShellHudWindow>
+    </div>
   </div>
 </template>

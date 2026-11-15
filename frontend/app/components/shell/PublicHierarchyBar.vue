@@ -1,33 +1,36 @@
 <script setup lang="ts">
+// Level 1 (no PIN): Sign In · Crew Overview · Crew Streaks.
 const route = useRoute()
-
-const publicTabs = [
-  { to: '/login', labelKey: 'nav.public.signIn', icon: 'lock' },
-  { to: '/crew-overview', labelKey: 'nav.public.crewOverview', icon: 'shield' },
-  { to: '/crew-streaks', labelKey: 'nav.public.crewStreaks', icon: 'flame' },
+const { t } = useI18n()
+const tabs = [
+  { to: '/login', icon: 'lock', label: 'nav.signIn' },
+  { to: '/crew-overview', icon: 'vitruvian', label: 'nav.crewOverview' },
+  { to: '/crew-streaks', icon: 'flame', label: 'nav.crewStreaks' },
 ]
 </script>
 
 <template>
-  <nav
-    aria-label="Public cabin navigation"
-    class="h-[68px] px-7 bg-cabin-bg/88 border-t border-cabin-card/55 flex items-center justify-center shrink-0"
-  >
-    <div class="flex items-center gap-3">
+  <nav class="absolute bottom-0 left-0 right-0 h-[74px] flex justify-center" :aria-label="t('nav.publicLabel')">
+    <div class="dock-trapezoid w-[690px] h-full flex items-end justify-center gap-[24px] px-[52px] pb-[6px]">
       <NuxtLink
-        v-for="tab in publicTabs"
+        v-for="tab in tabs"
         :key="tab.to"
         :to="tab.to"
-        class="h-10 px-6 rounded-[6px] border flex items-center gap-2.5 text-[12px] font-bold tracking-[0.03em] uppercase transition-colors"
-        :class="
-          route.path === tab.to
-            ? 'menu-item-active text-cabin-text'
-            : 'bg-cabin-card/30 border-cabin-card/70 text-cabin-muted hover:text-cabin-text'
-        "
+        class="focus-ring relative w-[180px] h-[62px] rounded-[4px] flex flex-col items-center justify-center gap-[5px] text-[11px] border-[1.3px] border-transparent"
+        :class="route.path === tab.to ? 'menu-item-active font-bold text-cabin-text' : 'text-cabin-ice/85 hover:text-cabin-text'"
+        :aria-current="route.path === tab.to ? 'page' : undefined"
       >
-        <Icon :name="`spacescan:${tab.icon}`" class="w-4 h-4" />
-        <span>{{ $t(tab.labelKey) }}</span>
+        <Icon :name="`spacescan:${tab.icon}`" class="w-[18px] h-[18px]" />
+        {{ t(tab.label) }}
+        <span v-if="route.path === tab.to" class="absolute bottom-[1px] left-[26px] right-[26px] h-[2.5px] rounded-full bg-cabin-text/85" />
       </NuxtLink>
     </div>
   </nav>
 </template>
+
+<style scoped>
+.dock-trapezoid {
+  background: linear-gradient(180deg, var(--color-card-head) 0%, var(--color-card-fill) 100%);
+  clip-path: polygon(5% 0, 95% 0, 100% 100%, 0 100%);
+}
+</style>

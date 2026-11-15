@@ -1,179 +1,169 @@
 <script setup lang="ts">
-interface CrewProfileSummary {
+// 01 · Sign In: pick a crew profile and enter the 4-digit PIN. Public views need no sign-in.
+import { apiErrorMessage } from '~/composables/useApi'
+import { crewTone } from '~/utils/format'
+
+interface CrewProfile {
   id: string
   code: string
   full_name: string
-  short_name: string
-  role: 'ASTRONAUT' | 'PILOT' | 'OPERATOR' | 'PHYSICIAN'
-  status: 'Optimal' | 'Nominal' | 'Attention' | 'Critical'
-  unread_alerts: number
+  title_en: string
+  status: string
   is_locked: boolean
-  locked_until_utc: string | null
 }
 
-const router = useRouter()
-const { signInWithPin, refreshMissionStatus } = useSession()
+usePageHeader({ title: '' })
+const { api } = useApi()
+const { login, isAuthenticated } = useSession()
 
-const crewRoster = ref<CrewProfileSummary[]>([])
-const selectedId = ref('ID-01')
-const pinDigits = ref('')
-const isSubmitting = ref(false)
-const errorMessage = ref('')
+const { data: profiles, loading, error, refresh } = useResource(() => api<CrewProfile[]>('/crew/profiles'))
+const selectedId = ref<string | null>(null)
+const pin = ref('')
+const busy = ref(false)
+const failure = ref<string | null>(null)
+const pinInput = ref<HTMLInputElement | null>(null)
 
-async function loadProfiles() {
-  try {
-    crewRoster.value = await $fetch<CrewProfileSummary[]>('/api/v1/crew/profiles')
-    if (crewRoster.value.length > 0 && !crewRoster.value.some(c => c.id === selectedId.value)) {
-      selectedId.value = crewRoster.value[0]!.id
-    }
-  }
-  catch {
-    errorMessage.value = 'Unable to reach onboard health service.'
-  }
+const selected = computed(() => profiles.value?.find(p => p.id === selectedId.value) ?? null)
+watch(profiles, (list) => {
+  if (list?.length && !selectedId.value) selectedId.value = list[0]!.id
+})
+
+function choose(profile: CrewProfile) {
+  selectedId.value = profile.id
+  pin.value = ''
+  failure.value = null
+  pinInput.value?.focus()
 }
 
-async function submitPin() {
-  if (pinDigits.value.length !== 4 || isSubmitting.value) return
-  isSubmitting.value = true
-  errorMessage.value = ''
+function onPinInput(event: Event) {
+  const input = event.target as HTMLInputElement
+  pin.value = input.value.replace(/\D/g, '').slice(0, 4)
+  input.value = pin.value
+  failure.value = null
+}
+
+async function signIn() {
+  if (!selected.value || pin.value.length !== 4 || busy.value) return
+  busy.value = true
+  failure.value = null
   try {
-    await signInWithPin(selectedId.value, pinDigits.value)
-    await router.push('/profile/personal')
+    await login(selected.value.id, pin.value)
+    await navigateTo('/profile/personal')
   }
-  catch (err: unknown) {
-    const detail = (err as { data?: { detail?: string } })?.data?.detail
-    errorMessage.value = detail || 'Authentication failed. Verify PIN and retry.'
-    pinDigits.value = ''
-    await loadProfiles()
+  catch (reason) {
+    failure.value = apiErrorMessage(reason, 'Sign-in failed. Please try again.')
+    pin.value = ''
+    if (pinInput.value) pinInput.value.value = ''
+    void refresh(true)
+    pinInput.value?.focus()
   }
   finally {
-    isSubmitting.value = false
+    busy.value = false
   }
 }
 
-function statusColorClass(status: CrewProfileSummary['status']): string {
-  if (status === 'Critical') return 'text-cabin-crit'
-  if (status === 'Attention') return 'text-cabin-ice'
-  return 'text-cabin-ok'
-}
-
-onMounted(async () => {
-  await Promise.all([loadProfiles(), refreshMissionStatus()])
+onMounted(() => {
+  if (isAuthenticated.value) void navigateTo('/profile/personal')
 })
 </script>
 
 <template>
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-[18px] flex-1">
-    <ShellHudWindow
-      class="lg:col-span-7"
-      title="Crew Member Sign In"
-      subtitle="Select profile and enter 4-digit access PIN"
-      icon="lock"
-      tag-text="CABIN TERMINAL"
-    >
-      <div class="grid grid-cols-2 gap-3 mb-5">
-        <button
-          v-for="member in crewRoster"
-          :key="member.id"
-          type="button"
-          class="p-3.5 rounded-[6px] border text-left transition-colors cursor-pointer"
-          :class="
-            selectedId === member.id
-              ? 'menu-item-active text-cabin-text'
-              : 'bg-cabin-inset border-cabin-card/65 text-cabin-muted hover:text-cabin-text'
-          "
-          @click="selectedId = member.id; errorMessage = ''"
+  <div class="flex-1 flex flex-col items-center">
+    <h1 class="text-[21px] font-bold mt-[14px]">Select Crew Profile</h1>
+
+    <UiStateNote
+v-if="loading || error || !profiles?.length" :loading="loading" :error="error"
+                 empty="No crew profiles are set up yet." class="!flex-none h-[257px] mt-[20px]" @retry="refresh()" />
+    <div v-else class="mt-[20px] flex gap-[21px]" role="radiogroup" aria-label="Crew profile">
+      <button
+        v-for="profile in profiles"
+        :key="profile.id"
+        type="button"
+        role="radio"
+        :aria-checked="profile.id === selectedId"
+        class="focus-ring relative w-[249px] h-[257px] rounded-[5px] flex flex-col items-center cursor-pointer border-[1.4px]"
+        :class="profile.id === selectedId
+          ? 'bg-[var(--color-card-head)] border-cabin-text/85'
+          : 'bg-[var(--color-card-fill)] border-cabin-line hover:border-cabin-edge'"
+        @click="choose(profile)"
+      >
+        <span class="absolute top-[14px] left-[16px] mono text-[10px] text-cabin-ice tracking-[0.06em]">{{ profile.code }}</span>
+        <UiStatusPill
+          class="absolute top-[10px] right-[12px] min-w-[84px]"
+          :tone="profile.id !== selectedId && crewTone(profile.status) === 'critical' ? 'critical' : 'reference'"
         >
-          <div class="flex items-center justify-between">
-            <span class="font-mono text-[11px] font-bold text-cabin-muted">{{ member.code }}</span>
-            <span
-              class="text-[10px] font-semibold uppercase tracking-[0.04em]"
-              :class="statusColorClass(member.status)"
-            >
-              {{ member.is_locked ? 'Locked' : member.status }}
-            </span>
-          </div>
-          <div class="mt-1 text-[13.5px] font-bold text-cabin-text">
-            {{ member.full_name }}
-          </div>
-          <div class="text-[10.5px] tracking-[0.04em] uppercase text-cabin-muted">
-            {{ member.role }}
-          </div>
-        </button>
-      </div>
+          {{ profile.is_locked ? 'LOCKED' : profile.id === selectedId ? 'SELECTED' : profile.status.toUpperCase() }}
+        </UiStatusPill>
+        <UiHoloFigure
+figure="body" :tone="crewTone(profile.status)" :size="104" class="mt-[66px]"
+                      :label="`${profile.full_name}: ${profile.status}`" />
+        <span class="mt-[20px] text-[15px] font-bold">{{ profile.full_name }}</span>
+        <span class="mt-[5px] text-[11.5px] text-cabin-ice">{{ profile.title_en }}</span>
+      </button>
+    </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        <AuthPinPad4Digits
-          v-model="pinDigits"
-          :disabled="isSubmitting || crewRoster.length === 0"
-          @submit="submitPin"
-        />
-
-        <div class="flex flex-col gap-3">
-          <div class="p-3.5 rounded-[6px] bg-cabin-inset border border-cabin-card/65 text-[11.5px] text-cabin-muted">
-            <div class="font-bold uppercase tracking-[0.04em] text-cabin-text mb-1">
-              Keyboard or Pad Entry
-            </div>
-            <input
-              v-model="pinDigits"
-              type="password"
-              inputmode="numeric"
-              maxlength="4"
-              placeholder="4-digit PIN"
-              class="mt-1 w-full h-10 px-3 rounded-[4px] bg-cabin-bg/75 border border-cabin-card/80 font-mono text-[14px] tracking-[0.25em] text-cabin-text focus:outline-none focus:border-cabin-navy-edge"
-              @keyup.enter="submitPin"
-            >
+    <ShellHudWindow class="w-[500px] h-[232px] mt-[23px]" flush>
+      <template #header>
+        <div class="flex items-center gap-[10px] min-w-0">
+          <div class="w-[22px] h-[22px] rounded-[4px] bg-cabin-tile border border-cabin-edge/70 flex items-center justify-center">
+            <Icon name="spacescan:lock" class="w-[13px] h-[13px]" />
           </div>
-
-          <button
-            type="button"
-            class="h-11 px-6 rounded-[6px] bg-cabin-card hover:bg-cabin-card/85 border border-cabin-text/25 text-[12px] font-bold uppercase tracking-[0.05em] text-cabin-text cursor-pointer disabled:opacity-45"
-            :disabled="pinDigits.length !== 4 || isSubmitting"
-            @click="submitPin"
-          >
-            {{ isSubmitting ? 'Verifying...' : 'Unlock Profile' }}
-          </button>
-
-          <p
-            v-if="errorMessage"
-            class="px-3 py-2 rounded-[4px] bg-cabin-crit/20 border border-cabin-crit/80 text-[11.5px] font-semibold text-cabin-text"
-          >
-            {{ errorMessage }}
-          </p>
+          <h2 class="text-[13px] font-bold tracking-[0.02em] uppercase truncate">
+            Enter PIN<template v-if="selected"> · {{ selected.full_name }}</template>
+          </h2>
         </div>
-      </div>
+        <UiStatusPill>4-DIGIT PIN</UiStatusPill>
+      </template>
+      <form class="flex-1 flex flex-col items-center" @submit.prevent="signIn">
+        <label class="relative mt-[26px] flex gap-[18px] cursor-text">
+          <span class="sr-only">4-digit PIN for {{ selected?.full_name }}</span>
+          <input
+            ref="pinInput"
+            type="password"
+            inputmode="numeric"
+            autocomplete="off"
+            maxlength="4"
+            class="absolute inset-0 opacity-0 cursor-text"
+            :disabled="!selected || selected.is_locked || busy"
+            @input="onPinInput"
+          >
+          <span
+            v-for="index in 4"
+            :key="index"
+            class="w-[64px] h-[60px] rounded-[5px] flex items-center justify-center border-[1.3px]"
+            :class="index - 1 === Math.min(pin.length, 3) && pin.length < 4 || (pin.length === 4 && index === 4)
+              ? 'bg-[var(--color-bg-top)] border-cabin-text/85'
+              : 'bg-cabin-tile border-cabin-edge/70'"
+          >
+            <i v-if="pin.length >= index" class="w-[10px] h-[10px] rounded-full bg-cabin-text" />
+          </span>
+        </label>
+        <button
+type="submit" class="hud-button !w-[416px] !h-[52px] mt-[28px] relative"
+                :disabled="!selected || selected.is_locked || pin.length !== 4 || busy">
+          <Icon name="spacescan:lock" class="w-[15px] h-[15px] absolute left-[20px]" />
+          {{ busy ? 'Signing In…' : 'Sign In' }}
+        </button>
+        <p class="h-[18px] mt-[6px] text-[11px] text-cabin-text" :class="failure ? '' : 'invisible'" role="alert">
+          <Icon name="spacescan:alert" class="w-[11px] h-[11px] text-cabin-crit align-[-1px]" /> {{ failure }}
+        </p>
+      </form>
     </ShellHudWindow>
 
-    <ShellHudWindow
-      class="lg:col-span-5"
-      title="Public Crew Views"
-      subtitle="Read-only mission telemetry without PIN"
-      icon="shield"
-      tag-text="READ ONLY"
-    >
-      <div class="flex flex-col gap-3">
-        <NuxtLink
-          to="/crew-overview"
-          class="p-4 rounded-[6px] bg-cabin-inset border border-cabin-card/70 hover:bg-cabin-card/30 transition-colors flex items-center justify-between"
-        >
-          <div>
-            <div class="text-[13px] font-bold text-cabin-text">Crew Overview</div>
-            <div class="text-[11px] text-cabin-muted">Group readiness, vital snapshot, and cabin atmosphere</div>
-          </div>
-          <Icon name="spacescan:shield" class="w-5 h-5 text-cabin-text" />
-        </NuxtLink>
-
-        <NuxtLink
-          to="/crew-streaks"
-          class="p-4 rounded-[6px] bg-cabin-inset border border-cabin-card/70 hover:bg-cabin-card/30 transition-colors flex items-center justify-between"
-        >
-          <div>
-            <div class="text-[13px] font-bold text-cabin-text">Crew Streaks</div>
-            <div class="text-[11px] text-cabin-muted">Daily logging consistency and 7-day compliance</div>
-          </div>
-          <Icon name="spacescan:flame" class="w-5 h-5 text-cabin-text" />
-        </NuxtLink>
-      </div>
-    </ShellHudWindow>
+    <div class="w-[784px] mt-[26px] flex items-center gap-[56px]">
+      <span class="flex-1 h-px bg-cabin-text/20" />
+      <span class="label-caps">No sign-in required</span>
+      <span class="flex-1 h-px bg-cabin-text/20" />
+    </div>
+    <div class="w-[784px] mt-[14px] flex gap-[27px]">
+      <NuxtLink to="/crew-overview" class="hud-button !h-[54px] relative">
+        <Icon name="spacescan:vitruvian" class="w-[17px] h-[17px] absolute left-[18px]" />
+        Open Crew Overview
+      </NuxtLink>
+      <NuxtLink to="/crew-streaks" class="hud-button !h-[54px] relative">
+        <Icon name="spacescan:flame" class="w-[17px] h-[17px] absolute left-[18px]" />
+        Open Crew Streaks
+      </NuxtLink>
+    </div>
   </div>
 </template>

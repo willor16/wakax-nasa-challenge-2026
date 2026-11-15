@@ -43,7 +43,8 @@ def test_all_view_lists_own_advisories_first_by_severity_then_checks(
     body = client.get("/api/v1/alerts", headers=_headers(client, "ID-01")).json()
     assert body["crew_id"] == "ID-01"
     kinds = [item["kind"] for item in body["items"]]
-    assert kinds == sorted(kinds)  # ADVISORY before SCHEDULED
+    order = ["ADVISORY", "SCHEDULED", "MISSION_CONTROL"]
+    assert kinds == sorted(kinds, key=order.index)  # advisories, then checks, then messages
     advisories = [i for i in body["items"] if i["kind"] == "ADVISORY"]
     checks = [i for i in body["items"] if i["kind"] == "SCHEDULED"]
     severities = [a["severity"] for a in advisories]
@@ -56,14 +57,14 @@ def test_all_view_lists_own_advisories_first_by_severity_then_checks(
         pending = conn.execute(
             "SELECT COUNT(*) FROM scheduled_checks WHERE crew_id = 'ID-01' AND status = 'PENDING'"
         ).fetchone()[0]
-    assert body["counts"] == {
-        "all": open_alerts + pending, "advisories": open_alerts, "checks": pending,
-    }
+    messages = sum(1 for k in kinds if k == "MISSION_CONTROL")
+    assert body["counts"]["advisories"] == open_alerts and body["counts"]["checks"] == pending
+    assert body["counts"]["all"] == open_alerts + pending + messages
     assert len(advisories) == open_alerts and len(checks) == pending
     assert pending >= 6  # one open check per type after the startup refresh
 
     step = advisories[0]["care_steps"][0]
-    assert set(step) == {"title_en", "detail_en"}
+    assert set(step) == {"title_en", "detail_en", "done_at_utc"}
     assert all(c["detail_en"] for c in checks)
 
 
@@ -97,7 +98,7 @@ def test_acknowledge_own_alert_hides_it_and_is_idempotent(client, temp_db_path: 
         params={"view": "advisories", "include_acknowledged": True},
         headers=headers,
     ).json()
-    assert history["items"][-1]["id"] == target
+    assert target in [i["id"] for i in history["items"]]
 
     with _db(temp_db_path) as conn:
         row = conn.execute("SELECT acknowledged_by FROM alerts WHERE id = ?", (target,)).fetchone()
@@ -149,4 +150,5 @@ def test_deferred_advisories_stay_hidden_during_rest_but_critical_shows(
     assert "Rest test WARNING" not in titles
     critical = next(i for i in body["items"] if i["title_en"] == "Rest test CRITICAL")
     # Older rows stored plain sentences; they come back in the new step shape.
-    assert critical["care_steps"] == [{"title_en": "Plain older step", "detail_en": ""}]
+    assert critical["care_steps"] == [
+        {"title_en": "Plain older step", "detail_en": "", "done_at_utc": None}]

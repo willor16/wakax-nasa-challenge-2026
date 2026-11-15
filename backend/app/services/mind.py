@@ -11,8 +11,8 @@ Science:
   100 ms (or with no stimulus on screen) is a false start and a response of
   500 ms or more, or none at all, is a lapse (Dinges & Powell, Behavior Research
   Methods 17:652-655, 1985; Basner & Dinges, Sleep 34(5):581-591, 2011). The
-  vigilance score is 100 x (1 - (lapses + false starts) / stimuli), the PVT
-  performance score proposed by Basner & Dinges.
+  vigilance score is 100 x (1 - (lapses + false starts) / (valid stimuli +
+  false starts)), the PVT performance score proposed by Basner & Dinges.
 """
 
 from __future__ import annotations
@@ -21,6 +21,10 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from statistics import mean
+
+from app.services.alert_engine import raise_wellbeing_alert
+from app.services.alert_rules import Severity
+from app.services.mission_clock import day_label, mission_day, parse_iso
 
 MOOD_STATES = ("CALM", "FOCUSED", "TIRED", "STRESSED")
 FALSE_START_MS = 100
@@ -80,7 +84,11 @@ def score_reaction_test(reaction_times_ms: list[float | None], false_starts: int
     lapses = missed + len(slow)
     attempts = stimuli + false_starts
     accuracy = 100.0 * len(valid) / attempts if attempts else 0.0
-    vigilance = 100.0 * (1 - (lapses + total_false) / stimuli) if stimuli else 0.0
+    # Basner & Dinges 2011: errors relative to valid stimuli plus false starts.
+    # A response under 100 ms is a false start, not a valid stimulus, so the
+    # denominator is every stimulus plus the taps made with nothing on screen.
+    chances = stimuli + false_starts
+    vigilance = 100.0 * (1 - (lapses + total_false) / chances) if chances else 0.0
     return ReactionResult(
         trials_total=stimuli,
         valid_responses=len(valid),
@@ -142,7 +150,6 @@ def save_checkin(conn: sqlite3.Connection, crew_id: str, *, mood_state: str | No
                  sleep_onset_utc: str | None = None, wake_utc: str | None = None,
                  recorded_at_utc: str | None = None) -> dict:
     """Store one behavioral check-in and return it with its wellbeing index."""
-    ensure_mind_columns(conn)
     index = wellbeing_index(mood, stress, isolation, motivation)
     stamp = recorded_at_utc or _now()
     cursor = conn.execute(
@@ -156,7 +163,31 @@ def save_checkin(conn: sqlite3.Connection, crew_id: str, *, mood_state: str | No
         (crew_id, _mission_stage(conn), mood, stress, isolation, motivation, index, stamp,
          mood_state, sleep_onset_utc, wake_utc),
     )
-    return {"id": int(cursor.lastrowid), "wellbeing_index": index, "recorded_at_utc": stamp}
+    alert_id = _checkin_alert(conn, crew_id, mood, stress, isolation, motivation, stamp)
+    return {"id": int(cursor.lastrowid), "wellbeing_index": index, "recorded_at_utc": stamp,
+            "alert_id": alert_id}
+
+
+def _checkin_alert(conn: sqlite3.Connection, crew_id: str, mood: int, stress: int,
+                   isolation: int, motivation: int, stamp: str) -> int | None:
+    """A hard day deserves support: raise a wellbeing advisory for the crew member."""
+    concerns = []
+    if stress >= 4:
+        concerns.append("high stress")
+    if mood <= 2:
+        concerns.append("low mood")
+    if isolation >= 4:
+        concerns.append("feeling isolated")
+    if motivation <= 2:
+        concerns.append("low motivation")
+    if not concerns:
+        return None
+    worst = stress == 5 or mood == 1 or isolation == 5 or len(concerns) >= 2
+    severity = Severity.WARNING if worst else Severity.INFO
+    title = f"Wellbeing check-in: {' and '.join(concerns[:2])}"
+    message = ("Today's check-in is outside your usual range. "
+               "Small steps help; the crew physician is there to talk.")
+    return raise_wellbeing_alert(conn, crew_id, severity, title, message, "wellbeing", stamp)
 
 
 def save_reaction_session(conn: sqlite3.Connection, crew_id: str,
@@ -164,7 +195,6 @@ def save_reaction_session(conn: sqlite3.Connection, crew_id: str,
                           duration_sec: int = 120, recorded_at_utc: str | None = None
                           ) -> dict:
     """Score and store one reaction test session."""
-    ensure_mind_columns(conn)
     result = score_reaction_test(reaction_times_ms, false_starts)
     stamp = recorded_at_utc or _now()
     cursor = conn.execute(
@@ -178,7 +208,20 @@ def save_reaction_session(conn: sqlite3.Connection, crew_id: str,
          result.attention_score, duration_sec, stamp, result.trials_total,
          result.valid_responses, result.false_starts, result.lapses),
     )
-    return {"id": int(cursor.lastrowid), "recorded_at_utc": stamp, **asdict(result)}
+    alert_id = None
+    slow = result.valid_responses > 0 and result.reaction_ms >= REACTION_TARGET_MS
+    if slow or result.lapses >= 3 or result.accuracy_pct < PRECISION_TARGET_PCT - 10:
+        role = conn.execute("SELECT role FROM crew_members WHERE id = ?", (crew_id,)).fetchone()
+        pilot = bool(role) and role["role"] == "PILOT"
+        severity = Severity.WARNING if (pilot or result.lapses >= 5) else Severity.INFO
+        message = (f"Mean reaction {result.reaction_ms:g} ms with {result.lapses} lapses "
+                   f"(target under {REACTION_TARGET_MS} ms).")
+        if pilot:
+            message += " Important for piloting."
+        alert_id = raise_wellbeing_alert(conn, crew_id, severity, "Reaction test below target",
+                                         message, "alertness", stamp, category="ALERTNESS")
+    return {"id": int(cursor.lastrowid), "recorded_at_utc": stamp, "alert_id": alert_id,
+            **asdict(result)}
 
 
 # ---------------------------------------------------------------- profile ---
@@ -192,11 +235,35 @@ def _band(value: float, low: float, high: float) -> str:
     return "Low"
 
 
+def _reference_range(conn: sqlite3.Connection, crew_id: str, column: str, day: str
+                     ) -> tuple[tuple[float, float], str]:
+    """Range a 1-5 scale is compared against, and where that range comes from.
+
+    The latest day is never part of its own reference. In order: the pre-flight
+    check-ins (``BASELINE``), the days logged before the latest one (``RECENT``),
+    and with no earlier data the optimal wellbeing zone (``OPTIMAL_ZONE``).
+    """
+    assert column in ("mood_score", "motivation_score")
+    for source, where in (("BASELINE", "mission_stage = 'LAUNCH'"), ("RECENT", "1 = 1")):
+        row = conn.execute(
+            f"SELECT MIN({column}) AS low, MAX({column}) AS high FROM psych_tests"
+            f" WHERE crew_id = ? AND substr(recorded_at_utc, 1, 10) < ? AND {where}",
+            (crew_id, day),
+        ).fetchone()
+        if row["low"] is not None:
+            return (float(row["low"]), float(row["high"])), source
+    return OPTIMAL_ZONE, "OPTIMAL_ZONE"
+
+
 def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int = 14,
                   now: datetime | None = None) -> dict:
     """Read-only data for screen 05: latest state, 14-day trend and reaction results."""
-    ensure_mind_columns(conn)
     now = now or datetime.now(UTC)
+    newest = conn.execute(
+        "SELECT MAX(recorded_at_utc) FROM psych_tests WHERE crew_id = ?", (crew_id,)
+    ).fetchone()[0]
+    if newest:  # the 14-day window ends on the last logged day
+        now = min(now, parse_iso(newest))
     since = (now - timedelta(days=days - 1)).strftime("%Y-%m-%dT00:00:00Z")
     rows = conn.execute(
         """
@@ -210,7 +277,9 @@ def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int = 14,
         (crew_id, since),
     ).fetchall()
     trend = [
-        {"day": r["day"], "mood": round(r["mood"], 2), "calmness": calmness(r["stress"])}
+        {"day": r["day"],
+         "day_label": day_label(mission_day(conn, parse_iso(f"{r['day']}T00:00:00Z"))),
+         "mood": round(r["mood"], 2), "calmness": calmness(r["stress"])}
         for r in rows
     ]
 
@@ -219,29 +288,23 @@ def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int = 14,
         " LIMIT 1",
         (crew_id,),
     ).fetchone()
-    history = conn.execute(
-        """
-        SELECT MIN(mood_score) AS mood_lo, MAX(mood_score) AS mood_hi,
-               MIN(motivation_score) AS mot_lo, MAX(motivation_score) AS mot_hi
-        FROM psych_tests WHERE crew_id = ? AND recorded_at_utc >= ?
-        """,
-        (crew_id, since),
-    ).fetchone()
-
     scales = None
     if rows:
         today = rows[-1]
-        mood_range = (float(history["mood_lo"]), float(history["mood_hi"]))
-        mot_range = (float(history["mot_lo"]), float(history["mot_hi"]))
+        mood_range, mood_source = _reference_range(conn, crew_id, "mood_score", today["day"])
+        mot_range, mot_source = _reference_range(conn, crew_id, "motivation_score",
+                                                 today["day"])
         stress_value = stress_index(today["stress"])
         scales = {
             "mood": {"value": round(today["mood"], 1), "range": mood_range,
+                     "range_source": mood_source,
                      "label": _band(today["mood"], *mood_range)},
             "stress_index": {"value": stress_value, "target_below": STRESS_TARGET,
                              "label": "Low" if stress_value < STRESS_TARGET else "High"},
             "isolation": {"value": round(today["isolation"], 1), "target_below": ISOLATION_TARGET,
                           "label": "Low" if today["isolation"] < ISOLATION_TARGET else "High"},
             "motivation": {"value": round(today["motivation"], 1), "range": mot_range,
+                           "range_source": mot_source,
                            "label": _band(today["motivation"], *mot_range)},
         }
 

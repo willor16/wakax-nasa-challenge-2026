@@ -1,5 +1,6 @@
 """Tests for the onboard anomaly models, assistant guidance and physician review (D3-04/05)."""
 
+import base64
 import json
 from pathlib import Path
 
@@ -63,9 +64,9 @@ def conn(temp_db_path: Path):
 
 
 def test_detect_on_seeded_crew(conn) -> None:
-    eyes = detect(conn, "ID-01")  # seed: right eye pressure and sheath well above baseline
+    eyes = detect(conn, "ID-01")  # seed: both optic nerve sheaths well above baseline
     assert eyes.is_anomaly and eyes.pattern == "ocular"
-    assert eyes.top_metrics[0]["metric_key"] in {"iop_right_mmhg", "optic_sheath_right_mm"}
+    assert eyes.top_metrics[0]["metric_key"] in {"optic_sheath_left_mm", "optic_sheath_right_mm"}
     assert eyes.anomaly_score >= 1
     calm = detect(conn, "ID-03")  # seed: readings close to baseline
     assert not calm.is_anomaly and calm.pattern is None
@@ -98,6 +99,10 @@ GOOD = {
     "steps": [{"title": f"Step {i}", "detail": "Do this calmly."} for i in range(1, 5)],
     "cited_article_ids": ["wiki-vision-01", "wiki-unknown"],
 }
+# A sentence in another language, kept encoded so the code base stays English only.
+NOT_ENGLISH = base64.b64decode(
+    "TGVjdHVyYXMgZnVlcmEgZGUgcmFuZ28gc2Vnw7puIGVsIG3DqWRpY28u"
+).decode()
 
 
 def test_valid_answer_is_used_and_trimmed() -> None:
@@ -111,13 +116,27 @@ def test_valid_answer_is_used_and_trimmed() -> None:
     {**GOOD, "steps": GOOD["steps"][:2]},                          # too few steps
     {**GOOD, "summary": "Our neural model flagged this."},         # internal tech word
     {**GOOD, "cited_article_ids": ["wiki-other"]},                  # nothing valid cited
-    {**GOOD, "summary": "Lecturas fuera de rango según el médico."},  # not English
+    {**GOOD, "summary": NOT_ENGLISH},                               # not English
 ])
 def test_invalid_answers_fall_back(bad: dict) -> None:
     guidance = llm.generate_guidance(FINDING, ARTICLES, "vision", client=_client(_answer(bad)))
     assert guidance.source == "fallback" and guidance.issues
     assert guidance.cited_article_ids == ["wiki-vision-01"]
     assert len(guidance.steps) == 3
+
+
+def test_typographic_marks_are_written_plainly() -> None:
+    fancy = {**GOOD, "summary": "Sheath \u2265 5.8 mm \u2014 repeat the scan\u2019s reading\u2026"}
+    guidance = llm.generate_guidance(FINDING, ARTICLES, "vision", client=_client(_answer(fancy)))
+    assert guidance.source == "assistant"
+    assert guidance.summary_en == "Sheath >= 5.8 mm - repeat the scan's reading..."
+
+
+def test_missing_citation_is_credited_to_the_main_protocol() -> None:
+    answer = {key: value for key, value in GOOD.items() if key != "cited_article_ids"}
+    guidance = llm.generate_guidance(FINDING, ARTICLES, "vision", client=_client(_answer(answer)))
+    assert guidance.source == "assistant" and not guidance.issues
+    assert guidance.cited_article_ids == ["wiki-vision-01"]
 
 
 def test_unreachable_assistant_falls_back() -> None:
@@ -174,7 +193,9 @@ def test_scan_review_and_promotion_flow(conn) -> None:
     assert alert["message_en"].endswith("Physician note: Repeat the eye scan tomorrow morning.")
     case = search_articles(conn, "validated case")
     assert case[0]["id"] == result["guide_article_id"]
-    assert case[0]["escalation_en"] == "Repeat the eye scan tomorrow morning."
+    # The guide is open to everyone: the note about this crew member stays out of it.
+    assert "tomorrow morning" not in json.dumps(case[0])
+    assert case[0]["escalation_en"].startswith("Escalate to onboard physician")
     assert list_diagnoses(conn, viewer_id="ID-01", viewer_role="PILOT")[0]["id"] == diagnosis["id"]
 
     with pytest.raises(ReviewError):
@@ -199,9 +220,15 @@ def test_api_permissions(temp_db_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     seed_database(db_path=temp_db_path, schema_path=SCHEMA_PATH, snapshot_path=SEED_SNAPSHOT_PATH)
     with TestClient(fastapi_app) as client:
         pilot, operator, doctor = (_headers(client, c) for c in ("ID-01", "ID-02", "ID-03"))
+        # A crew member may start a scan but gets no finding before the review.
         scan = client.post("/api/v1/diagnosis/anomalies", json={}, headers=pilot)
         assert scan.status_code == 200
-        diagnosis = scan.json()["diagnosis"]
+        assert scan.json() == {"finding": None, "diagnosis": None, "repeated": False,
+                               "sent_for_review": True}
+        seen = client.post("/api/v1/diagnosis/anomalies", json={"crew_id": "ID-01"},
+                           headers=doctor)
+        assert seen.json()["repeated"] is True
+        diagnosis = seen.json()["diagnosis"]
         assert diagnosis["guidance_source"] == "fallback"
 
         assert client.post("/api/v1/diagnosis/anomalies", json={"crew_id": "ID-01"},

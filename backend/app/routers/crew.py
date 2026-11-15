@@ -1,19 +1,32 @@
-"""Crew administration, baseline calculation, and public Crew Overview endpoints."""
+"""Crew administration, baselines, mission stage and the public Crew Overview."""
 
+import hashlib
+import hmac
 import json
-from datetime import UTC, datetime
-from typing import Literal
+from datetime import timedelta
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from app.auth_utils import hash_pin, require_operator
+from app.auth_utils import CurrentCrew, OperatorCrew, ensure_crew_access, hash_pin
+from app.config import GROUND_LINK_KEY
 from app.db import open_connection
+from app.services import habits
 from app.services.crew_metrics import compute_crew_baselines, evaluate_crew_readiness
+from app.services.crew_names import display_title, short_name  # noqa: F401
+from app.services.environment import cabin_mode, cabin_snapshot
+from app.services.mission_clock import mission_row, to_iso, utc_now
+from app.services.reference_ranges import status_label
 
 router = APIRouter(prefix="/api/v1", tags=["crew"])
 
 CrewRole = Literal["ASTRONAUT", "PILOT", "OPERATOR", "PHYSICIAN"]
+MissionStage = Literal["LAUNCH", "MISSION", "RETURN"]
+STAGE_ORDER = ("LAUNCH", "MISSION", "RETURN")
+
+_CREW_COLUMNS = """id, code, full_name, role, title_en, age, sex, blood_type, height_cm,
+                   is_active, failed_attempts, locked_until_utc, created_at_utc, updated_at_utc"""
 
 
 class CrewCreateIn(BaseModel):
@@ -21,6 +34,7 @@ class CrewCreateIn(BaseModel):
     code: str = Field(..., min_length=3, max_length=16)
     full_name: str = Field(..., min_length=2, max_length=80)
     role: CrewRole
+    title_en: str | None = Field(default=None, max_length=40)
     pin: str = Field(..., pattern=r"^\d{4}$")
     age: int | None = Field(default=None, ge=18, le=80)
     sex: Literal["F", "M", "X"] | None = None
@@ -31,6 +45,7 @@ class CrewCreateIn(BaseModel):
 class CrewUpdateIn(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=80)
     role: CrewRole | None = None
+    title_en: str | None = Field(default=None, max_length=40)
     pin: str | None = Field(default=None, pattern=r"^\d{4}$")
     age: int | None = Field(default=None, ge=18, le=80)
     sex: Literal["F", "M", "X"] | None = None
@@ -42,121 +57,143 @@ class CrewUpdateIn(BaseModel):
 
 class GroundCrewDirectiveIn(BaseModel):
     action: Literal["CREATE", "UPDATE", "DEACTIVATE"]
-    crew_id: str = Field(..., min_length=1, max_length=32)
-    code: str | None = None
-    full_name: str | None = None
+    crew_id: str = Field(..., pattern=r"^ID-\d{2,4}$")
+    code: str | None = Field(default=None, min_length=3, max_length=16)
+    full_name: str | None = Field(default=None, min_length=2, max_length=80)
     role: CrewRole | None = None
     pin: str | None = Field(default=None, pattern=r"^\d{4}$")
 
 
-def _short_name(full_name: str) -> str:
-    parts = full_name.strip().split()
-    if len(parts) >= 2:
-        return f"{parts[0][0]}. {parts[-1]}".upper()
-    return full_name.upper()
+class StageChangeIn(BaseModel):
+    stage: MissionStage
+
+
+def _latest_payload(conn, crew_id: str, metric_key: str):
+    return conn.execute(
+        """SELECT value_num, payload_json, recorded_at_utc FROM measurements
+           WHERE crew_id = ? AND metric_key = ? ORDER BY recorded_at_utc DESC, id DESC LIMIT 1""",
+        (crew_id, metric_key),
+    ).fetchone()
+
+
+def _work_shift(conn, crew_id: str) -> dict | None:
+    row = _latest_payload(conn, crew_id, "work_shift_min")
+    if row is None:
+        return None
+    payload = json.loads(row["payload_json"] or "{}")
+    return {
+        "mode": payload.get("mode", "IVA"),
+        "minutes": int(row["value_num"]),
+        "location_en": payload.get("location_en"),
+        "recorded_at_utc": row["recorded_at_utc"],
+    }
 
 
 @router.get("/crew-overview")
 def get_crew_overview() -> dict:
-    """Return read-only public Crew Overview readiness, vital snapshot, and cabin metrics."""
+    """Public read-only summary: status and four key signs per crew member, plus the cabin."""
     with open_connection() as conn:
         members = conn.execute(
-            """
-            SELECT id, code, full_name, role
-            FROM crew_members
-            WHERE is_active = 1
-            ORDER BY code ASC
-            """
+            "SELECT id, code, full_name, role, title_en FROM crew_members "
+            "WHERE is_active = 1 ORDER BY code ASC"
         ).fetchall()
-
-        crew_cards: list[dict] = []
+        day = habits.current_day(conn)
+        cards: list[dict] = []
         scores: list[int] = []
-        critical_any = False
-
+        habit_days: list[dict] = []
         for m in members:
             summary = evaluate_crew_readiness(conn, m["id"])
             scores.append(int(summary["readiness_score"]))
-            if summary["status"] == "Critical":
-                critical_any = True
-            crew_cards.append(
+            vitals = summary["vitals"]
+            cards.append(
                 {
                     "id": m["id"],
                     "code": m["code"],
                     "full_name": m["full_name"],
-                    "short_name": _short_name(m["full_name"]),
-                    "role": m["role"],
-                    **summary,
+                    "title_en": display_title(m),
+                    "status": summary["status"],
+                    "readiness_score": summary["readiness_score"],
+                    "work_shift": _work_shift(conn, m["id"]),
+                    "vitals": {
+                        **vitals,
+                        "resting_hr_status": status_label(
+                            "resting_hr_bpm", vitals["resting_hr_bpm"]
+                        ),
+                        "hrv_status": status_label("hrv_rmssd_ms", vitals["hrv_rmssd_ms"]),
+                        "spo2_status": status_label("spo2_pct", vitals["spo2_pct"]),
+                    },
                 }
             )
+            habit_days.append(habits.day_habits(conn, m["id"], day))
 
-        cabin_row = conn.execute(
-            """
-            SELECT co2_ppm, noise_dba, temp_c, humidity_pct,
-                   radiation_msv, solar_event_flag, recorded_at_utc
-            FROM environment_readings
-            ORDER BY id DESC
-            LIMIT 1
-            """
-        ).fetchone()
-        cabin = dict(cabin_row) if cabin_row else None
-        if cabin and float(cabin["co2_ppm"]) >= 4000.0:
-            critical_any = True
+        count = len(members)
 
-        crew_score = round(sum(scores) / len(scores)) if scores else 0
+        def habit_avg(key: str) -> int | None:
+            return (
+                round(sum(d["habits"][key]["pct"] for d in habit_days) / count) if count else None
+            )
+
+        sleep_target = cards[0]["vitals"]["sleep_target_min"] if cards else 420
+        below_sleep = sum(1 for c in cards if (c["vitals"]["sleep_min_24h"] or 0) < sleep_target)
+        hydration_logged = [d["habits"]["hydration"] for d in habit_days]
+        cabin = cabin_snapshot(conn)
+        optimal = sum(1 for c in cards if c["status"] == "Optimal")
+        attention = any(c["status"] == "Attention" for c in cards)
         return {
-            "crew_score": crew_score,
-            "crew_status": "Critical" if critical_any else ("Attention" if crew_score < 82 else "Optimal"),
-            "cabin_mode": "critical" if critical_any else "nominal",
-            "crew": crew_cards,
+            "crew_score": round(sum(scores) / count) if count else None,
+            "crew_status": "Attention" if attention else "Optimal",
+            "optimal_count": optimal,
+            "crew_count": count,
+            "cabin_mode": cabin_mode(conn),
+            "habits_date_utc": day,
+            "readiness": {
+                "hydration_pct": habit_avg("hydration"),
+                "hydration_avg_ml": round(sum((h["value"] or 0) for h in hydration_logged) / count)
+                if count
+                else None,
+                "hydration_target_ml": round(sum(h["target"] for h in hydration_logged) / count)
+                if count
+                else None,
+                "sleep_target_pct": round((count - below_sleep) / count * 100) if count else None,
+                "sleep_below_count": below_sleep,
+                "sleep_target_min": sleep_target,
+                "exercise_pct": habit_avg("exercise"),
+            },
+            "crew": cards,
             "cabin": cabin,
         }
 
 
 @router.get("/crew")
-def list_all_crew(_claims: dict = Depends(require_operator)) -> list[dict]:
-    """List all crew records for local Operator administration."""
+def list_all_crew(_claims: OperatorCrew) -> list[dict]:
+    """All crew records, for the operator's crew administration."""
     with open_connection() as conn:
         rows = conn.execute(
-            """
-            SELECT id, code, full_name, role, age, sex, blood_type, height_cm,
-                   is_active, failed_attempts, locked_until_utc, created_at_utc, updated_at_utc
-            FROM crew_members
-            ORDER BY code ASC
-            """
+            f"SELECT {_CREW_COLUMNS} FROM crew_members ORDER BY code ASC"
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 @router.post("/crew", status_code=status.HTTP_201_CREATED)
-def create_crew_member(
-    body: CrewCreateIn,
-    _claims: dict = Depends(require_operator),
-) -> dict:
-    """Create a new crew member profile (Operator only)."""
-    now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+def create_crew_member(body: CrewCreateIn, _claims: OperatorCrew) -> dict:
+    """Create a crew member profile (operator only)."""
+    now_utc = to_iso(utc_now())
     with open_connection() as conn:
         existing = conn.execute(
-            "SELECT id FROM crew_members WHERE id = ? OR code = ?",
-            (body.id, body.code),
+            "SELECT id FROM crew_members WHERE id = ? OR code = ?", (body.id, body.code)
         ).fetchone()
         if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Crew ID or code already exists.",
-            )
-
+            raise HTTPException(status.HTTP_409_CONFLICT, "That crew ID or code is already in use.")
         conn.execute(
-            """
-            INSERT INTO crew_members (
-                id, code, full_name, role, pin_hash, age, sex, blood_type,
-                height_cm, is_active, created_at_utc, updated_at_utc
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-            """,
+            """INSERT INTO crew_members (id, code, full_name, role, title_en, pin_hash, age, sex,
+               blood_type, height_cm, is_active, created_at_utc, updated_at_utc)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
             (
                 body.id,
                 body.code,
                 body.full_name.strip(),
                 body.role,
+                body.title_en,
                 hash_pin(body.pin),
                 body.age,
                 body.sex,
@@ -166,156 +203,181 @@ def create_crew_member(
                 now_utc,
             ),
         )
-        conn.commit()
         created = conn.execute(
-            """
-            SELECT id, code, full_name, role, age, sex, blood_type, height_cm,
-                   is_active, created_at_utc, updated_at_utc
-            FROM crew_members
-            WHERE id = ?
-            """,
-            (body.id,),
+            f"SELECT {_CREW_COLUMNS} FROM crew_members WHERE id = ?", (body.id,)
         ).fetchone()
     return dict(created)
 
 
+def _guard_last_operator(conn, crew_id: str, new_role: str | None, new_active: bool | None) -> None:
+    """Never leave the habitat without an active operator to manage accounts."""
+    current = conn.execute(
+        "SELECT role, is_active FROM crew_members WHERE id = ?", (crew_id,)
+    ).fetchone()
+    if current["role"] != "OPERATOR" or not current["is_active"]:
+        return
+    losing = (new_role is not None and new_role != "OPERATOR") or new_active is False
+    if not losing:
+        return
+    others = conn.execute(
+        "SELECT COUNT(*) FROM crew_members WHERE role = 'OPERATOR' AND is_active = 1 AND id != ?",
+        (crew_id,),
+    ).fetchone()[0]
+    if others == 0:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "At least one active operator is required. Assign another operator first.",
+        )
+
+
 @router.patch("/crew/{crew_id}")
-def update_crew_member(
-    crew_id: str,
-    body: CrewUpdateIn,
-    _claims: dict = Depends(require_operator),
-) -> dict:
-    """Update crew profile fields, reset PIN, or toggle active status (Operator only)."""
-    now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+def update_crew_member(crew_id: str, body: CrewUpdateIn, _claims: OperatorCrew) -> dict:
+    """Edit a profile, reset the PIN, unlock or deactivate an account (operator only)."""
     with open_connection() as conn:
-        existing = conn.execute("SELECT * FROM crew_members WHERE id = ?", (crew_id,)).fetchone()
+        existing = conn.execute("SELECT id FROM crew_members WHERE id = ?", (crew_id,)).fetchone()
         if existing is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Crew member not found.")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
+        _guard_last_operator(conn, crew_id, body.role, body.is_active)
 
         updates: list[str] = ["updated_at_utc = ?"]
-        params: list[object] = [now_utc]
-
-        if body.full_name is not None:
-            updates.append("full_name = ?")
-            params.append(body.full_name.strip())
-        if body.role is not None:
-            updates.append("role = ?")
-            params.append(body.role)
+        params: list[object] = [to_iso(utc_now())]
+        fields = body.model_dump(exclude_unset=True, exclude={"pin", "unlock_account", "is_active"})
+        for column, value in fields.items():
+            if value is not None:
+                updates.append(f"{column} = ?")
+                params.append(value.strip() if isinstance(value, str) else value)
         if body.pin is not None:
             updates.append("pin_hash = ?")
             params.append(hash_pin(body.pin))
-        if body.age is not None:
-            updates.append("age = ?")
-            params.append(body.age)
-        if body.sex is not None:
-            updates.append("sex = ?")
-            params.append(body.sex)
-        if body.blood_type is not None:
-            updates.append("blood_type = ?")
-            params.append(body.blood_type)
-        if body.height_cm is not None:
-            updates.append("height_cm = ?")
-            params.append(body.height_cm)
         if body.is_active is not None:
             updates.append("is_active = ?")
             params.append(1 if body.is_active else 0)
         if body.unlock_account:
-            updates.append("failed_attempts = 0")
-            updates.append("locked_until_utc = NULL")
-
+            updates.extend(["failed_attempts = 0", "locked_until_utc = NULL"])
         params.append(crew_id)
         conn.execute(f"UPDATE crew_members SET {', '.join(updates)} WHERE id = ?", tuple(params))
-        conn.commit()
-
         updated = conn.execute(
-            """
-            SELECT id, code, full_name, role, age, sex, blood_type, height_cm,
-                   is_active, failed_attempts, locked_until_utc, updated_at_utc
-            FROM crew_members
-            WHERE id = ?
-            """,
-            (crew_id,),
+            f"SELECT {_CREW_COLUMNS} FROM crew_members WHERE id = ?", (crew_id,)
         ).fetchone()
     return dict(updated)
 
 
 @router.get("/crew/{crew_id}/baselines")
-def get_crew_baselines(crew_id: str) -> list[dict]:
-    """Return computed pre-mission baselines for a crew member."""
+def get_crew_baselines(crew_id: str, claims: CurrentCrew) -> list[dict]:
+    """Pre-flight personal baselines (own record, the physician or the operator)."""
+    if claims.get("role") != "OPERATOR":
+        ensure_crew_access(claims, crew_id)
     with open_connection() as conn:
         rows = conn.execute(
-            """
-            SELECT b.crew_id, b.metric_key, c.display_name_en, c.unit,
-                   b.mean_val, b.std_dev, b.sample_count, b.computed_at_utc
-            FROM baselines AS b
-            JOIN metric_catalog AS c ON c.metric_key = b.metric_key
-            WHERE b.crew_id = ?
-            ORDER BY b.metric_key ASC
-            """,
+            """SELECT b.crew_id, b.metric_key, c.display_name_en, c.unit,
+                      b.mean_val, b.std_dev, b.sample_count, b.computed_at_utc
+               FROM baselines AS b JOIN metric_catalog AS c ON c.metric_key = b.metric_key
+               WHERE b.crew_id = ? ORDER BY c.category, b.metric_key""",
             (crew_id,),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 @router.post("/crew/{crew_id}/baselines/recompute")
-def recompute_crew_baselines(
-    crew_id: str,
-    _claims: dict = Depends(require_operator),
-) -> dict:
-    """Recompute baselines from all LAUNCH measurements for a crew member."""
+def recompute_crew_baselines(crew_id: str, _claims: OperatorCrew) -> dict:
+    """Recompute baselines from all pre-flight (LAUNCH) measurements of a crew member."""
     with open_connection() as conn:
         exists = conn.execute("SELECT id FROM crew_members WHERE id = ?", (crew_id,)).fetchone()
         if exists is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Crew member not found.")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
         baselines = compute_crew_baselines(conn, crew_id)
-        conn.commit()
     return {"crew_id": crew_id, "updated_count": len(baselines), "baselines": baselines}
 
 
-@router.post("/crew/ground-sync", status_code=status.HTTP_202_ACCEPTED)
-def apply_ground_crew_directive(body: GroundCrewDirectiveIn) -> dict:
-    """Apply an asynchronous ground-control crew management directive and log in outbox."""
-    now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+@router.post("/mission/stage")
+def change_mission_stage(body: StageChangeIn, _claims: OperatorCrew) -> dict:
+    """Move the mission forward: LAUNCH -> MISSION -> RETURN (operator only, never backwards)."""
     with open_connection() as conn:
-        if body.action == "CREATE":
-            if not body.code or not body.full_name or not body.role or not body.pin:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="CREATE directive requires code, full_name, role, and pin.",
-                )
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO crew_members (
-                    id, code, full_name, role, pin_hash, is_active, created_at_utc, updated_at_utc
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-                """,
-                (body.crew_id, body.code, body.full_name, body.role, hash_pin(body.pin), now_utc, now_utc),
+        mission = mission_row(conn)
+        if mission is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Mission is not set up yet.")
+        current = mission["current_stage"]
+        if STAGE_ORDER.index(body.stage) != STAGE_ORDER.index(current) + 1:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"The mission is in the {current.title()} stage; "
+                "only the next stage can be started.",
             )
-        elif body.action == "DEACTIVATE":
-            conn.execute(
-                "UPDATE crew_members SET is_active = 0, updated_at_utc = ? WHERE id = ?",
-                (now_utc, body.crew_id),
-            )
-        elif body.action == "UPDATE":
-            if body.full_name:
-                conn.execute(
-                    "UPDATE crew_members SET full_name = ?, updated_at_utc = ? WHERE id = ?",
-                    (body.full_name, now_utc, body.crew_id),
-                )
-            if body.role:
-                conn.execute(
-                    "UPDATE crew_members SET role = ?, updated_at_utc = ? WHERE id = ?",
-                    (body.role, now_utc, body.crew_id),
-                )
-
         conn.execute(
-            """
-            INSERT INTO ground_outbox (
-                packet_type, direction, crew_id, bundle_json,
-                created_at_utc, deliver_after_utc, delivered_at_utc, status
-            ) VALUES ('CREW_UPDATE', 'INBOUND', ?, ?, ?, ?, ?, 'ACKNOWLEDGED')
-            """,
-            (body.crew_id, json.dumps(body.model_dump(exclude={"pin"})), now_utc, now_utc, now_utc),
+            "UPDATE mission SET current_stage = ?, updated_at_utc = ? WHERE id = 1",
+            (body.stage, to_iso(utc_now())),
         )
-        conn.commit()
-    return {"status": "applied", "action": body.action, "crew_id": body.crew_id}
+    return {"previous_stage": current, "current_stage": body.stage}
+
+
+def verify_ground_signature(raw_body: bytes, signature: str | None) -> None:
+    """Remote orders must carry the HMAC-SHA256 of the body, made with the pre-flight key."""
+    expected = hmac.new(GROUND_LINK_KEY.encode(), raw_body, hashlib.sha256).hexdigest()
+    if not signature or not hmac.compare_digest(expected, signature.strip().lower()):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Mission Control signature is not valid.")
+
+
+@router.post("/crew/ground-sync", status_code=status.HTTP_202_ACCEPTED)
+async def queue_ground_crew_directive(
+    request: Request,
+    x_ground_signature: Annotated[str | None, Header()] = None,
+) -> dict:
+    """Receive a signed remote crew-management order from Mission Control.
+
+    The order is validated and queued; it takes effect when the one-way signal
+    delay has passed (applied by the transmission scheduler).
+    """
+    raw = await request.body()
+    verify_ground_signature(raw, x_ground_signature)
+    try:
+        body = GroundCrewDirectiveIn.model_validate_json(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "The crew order is incomplete or malformed."
+        ) from exc
+    now = utc_now()
+    with open_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM crew_members WHERE id = ? OR (? IS NOT NULL AND code = ?)",
+            (body.crew_id, body.code, body.code),
+        ).fetchone()
+        if body.action == "CREATE":
+            if not (body.code and body.full_name and body.role and body.pin):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "A new crew member needs a code, name, role and PIN.",
+                )
+            if exists:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "That crew ID or code is already in use."
+                )
+        elif not conn.execute(
+            "SELECT 1 FROM crew_members WHERE id = ?", (body.crew_id,)
+        ).fetchone():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
+        if body.action != "CREATE":
+            _guard_last_operator(
+                conn, body.crew_id, body.role, False if body.action == "DEACTIVATE" else None
+            )
+        latency = int((mission_row(conn) or {"earth_latency_min": 12})["earth_latency_min"])
+        bundle = body.model_dump(exclude={"pin"})
+        if body.pin:
+            bundle["pin_hash"] = hash_pin(body.pin)  # the PIN itself is never stored
+        cursor = conn.execute(
+            """INSERT INTO ground_outbox (packet_type, direction, crew_id, bundle_json,
+               created_at_utc, deliver_after_utc, status)
+               VALUES ('CREW_UPDATE', 'INBOUND', ?, ?, ?, ?, 'IN_TRANSIT')""",
+            (
+                body.crew_id if body.action != "CREATE" else None,
+                json.dumps(bundle),
+                to_iso(now),
+                to_iso(now + timedelta(minutes=latency)),
+            ),
+        )
+    return {
+        "status": "queued",
+        "packet_id": int(cursor.lastrowid),
+        "action": body.action,
+        "crew_id": body.crew_id,
+        "applies_after_min": latency,
+    }

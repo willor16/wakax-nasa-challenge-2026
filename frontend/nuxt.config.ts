@@ -1,5 +1,15 @@
 import tailwindcss from '@tailwindcss/vite'
 
+// Build output must not carry paths from the build machine (folder names, home directory).
+const projectRoot = decodeURIComponent(new URL('.', import.meta.url).pathname).replace(/\/$/, '')
+const stripLocalPaths = {
+  name: 'strip-local-paths',
+  enforce: 'post' as const,
+  renderChunk(code: string) {
+    return code.includes(projectRoot) ? { code: code.split(projectRoot).join('.'), map: null } : null
+  },
+}
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-11-01',
   ssr: false,
@@ -19,7 +29,7 @@ export default defineNuxtConfig({
     '@pinia/nuxt',
   ],
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss(), stripLocalPaths],
     server: {
       proxy: {
         '/api': 'http://127.0.0.1:8080',
@@ -37,6 +47,7 @@ export default defineNuxtConfig({
   },
   icon: {
     provider: 'none',
+    fallbackToApi: false,
     clientBundle: {
       scan: true,
     },
@@ -57,6 +68,14 @@ export default defineNuxtConfig({
         file: 'en.ts',
       },
     ],
+  },
+  nitro: {
+    hooks: {
+      // Generated pages embed the app settings; keep build-machine paths out of them too.
+      'prerender:generate'(route) {
+        if (typeof route.contents === 'string') route.contents = route.contents.split(projectRoot).join('.')
+      },
+    },
   },
   runtimeConfig: {
     public: {

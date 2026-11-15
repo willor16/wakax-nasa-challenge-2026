@@ -13,8 +13,6 @@ import re
 import sqlite3
 from typing import Any
 
-from app.services.wiki_seed import ensure_guide_schema
-
 # Topic filters drawn on screen 14, in display order.
 GUIDE_CATEGORIES = (
     "CO2 Exposure",
@@ -23,6 +21,15 @@ GUIDE_CATEGORIES = (
     "Trauma & Burns",
     "Medications",
 )
+
+
+def guide_categories(conn: sqlite3.Connection) -> list[str]:
+    """Topic filters: the five core topics first, then any topic the guide has grown into."""
+    extra = [r[0] for r in conn.execute(
+        "SELECT DISTINCT category_en FROM wiki_articles ORDER BY category_en")]
+    return [*GUIDE_CATEGORIES, *(c for c in extra if c not in GUIDE_CATEGORIES)]
+
+
 _WORD = re.compile(r"[A-Za-z0-9]+")
 MAX_RESULTS = 20
 
@@ -66,7 +73,6 @@ def _article(row: Any) -> dict:
 def search_articles(conn: sqlite3.Connection, query: str = "",
                     category: str | None = None, loose: bool = True) -> list[dict]:
     """Articles matching the words and/or topic, best match first."""
-    ensure_guide_schema(conn)
     category_sql = "AND a.category_en = ?" if category else ""
     category_args = [category] if category else []
 
@@ -83,7 +89,7 @@ def search_articles(conn: sqlite3.Connection, query: str = "",
         SELECT a.* FROM wiki_articles_fts AS f
         JOIN wiki_articles AS a ON a.rowid = f.rowid
         WHERE wiki_articles_fts MATCH ? {category_sql}
-        ORDER BY bm25(wiki_articles_fts, 10.0, 4.0, 1.0)
+        ORDER BY bm25(wiki_articles_fts, 10.0, 4.0, 1.0, 2.0)
         LIMIT ?
     """
     rows = conn.execute(sql, (match, *category_args, MAX_RESULTS)).fetchall()
@@ -94,7 +100,6 @@ def search_articles(conn: sqlite3.Connection, query: str = "",
 
 
 def get_article(conn: sqlite3.Connection, article_id: str) -> dict | None:
-    ensure_guide_schema(conn)
     row = conn.execute("SELECT * FROM wiki_articles WHERE id = ?", (article_id,)).fetchone()
     return _article(row) if row else None
 

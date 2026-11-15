@@ -1,20 +1,36 @@
 <script setup lang="ts">
+// The cockpit is drawn on a fixed 1568 x 940 canvas (the design size) and scaled
+// as one piece, so every display in the cabin shows the same proportions.
 const { isAuthenticated } = useSession()
 const route = useRoute()
+useMissionFeed()
 
-const publicRoutes = new Set(['/login', '/crew-overview', '/crew-streaks'])
-const showAuthenticatedDock = computed(() => isAuthenticated.value && !publicRoutes.has(route.path))
+const DESIGN_WIDTH = 1568
+const DESIGN_HEIGHT = 940
+const PUBLIC_PATHS = new Set(['/login', '/crew-overview', '/crew-streaks'])
+
+const scale = ref(1)
+function fit() {
+  scale.value = Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT)
+}
+onMounted(() => {
+  fit()
+  window.addEventListener('resize', fit)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', fit))
+
+const showDock = computed(() => isAuthenticated.value && !PUBLIC_PATHS.has(route.path))
 </script>
 
 <template>
-  <div class="cockpit-canvas min-h-screen w-full flex flex-col justify-between overflow-x-hidden">
-    <ShellTopTelemetryBar />
-
-    <main class="flex-1 w-full max-w-[1568px] mx-auto p-[28px] flex flex-col gap-[18px]">
-      <slot />
-    </main>
-
-    <ShellBottomCockpitDock v-if="showAuthenticatedDock" />
-    <ShellPublicHierarchyBar v-else />
+  <div class="cockpit-stage">
+    <div class="cockpit-canvas" :style="{ transform: `scale(${scale})` }">
+      <ShellTopTelemetryBar :authenticated="showDock" />
+      <main class="absolute left-0 right-0 top-[56px] bottom-[74px] px-[28px] pt-[10px] pb-[14px] flex flex-col gap-[12px] overflow-clip">
+        <slot />
+      </main>
+      <ShellBottomCockpitDock v-if="showDock" />
+      <ShellPublicHierarchyBar v-else />
+    </div>
   </div>
 </template>

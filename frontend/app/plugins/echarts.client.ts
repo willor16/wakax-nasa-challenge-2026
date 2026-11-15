@@ -2,6 +2,7 @@ import { BarChart, CustomChart, GaugeChart, LineChart } from 'echarts/charts'
 import { GridComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent } from 'echarts/components'
 import { registerTheme, use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
+import { palette } from '~/utils/charts'
 
 export default defineNuxtPlugin(() => {
   use([
@@ -16,27 +17,24 @@ export default defineNuxtPlugin(() => {
     MarkAreaComponent,
   ])
 
+  // The holographic theme is built from the palette tokens in tokens.css.
+  const c = palette()
+  const axis = {
+    axisLine: { lineStyle: { color: c.card } },
+    axisLabel: { color: c.muted, fontSize: 10 },
+    splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } },
+  }
   registerTheme('spacescan-hud', {
-    backgroundColor: 'rgba(4, 30, 46, 0.72)',
-    textStyle: {
-      fontFamily: "'JetBrains Mono', monospace",
-      color: '#FFECD1',
-    },
-    color: ['#2AEF4B', '#2994A6', '#263BB0', '#D5110B'],
-    categoryAxis: {
-      axisLine: { lineStyle: { color: '#15616D' } },
-      axisLabel: { color: '#C8B69C', fontSize: 10 },
-      splitLine: { show: true, lineStyle: { color: 'rgba(38, 59, 176, 0.42)', width: 1 } },
-    },
-    valueAxis: {
-      axisLine: { show: false },
-      axisLabel: { color: '#C8B69C', fontSize: 10 },
-      splitLine: { show: true, lineStyle: { color: 'rgba(38, 59, 176, 0.42)', width: 1 } },
-    },
+    backgroundColor: 'transparent',
+    textStyle: { fontFamily: '\'JetBrains Mono\', monospace', color: c.text },
+    color: [c.ok, c.rem, c.navyEdge, c.crit],
+    categoryAxis: axis,
+    valueAxis: { ...axis, axisLine: { show: false } },
+    timeAxis: axis,
     tooltip: {
-      backgroundColor: '#041E2E',
-      borderColor: '#25899B',
-      textStyle: { color: '#FFECD1', fontSize: 11 },
+      backgroundColor: c.inset,
+      borderColor: c.edge,
+      textStyle: { color: c.text, fontSize: 11 },
     },
   })
 })
