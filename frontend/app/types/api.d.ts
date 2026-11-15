@@ -207,6 +207,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sleep/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_sleep_session_api_v1_sleep_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sleep/{crew_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_crew_sleep_monitor_api_v1_sleep__crew_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics/catalog": {
         parameters: {
             query?: never;
@@ -777,6 +809,109 @@ export interface components {
         ScanIn: {
             crew_id?: string | null;
         };
+        SleepAxisTickOut: {
+            offset_min: number;
+            label: string;
+        };
+        SleepMonitorOut: {
+            crew_id: string;
+            crew_code: string;
+            period: "last_night" | "7d" | "14d" | "30d";
+            nights_analyzed: number;
+            mission_day: number;
+            last_night_tab_label: string;
+            rest_window_badge: string;
+            header_score_badge: string;
+            quality_tag: string;
+            quality_tone: "reference" | "warn" | "critical";
+            sleep_score: number;
+            score_subtitle: string;
+            sleep_time_heading: string;
+            total_sleep_min: number;
+            total_sleep_display: string;
+            target_label: string;
+            target_met: boolean;
+            in_bed_min: number;
+            in_bed_display: string;
+            efficiency_pct: number;
+            efficiency_label: string;
+            stage_cards: components["schemas"]["SleepStageCardOut"][];
+            ribbon_title: string;
+            cycle_count: number;
+            cycle_badge: string;
+            rest_window_inline: string;
+            window_total_min: number;
+            axis_ticks: components["schemas"]["SleepAxisTickOut"][];
+            ribbon_legend: components["schemas"]["SleepRibbonLegendItemOut"][];
+            ribbon_bouts: components["schemas"]["SleepRibbonBoutOut"][];
+            total_bouts: number;
+            bouts_badge: string;
+            lapse_rows: components["schemas"]["SleepStageLapseRowOut"][];
+        };
+        SleepRibbonBoutOut: {
+            stage: "DEEP" | "REM" | "LIGHT" | "AWAKE";
+            lane_index: number;
+            prev_lane_index?: number | null;
+            start_offset_min: number;
+            end_offset_min: number;
+            duration_min: number;
+            start_hm: string;
+            end_hm: string;
+        };
+        SleepRibbonLegendItemOut: {
+            stage: "DEEP" | "REM" | "LIGHT" | "AWAKE";
+            label: string;
+        };
+        SleepSessionCreateIn: {
+            crew_id: string;
+            mission_stage: "LAUNCH" | "MISSION" | "RETURN";
+            sleep_start_utc: string;
+            sleep_end_utc: string;
+            deep_min?: number | null;
+            rem_min?: number | null;
+            light_min?: number | null;
+            awake_min?: number | null;
+            sleep_score?: number | null;
+            stages?: components["schemas"]["SleepStageBoutIn"][] | null;
+        };
+        SleepSessionCreatedOut: {
+            session_id: number;
+            crew_id: string;
+            mission_stage: "LAUNCH" | "MISSION" | "RETURN";
+            sleep_start_utc: string;
+            sleep_end_utc: string;
+            total_sleep_min: number;
+            time_in_bed_min: number;
+            sleep_score: number;
+            sleep_efficiency_pct: number;
+            bouts_inserted: number;
+        };
+        SleepStageBoutIn: {
+            stage: "DEEP" | "REM" | "LIGHT" | "AWAKE";
+            start_utc: string;
+            end_utc: string;
+            duration_min?: number | null;
+        };
+        SleepStageCardOut: {
+            stage: "DEEP" | "REM" | "LIGHT" | "AWAKE";
+            label: string;
+            duration_min: number;
+            duration_display: string;
+            badge_label: string;
+            badge_tone: "reference" | "warn" | "critical";
+            share_pct: number;
+            subtitle: string;
+            bar_fill_pct: number;
+        };
+        SleepStageLapseRowOut: {
+            stage: "DEEP" | "REM" | "LIGHT" | "AWAKE";
+            label: string;
+            intervals_summary: string;
+            bouts_count: number;
+            bouts_label: string;
+            avg_max_label: string;
+            total_display: string;
+        };
         StageMetricSnapshotOut: {
             stage: "LAUNCH" | "MISSION" | "RETURN";
             has_records: boolean;
@@ -1211,6 +1346,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CrewProfileOut"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_sleep_session_api_v1_sleep_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SleepSessionCreateIn"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SleepSessionCreatedOut"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_crew_sleep_monitor_api_v1_sleep__crew_id__get: {
+        parameters: {
+            query?: {
+                period?: "last_night" | "7d" | "14d" | "30d";
+            };
+            header?: never;
+            path: {
+                crew_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SleepMonitorOut"];
                 };
             };
             422: {
