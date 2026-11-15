@@ -1,51 +1,78 @@
 [
   {
     "id": "wiki-trauma-01",
-    "category_en": "Trauma",
+    "category_en": "Trauma & Burns",
     "title_en": "Head or Limb Impact Check",
-    "drawer_code": "DRAWER D1",
+    "drawer_code": "DRAWER B1",
     "steps_json": [
-      "Stop the task and secure the crew member and loose objects nearby.",
-      "Ask what happened, where it hurts and whether they blacked out.",
-      "Check that they know their name, the date and where they are.",
-      "Look for swelling, a bent shape or pain when moving the limb.",
-      "Hold a cold pack wrapped in cloth on the area for 15 minutes.",
-      "Keep a painful limb still with the splint from the drawer.",
-      "Repeat the name, date and place check every 15 minutes for 2 hours."
+      {
+        "title_en": "Stop and Secure",
+        "detail_en": "Stop the task and secure the crew member and loose objects nearby. Ask what happened, where it hurts and whether they blacked out."
+      },
+      {
+        "title_en": "Check Awareness",
+        "detail_en": "Check that they know their name, the date and where they are. Look for swelling, a bent shape or pain when moving the limb."
+      },
+      {
+        "title_en": "Cool and Keep Still",
+        "detail_en": "Hold a cold pack wrapped in cloth on the area for 15 minutes. Keep a painful limb still with the splint from the drawer."
+      },
+      {
+        "title_en": "Recheck Every 15 Minutes",
+        "detail_en": "Repeat the name, date and place check every 15 minutes for 2 hours."
+      }
     ],
     "escalation_en": "Call the crew physician now if they blacked out, vomit, are confused, have a severe headache, cannot move the limb or the limb looks bent.",
     "source_en": "World Health Organization. Basic Emergency Care: approach to the acutely ill and injured (2018)."
   },
   {
     "id": "wiki-bleeding-01",
-    "category_en": "Trauma",
+    "category_en": "Trauma & Burns",
     "title_en": "Cut and Bleeding Control",
-    "drawer_code": "DRAWER D2",
+    "drawer_code": "DRAWER B1",
     "steps_json": [
-      "Put on gloves from the drawer before touching the wound.",
-      "Press a clean gauze pad firmly on the cut for 10 minutes without lifting it.",
-      "If blood soaks through, add more gauze on top and keep pressing.",
-      "Once bleeding stops, rinse the cut with clean water to remove debris.",
-      "Close small cuts with adhesive strips and cover with a dry dressing.",
-      "Capture the floating droplets with absorbent wipes and bag them.",
-      "Check the dressing and the skin around it twice a day for redness or warmth."
+      {
+        "title_en": "Glove Up and Press",
+        "detail_en": "Put on gloves from the drawer. Press a clean gauze pad firmly on the cut for 10 minutes without lifting it. If blood soaks through, add more gauze on top and keep pressing."
+      },
+      {
+        "title_en": "Capture Floating Drops",
+        "detail_en": "Catch floating droplets with absorbent wipes and seal them in a bag."
+      },
+      {
+        "title_en": "Clean and Close",
+        "detail_en": "Once bleeding stops, rinse the cut with clean water. Close small cuts with adhesive strips and cover with a dry dressing."
+      },
+      {
+        "title_en": "Watch the Wound",
+        "detail_en": "Check the dressing and the skin around it twice a day for redness or warmth."
+      }
     ],
     "escalation_en": "Call the crew physician now if bleeding does not stop after 10 minutes of firm pressure, the cut is deep or gaping, or there is numbness beyond the wound.",
     "source_en": "International Federation of Red Cross and Red Crescent Societies. International First Aid, Resuscitation and Education Guidelines (2020)."
   },
   {
     "id": "wiki-medication-01",
-    "category_en": "Medication",
+    "category_en": "Medications",
     "title_en": "Taking Medicine Safely and Side Effects",
-    "drawer_code": "DRAWER E1",
+    "drawer_code": "DRAWER B2",
     "steps_json": [
-      "Read the label and check the name, dose and expiry date before taking it.",
-      "Confirm with the crew physician before starting any new medicine.",
-      "Log the medicine, dose and time in the health log right away.",
-      "Do not take two medicines with the same active ingredient at once.",
-      "Avoid sleep aids within 8 hours of a piloting or repair shift.",
-      "Watch for rash, itching, dizziness, stomach upset or unusual sleepiness.",
-      "If a side effect appears, stop the medicine and log what you feel."
+      {
+        "title_en": "Check the Label",
+        "detail_en": "Read the name, dose and expiry date before taking it. Confirm with the crew physician before starting any new medicine."
+      },
+      {
+        "title_en": "Log Every Dose",
+        "detail_en": "Log the medicine, dose and time in the health log right away. Do not take two medicines with the same active ingredient at once."
+      },
+      {
+        "title_en": "Protect Shift Safety",
+        "detail_en": "Avoid sleep aids within 8 hours of a piloting or repair shift."
+      },
+      {
+        "title_en": "Watch for Side Effects",
+        "detail_en": "Watch for rash, itching, dizziness, stomach upset or unusual sleepiness. If one appears, stop the medicine and log what you feel."
+      }
     ],
     "escalation_en": "Call the crew physician now if there is swelling of the face or throat, trouble breathing, a spreading rash or fainting after taking a medicine.",
     "source_en": "World Health Organization. Model List of Essential Medicines, 23rd list (2023)."

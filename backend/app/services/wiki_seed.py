@@ -13,6 +13,9 @@ WIKI_GUIDE_PATH = BACKEND_DIR / "db" / "seed_snapshots" / "wiki_medical_guide.js
 
 REQUIRED_KEYS = ("id", "category_en", "title_en", "drawer_code", "steps_json", "escalation_en")
 
+# Each step is shown on the guide screen as a short heading plus one line of detail.
+STEP_KEYS = ("title_en", "detail_en")
+
 
 def read_articles(path: Path = WIKI_GUIDE_PATH) -> list[dict]:
     """Read and return the guide articles from the JSON seed file."""

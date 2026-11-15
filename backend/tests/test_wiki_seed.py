@@ -7,14 +7,23 @@ from pathlib import Path
 
 from app.config import SCHEMA_PATH, SEED_SNAPSHOT_PATH
 from app.db import open_connection
-from app.services.wiki_seed import REQUIRED_KEYS, load_wiki_articles, read_articles
+from app.services.wiki_seed import REQUIRED_KEYS, STEP_KEYS, load_wiki_articles, read_articles
 from db.seed import seed_database
 
 # Restricted entities are stored encoded so the codebase never names them.
 _RESTRICTED = [base64.b64decode(v).decode() for v in ("bmFzYQ==", "Y2hpbmE=", "Y2hpbmVzZQ==")]
 BANNED = re.compile(rf"\b({'|'.join(_RESTRICTED)})\b", re.IGNORECASE)
 NON_ASCII = re.compile(r"[^\x00-\x7F]")
-DRAWER = re.compile(r"^DRAWER [A-Z]\d$")
+
+# Kit drawers and topic filters exactly as drawn on the Medical Guide screen (14).
+FIGMA_DRAWERS = {"DRAWER A1", "DRAWER A2", "DRAWER B1", "DRAWER B2"}
+FIGMA_CATEGORIES = {
+    "CO2 Exposure",
+    "Vision & Pressure",
+    "Sleep & Fatigue",
+    "Trauma & Burns",
+    "Medications",
+}
 
 
 def _all_articles() -> list[dict]:
@@ -27,17 +36,27 @@ def test_guide_articles_have_required_fields() -> None:
         for key in REQUIRED_KEYS:
             assert article.get(key), f"{article.get('id')} missing {key}"
         assert article.get("source_en"), f"{article['id']} missing source"
-        assert DRAWER.match(article["drawer_code"])
-        assert 3 <= len(article["steps_json"]) <= 8
-        assert all(isinstance(step, str) and step.strip() for step in article["steps_json"])
 
 
-def test_ids_and_drawers_are_unique_across_all_articles() -> None:
-    articles = _all_articles()
-    ids = [a["id"] for a in articles]
-    drawers = [a["drawer_code"] for a in articles]
+def test_guide_articles_match_figma_drawers_and_filters() -> None:
+    for article in read_articles():
+        assert article["drawer_code"] in FIGMA_DRAWERS, article["id"]
+        assert article["category_en"] in FIGMA_CATEGORIES, article["id"]
+
+
+def test_steps_have_heading_and_detail() -> None:
+    for article in read_articles():
+        steps = article["steps_json"]
+        assert 3 <= len(steps) <= 5, article["id"]
+        for step in steps:
+            assert set(step) == set(STEP_KEYS), article["id"]
+            assert all(isinstance(step[k], str) and step[k].strip() for k in STEP_KEYS)
+            assert len(step["title_en"]) <= 32, step["title_en"]
+
+
+def test_ids_are_unique_across_all_articles() -> None:
+    ids = [a["id"] for a in _all_articles()]
     assert len(ids) == len(set(ids))
-    assert len(drawers) == len(set(drawers))
 
 
 def test_guide_text_is_plain_english_without_banned_terms() -> None:
@@ -48,8 +67,7 @@ def test_guide_text_is_plain_english_without_banned_terms() -> None:
 
 def test_guide_covers_required_topics() -> None:
     categories = {a["category_en"] for a in _all_articles()}
-    for topic in ("CO2 Exposure", "Vision & Pressure", "Sleep & Fatigue", "Trauma", "Medication"):
-        assert topic in categories
+    assert FIGMA_CATEGORIES <= categories
 
 
 def test_load_is_idempotent_and_searchable(temp_db_path: Path) -> None:
