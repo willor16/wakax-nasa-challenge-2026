@@ -20,6 +20,11 @@ STREAM_INTERVAL_SEC = 2.0
 # Streams end after a few minutes and the browser reconnects on its own, so a server
 # restart or update never waits on a stream that would otherwise stay open forever.
 STREAM_LIFETIME_SEC = 300.0
+SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
 
 
 class EnvironmentReadingIn(BaseModel):
@@ -101,7 +106,11 @@ async def stream_cabin_telemetry(request: Request) -> StreamingResponse:
             yield _sse("cabin", payload)
             await asyncio.sleep(STREAM_INTERVAL_SEC)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
 
 
 @router.get("/stream/vitals")
@@ -138,4 +147,8 @@ async def stream_crew_vitals(
             })
             await asyncio.sleep(STREAM_INTERVAL_SEC)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )

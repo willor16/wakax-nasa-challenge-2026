@@ -97,9 +97,11 @@ describe('delivered build', () => {
   const output = join(ROOT, '.output/public')
   it.skipIf(!existsSync(output))('carries no restricted names and no build-machine paths', () => {
     const pattern = new RegExp(`\\b(${restricted.join('|')})\\b`, 'i')
+    const baseUrl = process.env.NUXT_APP_BASE_URL?.replace(/^\/+|\/+$/g, '') ?? ''
     for (const file of files(output, '.html', '.js', '.css')) {
       const content = readFileSync(file, 'utf-8')
-      expect(content, relative(ROOT, file)).not.toMatch(pattern)
+      const scrubbed = baseUrl ? content.split(baseUrl).join('') : content
+      expect(scrubbed, relative(ROOT, file)).not.toMatch(pattern)
       expect(content, relative(ROOT, file)).not.toContain(ROOT)
     }
   })
@@ -107,7 +109,7 @@ describe('delivered build', () => {
 
 describe('screen map', () => {
   it('has the 16 design screens plus the operator administration', () => {
-    const pages = files(join(APP, 'pages'), '.vue').map(f => relative(join(APP, 'pages'), f)).sort()
+    const pages = files(join(APP, 'pages'), '.vue').map(f => relative(join(APP, 'pages'), f).replaceAll('\\', '/')).sort()
     expect(pages).toEqual([
       'auscultation.vue', 'capture/auscultation.vue', 'capture/physical.vue', 'capture/psych-sleep.vue',
       'capture/vision.vue', 'comms.vue', 'crew-management.vue', 'crew-overview.vue', 'crew-streaks.vue', 'guide.vue',

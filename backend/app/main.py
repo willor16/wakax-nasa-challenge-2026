@@ -1,8 +1,10 @@
 """FastAPI entrypoint serving API, SSE telemetry, and static SPA on one port."""
 
+import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
@@ -65,9 +67,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+def parse_cors_origins(raw: str | None = None) -> list[str]:
+    source = os.environ.get("SPACESCAN_CORS_ORIGINS", "") if raw is None else raw
+    origins: list[str] = []
+    for item in source.split(","):
+        cleaned = item.strip().rstrip("/")
+        if not cleaned:
+            continue
+        parts = urlsplit(cleaned)
+        origin = f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else cleaned
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+LOCAL_ORIGIN_REGEX = (
+    r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$"
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$",
+    allow_origins=parse_cors_origins(),
+    allow_origin_regex=LOCAL_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
