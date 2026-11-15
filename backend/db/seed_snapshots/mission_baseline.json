@@ -1,0 +1,384 @@
+{
+  "mission": {
+    "mission_code": "ARES VII",
+    "mission_name": "Deep Space Transit & Orbital Habitat",
+    "current_stage": "MISSION",
+    "launch_utc": "2026-10-01T08:00:00Z",
+    "planned_return_utc": "2027-03-15T16:00:00Z",
+    "earth_latency_min": 12,
+    "quiet_hours_start_utc": "22:00",
+    "quiet_hours_end_utc": "06:00"
+  },
+  "crew_members": [
+    {
+      "id": "ID-01",
+      "code": "ID·01",
+      "full_name": "Elena Vargas",
+      "role": "PILOT",
+      "pin": "1042",
+      "age": 36,
+      "sex": "F",
+      "blood_type": "O+",
+      "height_cm": 171.0
+    },
+    {
+      "id": "ID-02",
+      "code": "ID·02",
+      "full_name": "Marcus Vance",
+      "role": "OPERATOR",
+      "pin": "2084",
+      "age": 39,
+      "sex": "M",
+      "blood_type": "A+",
+      "height_cm": 182.0
+    },
+    {
+      "id": "ID-03",
+      "code": "ID·03",
+      "full_name": "Amara Okafor",
+      "role": "PHYSICIAN",
+      "pin": "3190",
+      "age": 41,
+      "sex": "F",
+      "blood_type": "B+",
+      "height_cm": 168.0
+    },
+    {
+      "id": "ID-04",
+      "code": "ID·04",
+      "full_name": "Kenji Sato",
+      "role": "ASTRONAUT",
+      "pin": "4275",
+      "age": 34,
+      "sex": "M",
+      "blood_type": "AB+",
+      "height_cm": 176.0
+    }
+  ],
+  "metric_catalog": [
+    {
+      "metric_key": "resting_hr_bpm",
+      "display_name_en": "Resting Heart Rate",
+      "category": "VITALS",
+      "unit": "bpm",
+      "nominal_min": 50.0,
+      "nominal_max": 85.0,
+      "warning_min": 45.0,
+      "warning_max": 95.0,
+      "critical_min": 40.0,
+      "critical_threshold": 110.0,
+      "recommended_frequency_hours": 12.0,
+      "clinical_reference": "Spaceflight Cardiovascular Adaptation Standard (Resting HR 50-85 bpm)"
+    },
+    {
+      "metric_key": "hrv_rmssd_ms",
+      "display_name_en": "Heart Rate Variability",
+      "category": "VITALS",
+      "unit": "ms",
+      "nominal_min": 35.0,
+      "nominal_max": 95.0,
+      "warning_min": 25.0,
+      "warning_max": 110.0,
+      "critical_min": 18.0,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 24.0,
+      "clinical_reference": "Autonomic Balance & Fatigue Marker (RMSSD >= 35 ms nominal)"
+    },
+    {
+      "metric_key": "spo2_pct",
+      "display_name_en": "Blood Oxygen Saturation",
+      "category": "VITALS",
+      "unit": "%",
+      "nominal_min": 95.0,
+      "nominal_max": 100.0,
+      "warning_min": 92.0,
+      "warning_max": 100.0,
+      "critical_min": 90.0,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 12.0,
+      "clinical_reference": "Hypoxia Surveillance Standard (SpO2 >= 95% nominal, < 90% critical)"
+    },
+    {
+      "metric_key": "bp_systolic_mmhg",
+      "display_name_en": "Systolic Blood Pressure",
+      "category": "VITALS",
+      "unit": "mmHg",
+      "nominal_min": 95.0,
+      "nominal_max": 130.0,
+      "warning_min": 90.0,
+      "warning_max": 140.0,
+      "critical_min": 80.0,
+      "critical_threshold": 160.0,
+      "recommended_frequency_hours": 24.0,
+      "clinical_reference": "Fluid Shift & Orthostatic Intolerance Reference"
+    },
+    {
+      "metric_key": "body_temp_c",
+      "display_name_en": "Core Body Temperature",
+      "category": "VITALS",
+      "unit": "C",
+      "nominal_min": 36.1,
+      "nominal_max": 37.5,
+      "warning_min": 35.5,
+      "warning_max": 37.9,
+      "critical_min": 35.0,
+      "critical_threshold": 38.5,
+      "recommended_frequency_hours": 24.0,
+      "clinical_reference": "Spaceflight Thermoregulation Reference"
+    },
+    {
+      "metric_key": "body_weight_kg",
+      "display_name_en": "Body Mass",
+      "category": "BIOMETRICS",
+      "unit": "kg",
+      "nominal_min": 55.0,
+      "nominal_max": 90.0,
+      "warning_min": 50.0,
+      "warning_max": 95.0,
+      "critical_min": null,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 168.0,
+      "clinical_reference": "Long-Duration Energy Balance Tracking (Weekly)"
+    },
+    {
+      "metric_key": "muscle_mass_retention_pct",
+      "display_name_en": "Muscle Mass Retention",
+      "category": "BIOMETRICS",
+      "unit": "%",
+      "nominal_min": 94.0,
+      "nominal_max": 103.0,
+      "warning_min": 90.0,
+      "warning_max": 105.0,
+      "critical_min": 85.0,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 168.0,
+      "clinical_reference": "Microgravity Deconditioning Countermeasure Benchmark"
+    },
+    {
+      "metric_key": "bone_density_tscore",
+      "display_name_en": "Bone Mineral Density Index",
+      "category": "BIOMETRICS",
+      "unit": "T-score",
+      "nominal_min": -1.0,
+      "nominal_max": 1.5,
+      "warning_min": -1.5,
+      "warning_max": 2.0,
+      "critical_min": -2.5,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 336.0,
+      "clinical_reference": "Skeletal Remodeling & Osteopenia Threshold"
+    },
+    {
+      "metric_key": "vo2_max_ml_kg_min",
+      "display_name_en": "Aerobic Capacity (VO2 Max)",
+      "category": "RESPIRATORY",
+      "unit": "mL/kg/min",
+      "nominal_min": 38.0,
+      "nominal_max": 60.0,
+      "warning_min": 34.0,
+      "warning_max": 65.0,
+      "critical_min": 30.0,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 336.0,
+      "clinical_reference": "EVA Readiness Cardiorespiratory Standard"
+    },
+    {
+      "metric_key": "optic_sheath_left_mm",
+      "display_name_en": "Left Optic Nerve Sheath Diameter",
+      "category": "VISION",
+      "unit": "mm",
+      "nominal_min": 3.0,
+      "nominal_max": 5.0,
+      "warning_min": 3.0,
+      "warning_max": 5.3,
+      "critical_min": null,
+      "critical_threshold": 5.8,
+      "recommended_frequency_hours": 168.0,
+      "clinical_reference": "Neuro-Ocular Syndrome Surveillance (ONSD <= 5.0 mm nominal)"
+    },
+    {
+      "metric_key": "optic_sheath_right_mm",
+      "display_name_en": "Right Optic Nerve Sheath Diameter",
+      "category": "VISION",
+      "unit": "mm",
+      "nominal_min": 3.0,
+      "nominal_max": 5.0,
+      "warning_min": 3.0,
+      "warning_max": 5.3,
+      "critical_min": null,
+      "critical_threshold": 5.8,
+      "recommended_frequency_hours": 168.0,
+      "clinical_reference": "Neuro-Ocular Syndrome Surveillance (ONSD <= 5.0 mm nominal)"
+    },
+    {
+      "metric_key": "iop_left_mmhg",
+      "display_name_en": "Left Intraocular Pressure",
+      "category": "VISION",
+      "unit": "mmHg",
+      "nominal_min": 10.0,
+      "nominal_max": 21.0,
+      "warning_min": 8.0,
+      "warning_max": 23.0,
+      "critical_min": 6.0,
+      "critical_threshold": 26.0,
+      "recommended_frequency_hours": 168.0,
+      "clinical_reference": "Ocular Tonometry Reference (10-21 mmHg)"
+    },
+    {
+      "metric_key": "iop_right_mmhg",
+      "display_name_en": "Right Intraocular Pressure",
+      "category": "VISION",
+      "unit": "mmHg",
+      "nominal_min": 10.0,
+      "nominal_max": 21.0,
+      "warning_min": 8.0,
+      "warning_max": 23.0,
+      "critical_min": 6.0,
+      "critical_threshold": 26.0,
+      "recommended_frequency_hours": 168.0,
+      "clinical_reference": "Ocular Tonometry Reference (10-21 mmHg)"
+    },
+    {
+      "metric_key": "blood_glucose_mg_dl",
+      "display_name_en": "Blood Glucose",
+      "category": "LABS",
+      "unit": "mg/dL",
+      "nominal_min": 70.0,
+      "nominal_max": 125.0,
+      "warning_min": 65.0,
+      "warning_max": 140.0,
+      "critical_min": 55.0,
+      "critical_threshold": 180.0,
+      "recommended_frequency_hours": 72.0,
+      "clinical_reference": "Point-of-Care Metabolic Screening Reference"
+    },
+    {
+      "metric_key": "hydration_ml",
+      "display_name_en": "Daily Fluid Intake",
+      "category": "HABITS",
+      "unit": "mL",
+      "nominal_min": 2200.0,
+      "nominal_max": 3500.0,
+      "warning_min": 1800.0,
+      "warning_max": 4000.0,
+      "critical_min": 1400.0,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 24.0,
+      "clinical_reference": "Renal Stone Mitigation & Hydration Standard"
+    },
+    {
+      "metric_key": "exercise_min",
+      "display_name_en": "Daily Exercise Load",
+      "category": "HABITS",
+      "unit": "min",
+      "nominal_min": 60.0,
+      "nominal_max": 150.0,
+      "warning_min": 45.0,
+      "warning_max": 180.0,
+      "critical_min": 20.0,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 24.0,
+      "clinical_reference": "Resistive & Aerobic Countermeasure Daily Target"
+    },
+    {
+      "metric_key": "calories_kcal",
+      "display_name_en": "Daily Caloric Intake",
+      "category": "HABITS",
+      "unit": "kcal",
+      "nominal_min": 2100.0,
+      "nominal_max": 3200.0,
+      "warning_min": 1800.0,
+      "warning_max": 3500.0,
+      "critical_min": 1500.0,
+      "critical_threshold": null,
+      "recommended_frequency_hours": 24.0,
+      "clinical_reference": "Crew Nutritional Adequacy Standard"
+    },
+    {
+      "metric_key": "cabin_co2_ppm",
+      "display_name_en": "Cabin Carbon Dioxide",
+      "category": "ENVIRONMENT",
+      "unit": "ppm",
+      "nominal_min": 350.0,
+      "nominal_max": 2000.0,
+      "warning_min": null,
+      "warning_max": 3000.0,
+      "critical_min": null,
+      "critical_threshold": 4000.0,
+      "recommended_frequency_hours": 1.0,
+      "clinical_reference": "Closed-Loop Habitat CO2 Exposure Limit (< 2000 ppm nominal)"
+    }
+  ],
+  "environment_readings": [
+    {
+      "co2_ppm": 980.0,
+      "noise_dba": 47.5,
+      "temp_c": 22.1,
+      "humidity_pct": 43.0,
+      "radiation_msv": 0.42,
+      "solar_event_flag": 0,
+      "recorded_at_utc": "2026-11-14T10:00:00Z"
+    },
+    {
+      "co2_ppm": 1120.0,
+      "noise_dba": 48.2,
+      "temp_c": 22.4,
+      "humidity_pct": 44.5,
+      "radiation_msv": 0.45,
+      "solar_event_flag": 0,
+      "recorded_at_utc": "2026-11-14T14:00:00Z"
+    }
+  ],
+  "wiki_articles": [
+    {
+      "id": "wiki-co2-01",
+      "category_en": "CO2 Exposure",
+      "title_en": "Elevated Cabin CO2 Headache & Fatigue Protocol",
+      "drawer_code": "DRAWER A1",
+      "steps_json": [
+        "Verify cabin scrubbing system airflow and secondary sensor reading.",
+        "Relocate affected crew member to forward ventilated module for 20 minutes.",
+        "Record pulse oximetry, respiratory rate, and resting heart rate.",
+        "Administer oral hydration and reassess cognitive reaction score."
+      ],
+      "escalation_en": "Escalate immediately to onboard physician if CO2 exceeds 4000 ppm or SpO2 drops below 92%."
+    },
+    {
+      "id": "wiki-vision-01",
+      "category_en": "Vision & Pressure",
+      "title_en": "Neuro-Ocular Sheath Elevation & Visual Shift Management",
+      "drawer_code": "DRAWER B2",
+      "steps_json": [
+        "Repeat bilateral optic nerve sheath ultrasound measurement with 3.0 mm axial guide.",
+        "Record intraocular pressure and visual acuity chart score for both eyes.",
+        "Schedule lower-body negative pressure countermeasure session per protocol.",
+        "Queue bilateral ocular telemetry bundle for flight surgeon review."
+      ],
+      "escalation_en": "Escalate to onboard physician if either optic sheath exceeds 5.5 mm or acute visual distortion occurs."
+    },
+    {
+      "id": "wiki-sleep-01",
+      "category_en": "Sleep & Fatigue",
+      "title_en": "Circadian Desynchronization & Sleep Debt Recovery",
+      "drawer_code": "DRAWER C3",
+      "steps_json": [
+        "Verify quiet hours enforcement (22:00-06:00 UTC) and cabin lighting spectrum.",
+        "Reduce non-essential EVA workload for 24 hours if sleep efficiency drops below 78%.",
+        "Run 2-minute cognitive reaction baseline prior to pilot duty rotation."
+      ],
+      "escalation_en": "Escalate to onboard physician if deep sleep stays below 45 minutes for 3 consecutive nights."
+    },
+    {
+      "id": "wiki-cardio-01",
+      "category_en": "Cardiorespiratory",
+      "title_en": "Post-EVA Orthostatic & Auscultation Follow-Up",
+      "drawer_code": "DRAWER B1",
+      "steps_json": [
+        "Confirm cabin ambient noise is below 55 dBA before acoustic capture.",
+        "Record 30-second cardiac auscultation across mitral and aortic sites.",
+        "Administer electrolyte hydration pack and monitor recovery heart rate for 10 minutes."
+      ],
+      "escalation_en": "Escalate to onboard physician if resting heart rate remains above 110 bpm or abnormal murmur persists."
+    }
+  ]
+}

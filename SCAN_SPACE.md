@@ -1,118 +1,71 @@
-# 🚀 Scan Space
-> **Reto:** NASA Space Apps Challenge 2026 — *Create Health Monitoring Software for Astronauts on Space Missions*.
+# 🚀 SCAN SPACE — Abstracción de Ideas del Proyecto
+
+> **Propósito:** Documento de consolidación y lluvia de ideas preliminares de la solución, parámetros de salud a monitorear, funcionalidades de la aplicación y flujo de trabajo del equipo.  
+> *(Nota: Toda la documentación, reglas del concurso y requerimientos oficiales de la NASA se encuentran en `../wakax-docs/investigacion/RETO_OFICIAL_NASA_2026.md`).*
 
 ---
 
-## 0. ⭐ Regla de oro — Los 10 criterios de premios globales
+## 1. Alcance y Fases Temporales de la Misión
 
-> **Obligatorio:** cada módulo, pantalla, dato, decisión, tarea o commit **debe satisfacer los 10 criterios** de abajo.
-> Si algo no aporta a ninguno de ellos, se replantea antes de hacerlo.
-> Fuente: [Space Apps — Awards](https://www.spaceappschallenge.org/awards/) y la [Guía de jueces y premios](https://www.spaceappschallenge.org/resources/judging-awards-guide/).
+Estructuración conceptual del monitoreo de salud del astronauta a lo largo del arco de vuelo espacial:
 
-| # | Premio | Qué piden | Cómo lo cumple Scan Space |
-|---|---|---|---|
-| 1 | **Best Use of Data** | El proyecto que mejor hace accesibles los datos espaciales o los usa en una aplicación única | Usar datasets reales de NASA (OSDR/GeneLab, DONKI) además de datos simulados, y mostrarlos de forma clara |
-| 2 | **Best Use of Science** | El uso más válido de la ciencia y/o del método científico | Rangos de referencia y frecuencias de medición respaldados por fuentes citadas |
-| 3 | **Best Use of Technology** | El uso más innovador de la tecnología | Detección de anomalías contra la línea base personal; funcionamiento sin conexión con la Tierra |
-| 4 | **Best Storytelling** | Comunicar de forma creativa el potencial de los datos abiertos mediante una narrativa | Contar la historia **antes / durante / después** del despegue en la demo y el video |
-| 5 | **Best Mission Concept** | El concepto y diseño más plausibles | Respetar limitaciones reales: radiación, poca muestra de sangre/orina, latencia y espacio a bordo |
-| 6 | **Galactic Impact** | El mayor potencial de mejorar la vida en la Tierra o en el universo | Que la solución también sirva para telemedicina remota en la Tierra |
-| 7 | **Global Connection** | El proyecto que mejor conecta a personas de todo el mundo mediante la tecnología | Varios idiomas, código abierto en repo público, datos en formato estándar (JSON) |
-| 8 | **Local Impact** (?) | El mayor impacto en la comunidad local | Caso de uso local: zonas rurales o aisladas, centros de salud remotos |
-| 9 | **Most Inspirational** | El proyecto que "conquista corazones" | Foco humano: ánimo, soledad, motivación, rachas |
-| 10 | **Art & Technology** (?) | Unir arte y tecnología | UI y visualizaciones cuidadas, con estética espacial |
-
-> `(?)` = descripción oficial no confirmada (la web no abrió por un error de certificado); revisar la redacción exacta.
-
-### Checklist de validación (aplicar a TODO entregable)
-
-- [ ] 1. Best Use of Data — ¿usa o hace accesibles datos espaciales reales?
-- [ ] 2. Best Use of Science — ¿está respaldado por ciencia y fuentes citadas?
-- [ ] 3. Best Use of Technology — ¿la tecnología aporta algo innovador?
-- [ ] 4. Best Storytelling — ¿se puede contar como parte de la historia de la misión?
-- [ ] 5. Best Mission Concept — ¿es plausible en una misión real?
-- [ ] 6. Galactic Impact — ¿mejora la vida en la Tierra o en el espacio?
-- [ ] 7. Global Connection — ¿es abierto y lo puede usar gente de cualquier lugar?
-- [ ] 8. Local Impact — ¿tiene aplicación en nuestra comunidad?
-- [ ] 9. Most Inspirational — ¿pone a la persona en el centro?
-- [ ] 10. Art & Technology — ¿se ve y se siente bien diseñado?
-
-
-
-## 2. Objetivos (Obj. 1–3)
-
-- Datos de la misión: **antes / durante / después** del despegue
+* **Fase 1: Antes del Despegue (Pre-Vuelo)**
+  * Captura de la línea base individual de salud del astronauta en condiciones terrestres ($1G$).
+  * Registro de valores de referencia clínicos y capacidades basales.
+* **Fase 2: Durante el Vuelo / Tránsito (En Misión)**
+  * Monitoreo continuo de adaptación aguda, estrés de despegue y seguimiento diario en microgravedad.
+  * Detección temprana de degradación física y psicológica en espacio profundo.
+* **Fase 3: Después / En Superficie (Post-Vuelo / Regeneración)**
+  * Evaluación del impacto fisiológico en gravedad parcial (Luna/Marte) o tras el retorno a la Tierra.
+  * Protocolos de recuperación y seguimiento de remodelación ósea y muscular.
 
 ---
 
-## 3. Datos a recolectar
+## 2. Taxonomía de Datos a Recolectar (Lluvia de Parámetros)
 
-### 3.1 Datos del usuario (biométricos)
+### 2.1 Datos del Usuario (Perfil Biométrico Base)
+* Hora / Marca temporal del registro
+* Edad
+* Sexo biológico
+* Altura
+* Peso corporal
+* Masa muscular
+* Densidad mineral ósea
+* Índice de Masa Corporal (IMC)
+* Ritmo cardíaco en reposo
+* Presión arterial basal
+* Ruido ambiental de referencia
 
-- Hora
-- Edad
-- Sexo
-- Altura
-- Peso
-- Masa muscular
-- Densidad ósea
-- IMC
-- Ritmo cardíaco
-- Presión arterial
-- Ruido (ambiente)
+### 2.2 Datos de Misión (Directos y Operativos)
 
-### 3.2 Datos de misión (directos)
-
-| Manuales | Automáticos |
+| Categoría | Parámetros Propuestos |
 |---|---|
-| Glucosa | Temperatura |
-| Auscultaciones (?) | Humedad |
-| Sangre | Tiempo de misión |
-| Orina | Tiempo de trabajo (interior y exterior) |
-| Exámenes de la vista | Saturación de oxígeno |
-| Motrices | Ejercicio |
+| **Automáticos (Sensores / Cabina)** | • Temperatura de cabina<br>• Humedad relativa<br>• Tiempo de misión transcurrido<br>• Tiempo de trabajo (interior IVA vs. exterior EVA)<br>• Saturación de oxígeno ($SpO_2$)<br>• Carga de ejercicio realizado |
+| **Manuales / Clínicos (Point-of-Care)** | • Glucosa en sangre<br>• Auscultación cardiopulmonar<br>• Análisis de muestras de sangre<br>• Análisis de muestras de orina (hidratación y electrolitos)<br>• Exámenes de la vista (monitoreo de agudeza visual / SANS)<br>• Pruebas de destreza motriz y cognitiva |
 
-### 3.3 Datos indirectos
+### 2.3 Datos Indirectos (Salud Mental, Conductual y Bienestar)
+* Estado de ánimo
+* Calidad y horas de sueño
+* Nivel de estrés percibido
+* Sensación de aislamiento / soledad
+* Nivel de motivación
+* Registro de alimentación
+* Registro de hidratación
 
-- Estado de ánimo
-- Sueño
-- Nivel de estrés
-- Soledad
-- Motivación
-- Alimentación
-- Hidratación
-
-> **Pendiente:** determinar mediante investigación la frecuencia de medición de los indirectos
-> (diarios, semanales, mensuales, etc.).
+> **Punto a definir:** Determinar mediante investigación médica la frecuencia óptima de registro para los datos indirectos (diarios, semanales o por eventos) para no sobrecargar la rutina del astronauta.
 
 ---
 
-## 4. App – Menús
+## 3. Módulos y Funcionalidades Iniciales de la Aplicación
 
-- **Inicio de sesión**
-- **Perfil** → Datos personales
-  - Psicológicos
-  - Físicos
-- **Rachas**
-- **Notificaciones**
+* **Inicio de Sesión / Identificación:** Perfil individual de cada tripulante para cargar su historial clínico personalizado.
+* **Perfil de Astronauta:** Panel interactivo con desglose de datos físicos (constantes vitales) y psicológicos (estado general).
+* **Rachas y Hábitos (*Engagement*):** Mecánica visual de constancia para motivar el cumplimiento diario de registros y ejercicio sin generar fricción.
+* **Notificaciones y Alertas:** Avisos preventivos para toma de mediciones de rutina o recordatorios de descanso activo.
 
 ---
 
-## 5. Flujo de trabajo
+## 4. Dinámica de Trabajo y Validación del Equipo
 
-- **Datos:** Investigar → Filtrar → JSON
-- **Validadores:** Módulo → Revisan → OK (si no pasa → regresa a Devs)
-- **Testers:** GIT → clonar
-
----
-
-## 6. tecnologias
-
-frontend
-- nuxt
-
-base de datos
-- sql lite
-
-backernd
-- python
+* **Flujo de Datos:** Investigar $\rightarrow$ Filtrar fuentes confiables $\rightarrow$ Estructurar en formato JSON.
+* **Flujo de Validación:** Modelado en Módulo $\rightarrow$ Revisión cruzada en parejas $\rightarrow$ Visto bueno / Ajuste técnico.
