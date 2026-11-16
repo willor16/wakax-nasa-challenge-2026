@@ -89,6 +89,7 @@ def init_db(db_path: Path | None = None, schema_path: Path = SCHEMA_PATH) -> Non
         ensure_diagnosis_columns(conn)
         ensure_mind_columns(conn)
         ensure_clinical_metrics(conn)
-        # New protocols from the shipped guide reach existing databases (never overwrites).
-        if conn.execute("SELECT COUNT(*) FROM wiki_articles").fetchone()[0]:
-            load_medical_guide(conn)
+        # The guide and kit are always there, even on a fresh or older database: shipped
+        # protocols and drawers are inserted when missing (never overwritten), and the
+        # full-text index follows through its triggers.
+        load_medical_guide(conn)

@@ -6,10 +6,10 @@ import json
 from datetime import timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from app.auth_utils import CurrentCrew, OperatorCrew, ensure_crew_access, hash_pin
+from app.auth_utils import CurrentCrew, OperatorCrew, PhysicianCrew, ensure_crew_access, hash_pin
 from app.config import GROUND_LINK_KEY
 from app.db import open_connection
 from app.services import habits
@@ -17,6 +17,8 @@ from app.services.crew_metrics import compute_crew_baselines, evaluate_crew_read
 from app.services.crew_names import display_title, short_name  # noqa: F401
 from app.services.environment import cabin_mode, cabin_snapshot
 from app.services.mission_clock import mission_row, to_iso, utc_now
+from app.services.patient_history import CATEGORIES, clinical_history, patient_list
+from app.services.pilot_readiness import pilot_readiness
 from app.services.reference_ranges import status_label
 
 router = APIRouter(prefix="/api/v1", tags=["crew"])
@@ -62,6 +64,11 @@ class GroundCrewDirectiveIn(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=80)
     role: CrewRole | None = None
     pin: str | None = Field(default=None, pattern=r"^\d{4}$")
+    title_en: str | None = Field(default=None, max_length=40)
+    age: int | None = Field(default=None, ge=18, le=80)
+    sex: Literal["F", "M", "X"] | None = None
+    blood_type: str | None = Field(default=None, max_length=8)
+    height_cm: float | None = Field(default=None, gt=100, lt=240)
 
 
 class StageChangeIn(BaseModel):
@@ -309,7 +316,51 @@ def change_mission_stage(body: StageChangeIn, _claims: OperatorCrew) -> dict:
             "UPDATE mission SET current_stage = ?, updated_at_utc = ? WHERE id = 1",
             (body.stage, to_iso(utc_now())),
         )
-    return {"previous_stage": current, "current_stage": body.stage}
+        # Closing the pre-flight stage freezes everyone's personal baselines from all of
+        # their pre-flight readings; later readings are compared against them.
+        frozen = 0
+        if current == "LAUNCH":
+            for row in conn.execute("SELECT id FROM crew_members WHERE is_active = 1").fetchall():
+                frozen += len(compute_crew_baselines(conn, row["id"]))
+    return {"previous_stage": current, "current_stage": body.stage, "baselines_frozen": frozen}
+
+
+@router.get("/crew/patients")
+def list_patients(_claims: PhysicianCrew) -> list[dict]:
+    """Every active crew member with open advisories, for the physician's patient switch."""
+    with open_connection() as conn:
+        return patient_list(conn)
+
+
+@router.get("/crew/{crew_id}/clinical-history")
+def get_clinical_history(
+    crew_id: str,
+    _claims: PhysicianCrew,
+    category: Annotated[str | None, Query(max_length=20)] = None,
+    limit: Annotated[int, Query(ge=10, le=1000)] = 200,
+) -> dict:
+    """Complete clinical record of one crew member (physician only)."""
+    if category is not None and category not in CATEGORIES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown reading category.")
+    with open_connection() as conn:
+        record = clinical_history(conn, crew_id, category, limit)
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
+    return record
+
+
+@router.get("/crew/{crew_id}/pilot-readiness")
+def get_pilot_readiness(crew_id: str, claims: CurrentCrew) -> dict:
+    """Flight & Docking Readiness of the pilot (the pilot or the physician)."""
+    ensure_crew_access(claims, crew_id)
+    with open_connection() as conn:
+        row = conn.execute("SELECT role FROM crew_members WHERE id = ?", (crew_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
+        if row["role"] != "PILOT":
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "Flight readiness is only assessed for the pilot.")
+        return pilot_readiness(conn, crew_id)
 
 
 def verify_ground_signature(raw_body: bytes, signature: str | None) -> None:
@@ -337,6 +388,11 @@ async def queue_ground_crew_directive(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, "The crew order is incomplete or malformed."
         ) from exc
+    return queue_crew_order(body)
+
+
+def queue_crew_order(body: GroundCrewDirectiveIn) -> dict:
+    """Validate a crew order from Mission Control and queue it behind the signal delay."""
     now = utc_now()
     with open_connection() as conn:
         exists = conn.execute(

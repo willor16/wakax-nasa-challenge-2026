@@ -12,16 +12,27 @@ interface Comms { earth_latency_min: number, pending_packets: number, synchroniz
   messages: Message[], transmission_log: LogEntry[], solar_weather: Solar | null }
 
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<Comms>('/comms'), 15_000, ['alerts'])
+const route = useRoute()
+const { isAuthenticated } = useSession()
+// The same screen serves the ground station console (Mission Control, opened with the link
+// key from the sign-in screen); without a crew session only the console is available.
+const groundMode = computed(() => route.query.station === 'ground' || !isAuthenticated.value)
+const { data, loading, error, refresh } = useResource<Comms | null>(
+  () => (groundMode.value ? Promise.resolve(null) : api<Comms>('/comms')), 15_000, ['alerts'])
+watch(groundMode, (ground) => {
+  if (!ground) void refresh()
+})
 const sending = ref(false)
 const sendNote = ref<{ tone: 'ok' | 'critical', text: string } | null>(null)
 
-usePageHeader(() => ({
-  title: 'Mission Control & Solar Weather',
-  status: data.value
-    ? { text: `Link nominal · +${data.value.earth_latency_min}m`, tone: 'ok' }
-    : null,
-}))
+usePageHeader(() => (groundMode.value
+  ? { title: 'Ground Station Console', subtitle: 'Mission Control · Earth', status: { text: 'Ground link', tone: 'neutral' } }
+  : {
+      title: 'Mission Control & Solar Weather',
+      status: data.value
+        ? { text: `Link nominal · +${data.value.earth_latency_min}m`, tone: 'ok' }
+        : null,
+    }))
 
 async function sendSummary() {
   sending.value = true
@@ -58,7 +69,17 @@ const kpTone = computed(() => (solar.value?.state === 'ALERT' ? 'critical' : sol
 
 <template>
   <div class="page">
-    <UiStateNote v-if="!data" :loading="loading" :error="error" @retry="refresh()" />
+    <nav v-if="isAuthenticated" class="shrink-0 flex gap-[8px]" aria-label="Link view">
+      <NuxtLink
+        v-for="tabItem in [{ label: 'Crew Link', query: {} }, { label: 'Ground Station Console', query: { station: 'ground' } }]"
+        :key="tabItem.label" :to="{ path: '/comms', query: tabItem.query }"
+        class="focus-ring h-[34px] px-[20px] rounded-[4px] text-[11px] font-bold border-[1.3px] flex items-center"
+        :class="(tabItem.label !== 'Crew Link') === groundMode ? 'menu-item-active' : 'bg-cabin-tile border-cabin-line text-cabin-ice'"
+        :aria-current="(tabItem.label !== 'Crew Link') === groundMode ? 'page' : undefined"
+      >{{ tabItem.label }}</NuxtLink>
+    </nav>
+    <RolesGroundControlConsole v-if="groundMode" />
+    <UiStateNote v-else-if="!data" :loading="loading" :error="error" @retry="refresh()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
 class="w-[50%] shrink-0" title="Flight Surgeon Messages · Houston" icon="mail"

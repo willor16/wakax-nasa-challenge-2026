@@ -12,8 +12,12 @@ const props = defineProps<{ metricKey: string }>()
 
 const { t } = useI18n()
 const { entries, load } = useParamHelp()
-const { isAuthenticated, crew } = useSession()
+const { isAuthenticated, crew, activePatient } = useSession()
 const { api } = useApi()
+const route = useRoute()
+// Whose ranges to show: capture screens record for the signed-in crew member; results
+// screens show the patient being viewed (the physician may be looking at someone else).
+const subject = computed(() => (route.path.startsWith('/capture') ? crew.value : activePatient.value))
 
 const CARD_WIDTH = 320
 const MARGIN = 16
@@ -30,9 +34,9 @@ const help = computed(() => entries.value[props.metricKey] ?? null)
 const baseline = useState<Record<string, { mean_val: number }>>('param-help-baselines', () => ({}))
 const baselineFor = useState('param-help-baselines-for', () => '')
 
-// Ranges that differ by sex show the signed-in crew member's own range.
+// Ranges that differ by sex show the range of the person on screen.
 const sexRange = computed(() => {
-  const sex = crew.value?.sex
+  const sex = subject.value?.sex === 'X' ? null : subject.value?.sex
   const range = sex ? help.value?.by_sex?.[sex] : undefined
   return range && range.nominal_min != null && range.nominal_max != null ? { sex, ...range } : null
 })
@@ -56,7 +60,7 @@ const personalText = computed(() => {
 
 async function prepare() {
   await load()
-  const id = crew.value?.id
+  const id = subject.value?.id
   if (!isAuthenticated.value || !id || baselineFor.value === id) return
   baselineFor.value = id
   try {

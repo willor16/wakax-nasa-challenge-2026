@@ -10,6 +10,31 @@ const route = useRoute()
 const { t } = useI18n()
 
 const onNotifications = computed(() => route.path === '/notifications')
+
+// The physician's patient switch: every results screen follows the chosen patient; capture
+// screens keep recording for the physician.
+const { isPhysician, activePatientId, patients, setActivePatient, crew } = useSession()
+const { api } = useApi()
+async function loadPatients() {
+  if (!isPhysician.value) return
+  try {
+    patients.value = await api<PatientSummary[]>('/crew/patients')
+  }
+  catch {
+    // Keep the last list; the next refresh corrects it.
+  }
+}
+let patientTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  void loadPatients()
+  patientTimer = setInterval(() => void loadPatients(), 30_000)
+})
+onBeforeUnmount(() => {
+  if (patientTimer) clearInterval(patientTimer)
+})
+watch(isPhysician, () => void loadPatients())
+const { signature } = useDataSync()
+watch(signature(['alerts']), () => void loadPatients())
 const onCapture = computed(() => route.path.startsWith('/capture'))
 const onComms = computed(() => route.path.startsWith('/comms'))
 const lastRoute = useState<string>('last-route-before-notifications', () => '/profile/personal')
@@ -51,13 +76,41 @@ async function signOut() {
 
     <template v-if="header.title">
       <span class="w-px h-[30px] bg-cabin-text/20 mx-[18px]" />
-      <div class="leading-tight min-w-0" :class="authenticated ? 'max-w-[calc(50%-295px)]' : ''">
+      <div class="leading-tight min-w-0" :class="!authenticated ? '' : isPhysician && patients.length && !onCapture ? 'max-w-[calc(50%-527px)]' : 'max-w-[calc(50%-295px)]'">
         <h1 class="text-[15.5px] font-semibold truncate">{{ header.title }}</h1>
         <p v-if="header.subtitle" class="text-[9.5px] font-semibold text-cabin-ice tracking-[0.04em] uppercase">
           {{ header.subtitle }}
         </p>
       </div>
     </template>
+
+    <div
+      v-if="authenticated && isPhysician && patients.length"
+      class="ml-[22px] flex items-center gap-[6px] shrink-0" role="group" aria-label="Patient view"
+    >
+      <!-- Compact chips (code only) so the switch fits beside the centred Capture button. -->
+      <span v-if="onCapture" class="text-[8.5px] font-semibold text-cabin-muted tracking-[0.06em] mr-[4px] leading-tight">
+        RECORDING<br>FOR YOU
+      </span>
+      <template v-if="!onCapture">
+        <button
+          v-for="p in patients" :key="p.id" type="button"
+          class="focus-ring relative h-[28px] px-[8px] rounded-[4px] text-[10px] font-bold border-[1.3px] whitespace-nowrap"
+          :class="p.id === activePatientId ? 'menu-item-active' : 'bg-cabin-tile border-cabin-line text-cabin-ice'"
+          :aria-pressed="p.id === activePatientId"
+          :aria-label="`Show ${p.full_name}${p.id === crew?.id ? ' (you)' : ''}${p.open_critical ? `, ${p.open_critical} critical advisories` : p.open_alerts ? `, ${p.open_alerts} advisories` : ''}`"
+          :title="p.full_name"
+          @click="setActivePatient(p.id)"
+        >
+          <span class="mono">{{ p.code }}</span>
+          <i
+            v-if="p.open_critical || p.open_alerts"
+            class="absolute -top-[3px] -right-[3px] w-[7px] h-[7px] rounded-full"
+            :class="p.open_critical ? 'bg-cabin-crit' : 'bg-cabin-navy-edge'"
+          />
+        </button>
+      </template>
+    </div>
 
     <NuxtLink
       v-if="authenticated"

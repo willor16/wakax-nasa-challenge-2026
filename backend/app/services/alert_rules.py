@@ -225,6 +225,38 @@ def decide(
     )
 
 
+TREND_READINGS = 3
+
+
+TREND_MIN_CHANGE = 2.0  # times the measurement repeatability
+TREND_MIN_Z = 1.0
+
+
+def adverse_trend(values: list[float], direction: str, floor: float = 0.0,
+                  baseline: Baseline | None = None) -> str | None:
+    """``"up"`` or ``"down"`` when the last readings (oldest first) move steadily in the
+    one harmful direction of the metric (optic nerve sheath rising, heart rate variability
+    falling): every step the same way, the whole change at least twice the measurement
+    repeatability, and the newest reading already away from the personal baseline on that
+    side. Day-to-day wobble is never read as a trend. None otherwise.
+    """
+    if direction not in ("up", "down") or len(values) < TREND_READINGS:
+        return None
+    last = values[-TREND_READINGS:]
+    steps = [b - a for a, b in zip(last, last[1:], strict=False)]
+    change = last[-1] - last[0]
+    if abs(change) < max(TREND_MIN_CHANGE * floor, 1e-9):
+        return None
+    way = "up" if all(d > 0 for d in steps) else "down" if all(d < 0 for d in steps) else None
+    if way != direction:
+        return None
+    if baseline is not None:
+        z = z_score(last[-1], baseline, floor)
+        if z is None or (z if way == "up" else -z) < TREND_MIN_Z:
+            return None
+    return way
+
+
 def format_amount(value: float, unit: str) -> str:
     """``5.9 mm``, ``98%`` - numbers rounded for reading, never scientific notation."""
     text = f"{round(value, 2):g}"

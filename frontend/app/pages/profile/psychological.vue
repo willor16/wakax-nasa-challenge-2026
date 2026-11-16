@@ -78,8 +78,9 @@ interface PsychProfile {
 const { api } = useApi()
 const PERIODS = [{ id: '7d', label: '7D' }, { id: '14d', label: '14D' }, { id: '30d', label: '30D' }, { id: 'all', label: 'ALL' }]
 const period = ref('14d')
+const { activePatientId, activePatient } = useSession()
 const { data, loading, error, refresh } = useResource(
-  () => api<PsychProfile>('/psych/profile', { query: { period: period.value } }),
+  () => api<PsychProfile>('/psych/profile', { query: { period: period.value, crew_id: activePatientId.value ?? undefined } }),
   60_000,
   ['psych', 'sleep', 'alerts'],
 )
@@ -416,7 +417,19 @@ function matrixTone(status: string | undefined) {
           </div>
         </ShellHudWindow>
 
+        <!-- The pilot's role adds the stricter flight readiness assessment (includes reaction). -->
         <ShellHudWindow
+          v-if="activePatient?.role === 'PILOT' && activePatientId"
+          class="flex-[1.15] min-h-0"
+          title="Pilot Flight & Docking Readiness"
+          icon="rocket"
+          tag-text="PILOT ROLE"
+          flush
+        >
+          <RolesPilotReadinessPanel :crew-id="activePatientId" />
+        </ShellHudWindow>
+        <ShellHudWindow
+          v-else
           class="flex-1 min-h-0"
           title="Cognitive &amp; Sensorimotor Results"
           icon="bolt"

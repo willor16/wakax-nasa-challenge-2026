@@ -46,6 +46,27 @@ _BLOCKED = re.compile(
     r"|language model)\b",
     re.IGNORECASE,
 )
+# Common Spanish words: text typed for the screen must be English only.
+_SPANISH = re.compile(
+    r"\b(y|el|la|los|las|del|para|con|por|una|uno|que|pero|muy|cuando|donde|dolor|cabeza|piel|mano|manos|seca|seco|ojos|paso|pasos"
+    r"|llamar|medico|tripulante|presion|ojo|sangre|agua|dormir|sueno|herida)\b",
+    re.IGNORECASE,
+)
+
+
+def screen_text_issues(text: str) -> list[str]:
+    """Why a text cannot be shown to the crew: non-English characters or words, or terms the
+    screen never shows (restricted names and technology jargon). Empty when the text is fine."""
+    issues = []
+    if not text.isascii():
+        issues.append("non-English characters")
+    if _SPANISH.search(text):
+        issues.append("not in English")
+    if _BLOCKED.search(text):
+        issues.append("restricted or technical word")
+    return issues
+
+
 MAX_TITLE = 60
 MAX_DETAIL = 220
 MAX_SUMMARY = 400

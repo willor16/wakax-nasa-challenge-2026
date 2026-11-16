@@ -32,6 +32,7 @@ def guide_categories(conn: sqlite3.Connection) -> list[str]:
 
 _WORD = re.compile(r"[A-Za-z0-9]+")
 MAX_RESULTS = 20
+MAX_CATALOG = 200
 
 
 def normalize_steps(raw: str) -> list[dict[str, str]]:
@@ -70,7 +71,88 @@ def _article(row: Any) -> dict:
         # Protocols promoted from a physician-reviewed finding started from the onboard
         # pattern scan, so the screen marks them as produced with assisted analysis.
         "assisted": row["source_diagnosis_id"] is not None,
+        "origin": article_origin(row["id"], row["source_diagnosis_id"]),
+        "mission_protocol": article_origin(row["id"], row["source_diagnosis_id"]) != "shipped",
+        "updated_at_utc": row["updated_at_utc"],
     }
+
+
+MISSION_PREFIX = "wiki-mission-"
+
+
+def article_origin(article_id: str, source_diagnosis_id: Any) -> str:
+    """Where a protocol came from: the shipped guide, a physician-validated case promoted
+    from a finding, or a protocol the physician wrote during the mission."""
+    if source_diagnosis_id is not None:
+        return "mission_case"
+    if article_id.startswith(MISSION_PREFIX):
+        return "physician"
+    return "shipped"
+
+
+class ArticleError(ValueError):
+    """The protocol cannot be saved (unknown drawer, unreadable text, not editable)."""
+
+
+def _check_article(conn: sqlite3.Connection, data: dict) -> None:
+    from app.services.llm import screen_text_issues
+
+    drawer = conn.execute("SELECT 1 FROM kit_drawers WHERE code = ?", (data["drawer_code"],))
+    if drawer.fetchone() is None:
+        raise ArticleError("Choose a drawer from the medical kit.")
+    text = " ".join([
+        data["title_en"], data["category_en"], data["escalation_en"],
+        *(f"{s['title_en']} {s['detail_en']}" for s in data["steps"]),
+    ])
+    issues = screen_text_issues(text)
+    if issues:
+        raise ArticleError(
+            "Write the protocol in plain English without technical terms (" + ", ".join(issues)
+            + ")."
+        )
+
+
+def create_mission_article(conn: sqlite3.Connection, data: dict, author: str,
+                           stamp: str) -> dict:
+    """A protocol the crew physician validated during the mission; indexed for search at
+    once by the full-text triggers."""
+    _check_article(conn, data)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM wiki_articles WHERE id LIKE ?", (f"{MISSION_PREFIX}%",)
+    ).fetchone()[0]
+    article_id = f"{MISSION_PREFIX}{count + 1:02d}"
+    while conn.execute("SELECT 1 FROM wiki_articles WHERE id = ?", (article_id,)).fetchone():
+        count += 1
+        article_id = f"{MISSION_PREFIX}{count + 1:02d}"
+    conn.execute(
+        """INSERT INTO wiki_articles (id, category_en, title_en, drawer_code, steps_json,
+           escalation_en, source_diagnosis_id, created_at_utc, updated_at_utc, source_en)
+           VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)""",
+        (article_id, data["category_en"], data["title_en"], data["drawer_code"],
+         json.dumps(data["steps"]), data["escalation_en"], stamp, stamp,
+         f"Mission protocol by {author} ({stamp[:10]})"),
+    )
+    return get_article(conn, article_id)  # type: ignore[return-value]
+
+
+def update_mission_article(conn: sqlite3.Connection, article_id: str, data: dict,
+                           author: str, stamp: str) -> dict:
+    """Update a protocol written or validated during the mission; shipped ones never change."""
+    current = get_article(conn, article_id)
+    if current is None:
+        raise LookupError(article_id)
+    if not current["mission_protocol"]:
+        raise ArticleError("Shipped protocols cannot be changed on board.")
+    _check_article(conn, data)
+    source = (current["source_en"] if current["origin"] == "mission_case"
+              else f"Mission protocol by {author} (updated {stamp[:10]})")
+    conn.execute(
+        """UPDATE wiki_articles SET category_en = ?, title_en = ?, drawer_code = ?,
+           steps_json = ?, escalation_en = ?, updated_at_utc = ?, source_en = ? WHERE id = ?""",
+        (data["category_en"], data["title_en"], data["drawer_code"], json.dumps(data["steps"]),
+         data["escalation_en"], stamp, source, article_id),
+    )
+    return get_article(conn, article_id)  # type: ignore[return-value]
 
 
 def search_articles(conn: sqlite3.Connection, query: str = "",
@@ -83,8 +165,9 @@ def search_articles(conn: sqlite3.Connection, query: str = "",
     if match is None:
         rows = conn.execute(
             f"SELECT a.* FROM wiki_articles AS a WHERE 1 = 1 {category_sql}"
-            " ORDER BY a.category_en, a.title_en LIMIT ?",
-            (*category_args, MAX_RESULTS),
+            " ORDER BY a.source_diagnosis_id IS NULL AND a.id NOT LIKE 'wiki-mission-%',"
+            " a.category_en, a.title_en LIMIT ?",
+            (*category_args, MAX_CATALOG),
         ).fetchall()
         return [_article(r) for r in rows]
 
