@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from datetime import timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -20,7 +20,7 @@ from app.schemas.measurements import (
 )
 from app.services import reference_ranges
 from app.services.contracts import evaluate_alerts, update_streaks
-from app.services.mission_clock import current_stage, parse_iso, utc_now
+from app.services.mission_clock import current_stage, parse_iso, period_since, utc_now
 
 router = APIRouter(prefix="/api/v1", tags=["measurements"])
 
@@ -77,6 +77,8 @@ def list_measurements(
     metric_key: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
     mission_stage: Annotated[MissionStage | None, Query()] = None,
+    stage: Annotated[MissionStage | None, Query()] = None,
+    period: Annotated[Literal["24h", "7d", "14d", "30d", "all"] | None, Query()] = None,
     source_type: Annotated[MeasurementSource | None, Query()] = None,
     from_utc: Annotated[str | None, Query()] = None,
     to_utc: Annotated[str | None, Query()] = None,
@@ -94,9 +96,12 @@ def list_measurements(
     if category:
         clauses.append("c.category = ?")
         params.append(category.upper())
-    if mission_stage:
+    if mission_stage or stage:
         clauses.append("m.mission_stage = ?")
-        params.append(mission_stage)
+        params.append(mission_stage or stage)
+    if period and (since := period_since(utc_now(), period)):
+        clauses.append("m.recorded_at_utc >= ?")
+        params.append(since)
     if source_type:
         clauses.append("m.source_type = ?")
         params.append(source_type)

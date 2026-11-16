@@ -20,6 +20,7 @@ from app.services.mission_clock import (
     day_label,
     mission_day,
     parse_iso,
+    period_since,
     to_iso,
     utc_now,
 )
@@ -45,12 +46,15 @@ def eye_views(conn: sqlite3.Connection, crew_id: str) -> dict[str, dict[str, Any
     return views
 
 
-def _trend(conn: sqlite3.Connection, crew_id: str) -> list[dict[str, Any]]:
+def _trend(conn: sqlite3.Connection, crew_id: str, period: str = "all") -> list[dict[str, Any]]:
+    """In-flight exams in the window (one point per exam day), after the pre-flight baseline."""
+    since = period_since(utc_now(), period) or "0000"
     rows = conn.execute(
         """SELECT metric_key, value_num, recorded_at_utc, mission_stage FROM measurements
            WHERE crew_id = ? AND metric_key IN ('optic_sheath_left_mm', 'optic_sheath_right_mm')
-             AND mission_stage != 'LAUNCH' ORDER BY recorded_at_utc ASC, id ASC""",
-        (crew_id,),
+             AND mission_stage != 'LAUNCH' AND recorded_at_utc >= ?
+           ORDER BY recorded_at_utc ASC, id ASC""",
+        (crew_id, since),
     ).fetchall()
     exams: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -68,7 +72,9 @@ def _trend(conn: sqlite3.Connection, crew_id: str) -> list[dict[str, Any]]:
             },
         )
         point["left" if "left" in row["metric_key"] else "right"] = row["value_num"]
-    points = list(exams.values())[-5:]
+        point["recorded_at_utc"] = row["recorded_at_utc"]
+        point["mission_stage"] = row["mission_stage"]
+    points = list(exams.values())
     left, right = (baseline(conn, crew_id, f"optic_sheath_{s}_mm") for s in ("left", "right"))
     if left or right:
         points.insert(
@@ -76,6 +82,8 @@ def _trend(conn: sqlite3.Connection, crew_id: str) -> list[dict[str, Any]]:
             {
                 "label": "Baseline",
                 "date_utc": None,
+                "recorded_at_utc": None,
+                "mission_stage": "LAUNCH",
                 "kind": "BASELINE",
                 "left": round(left.mean_val, 2) if left else None,
                 "right": round(right.mean_val, 2) if right else None,
@@ -129,7 +137,9 @@ def _care_plan(conn: sqlite3.Connection, crew_id: str) -> list[dict[str, str]]:
     return steps[:3]
 
 
-def build_vision_exam(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any] | None:
+def build_vision_exam(
+    conn: sqlite3.Connection, crew_id: str, period: str = "all"
+) -> dict[str, Any] | None:
     if crew_row(conn, crew_id) is None:
         return None
     eyes = eye_views(conn, crew_id)
@@ -183,7 +193,8 @@ def build_vision_exam(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any] 
         "follow_up_day_label": day_label(mission_day(conn, parse_iso(follow_up["due_at_utc"])))
         if follow_up
         else None,
-        "trend": _trend(conn, crew_id),
+        "trend": _trend(conn, crew_id, period),
+        "period": period,
         "limits": {
             "nominal_max_mm": sheath.get("nominal_max"),
             "alert_mm": sheath.get("critical_threshold"),

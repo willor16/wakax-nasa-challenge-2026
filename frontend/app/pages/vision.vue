@@ -4,6 +4,8 @@ import VChart from 'vue-echarts'
 import type { MetricView } from '~/composables/useProfile'
 import type { OcularPoint } from '~/utils/charts'
 import { ocularTrendOption } from '~/utils/charts'
+import type { ChartClick } from '~/composables/useChartPins'
+import { interpretation, statusFor, type Thresholds } from '~/utils/chartDecor'
 import { dayText, formatNumber, formatTime, scalePct, toneOf } from '~/utils/format'
 
 interface Eye extends MetricView { eye_text: string }
@@ -27,21 +29,52 @@ interface VisionExam {
 
 const { crew } = useSession()
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<VisionExam>(`/vision/${crew.value!.id}`), 60_000, ['vision', 'alerts'])
+const PERIODS = [{ id: '30d', label: '30D' }, { id: 'all', label: 'ALL' }]
+const period = ref('all')
+const { data, loading, error, refresh } = useResource(
+  () => api<VisionExam>(`/vision/${crew.value!.id}`, { query: { period: period.value } }), 60_000, ['vision', 'alerts'])
 
 usePageHeader(() => ({
   title: 'Vision & Ocular Exam',
   status: data.value ? { text: data.value.header_text, tone: toneOf(data.value.status) === 'critical' ? 'critical' : 'ok' } : null,
 }))
 
+// Personal baseline band, the usual upper limit as watch line and the alert threshold.
+const thresholds = computed<Thresholds>(() => {
+  const l = data.value?.limits
+  return {
+    band: l?.baseline_low_mm != null && l.nominal_max_mm != null ? [Number(l.baseline_low_mm.toFixed(2)), l.nominal_max_mm] : null,
+    watch: l?.nominal_max_mm != null ? [l.nominal_max_mm] : [],
+    critical: l?.alert_mm != null ? [l.alert_mm] : [],
+    alertWhen: 'above',
+  }
+})
+const pins = useChartPins((click: ChartClick) => {
+  const point = data.value?.trend[click.dataIndex]
+  const side = click.seriesName === 'Right Eye' ? 'right' : click.seriesName === 'Left Eye' ? 'left' : null
+  if (!point || !side || point[side] == null) return null
+  const base = data.value!.trend.find(p => p.kind === 'BASELINE')?.[side] ?? null
+  const value = point[side]!
+  return {
+    key: `${side}-${point.label}`, series: click.seriesName!, value, unit: 'mm', digits: 2,
+    time_utc: point.recorded_at_utc ?? null, stage: point.mission_stage ?? null,
+    delta: base == null ? null : value - base, reference_label: 'personal baseline',
+    status: statusFor(value, thresholds.value), coord: [point.label, value],
+  }
+})
+watch(period, () => {
+  pins.clear()
+  void refresh()
+})
 const chart = computed(() => {
   const d = data.value
   if (!d?.trend.length) return null
   const elevated = d.worst_side !== null && (d.limits.nominal_max_mm ?? 0) > 0
-  return ocularTrendOption(d.trend, {
-    alert: d.limits.alert_mm, nominalMax: d.limits.nominal_max_mm, baselineLow: d.limits.baseline_low_mm,
-  }, elevated && d.follow_up_day_label ? { label: `Target ${d.follow_up_day_label}`, value: d.limits.nominal_max_mm! } : null)
+  return ocularTrendOption(d.trend, thresholds.value,
+    elevated && d.follow_up_day_label ? { label: `Target ${d.follow_up_day_label}`, value: d.limits.nominal_max_mm! } : null,
+    { 'Right Eye': pins.marks('Right Eye'), 'Left Eye': pins.marks('Left Eye') })
 })
+const reading = computed(() => interpretation(thresholds.value, 'mm'))
 const eyeFraction = (eye: Eye) => (eye.value === null ? 0 : scalePct(eye.value, 3, 6.5) / 100)
 const rows = computed(() => {
   const d = data.value
@@ -110,15 +143,12 @@ v-for="row in rows" :key="row.label" :label="row.label" :help-key="row.help" :re
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow class="flex-[1.45] min-h-0" title="Optic Nerve Sheath Trend (mm)" icon="reticle" tag-text="BILATERAL" help-key="optic_sheath_left_mm" flush>
-          <div class="flex-1 min-h-0 relative m-[16px]">
+          <div class="flex-1 min-h-0 flex flex-col m-[14px]">
+            <UiInteractiveChartFrame v-model:period="period" :periods="PERIODS" :pins="pins.pins.value" :interpretation="reading" @unpin="pins.remove" @point="pins.onClick">
             <template v-if="chart">
-              <div class="absolute top-[10px] right-[30px] z-10 flex gap-[26px] text-[11px] font-semibold pointer-events-none">
+              <div class="absolute top-[4px] right-[40px] z-10 flex gap-[26px] text-[11px] font-semibold pointer-events-none">
                 <span class="flex items-center gap-[7px]"><i class="w-[8px] h-[8px] rounded-full bg-cabin-crit" />Right Eye ({{ data.eyes.right.value?.toFixed(1) ?? '—' }} mm)</span>
                 <span class="flex items-center gap-[7px]"><i class="w-[8px] h-[8px] rounded-full bg-cabin-ok" />Left Eye ({{ data.eyes.left.value?.toFixed(1) ?? '—' }} mm)</span>
-              </div>
-              <div class="absolute left-[64px] top-[34px] z-10 flex flex-col gap-[2px] text-[10px] font-bold pointer-events-none">
-                <span v-if="data.limits.alert_mm">ALERT THRESHOLD ({{ data.limits.alert_mm }} mm)</span>
-                <span v-if="data.limits.baseline_low_mm" class="text-cabin-ice">PERSONAL BASELINE ({{ data.limits.baseline_low_mm.toFixed(1) }} – {{ data.limits.nominal_max_mm?.toFixed(1) }} mm)</span>
               </div>
               <ClientOnly>
                 <VChart
@@ -126,7 +156,8 @@ v-for="row in rows" :key="row.label" :label="row.label" :help-key="row.help" :re
                         aria-label="Optic nerve sheath of both eyes at each exam" />
               </ClientOnly>
             </template>
-            <UiStateNote v-else class="h-full" empty="The trend appears after the first in-flight exam." />
+            <UiStateNote v-else class="h-full" empty="No exam in this window." />
+            </UiInteractiveChartFrame>
           </div>
         </ShellHudWindow>
 

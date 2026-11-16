@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.auth_utils import CurrentCrew, ensure_crew_access
@@ -64,9 +64,14 @@ def get_sample_audio(sample_id: int, conn: DbConn, claims: CurrentCrew) -> FileR
 
 
 @router.get("/auscultation/{crew_id}")
-def get_auscultation_results(crew_id: str, conn: DbConn, claims: CurrentCrew) -> dict:
+def get_auscultation_results(
+    crew_id: str,
+    conn: DbConn,
+    claims: CurrentCrew,
+    co2_period: Annotated[Literal["24h", "7d", "30d"], Query()] = "24h",
+) -> dict:
     ensure_crew_access(claims, crew_id)
-    results = build_auscultation_results(conn, crew_id)
+    results = build_auscultation_results(conn, crew_id, co2_period)
     if results is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
     return results

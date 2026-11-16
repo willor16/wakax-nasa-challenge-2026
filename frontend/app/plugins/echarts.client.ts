@@ -1,5 +1,14 @@
 import { BarChart, CustomChart, GaugeChart, LineChart } from 'echarts/charts'
-import { GridComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent } from 'echarts/components'
+import {
+  DataZoomInsideComponent,
+  DataZoomSliderComponent,
+  GridComponent,
+  LegendComponent,
+  MarkAreaComponent,
+  MarkLineComponent,
+  MarkPointComponent,
+  TooltipComponent,
+} from 'echarts/components'
 import { registerTheme, use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { palette } from '~/utils/charts'
@@ -15,6 +24,11 @@ export default defineNuxtPlugin(() => {
     TooltipComponent,
     MarkLineComponent,
     MarkAreaComponent,
+    // M4 interactive charts: wheel / pinch zoom, slider, max-min and pinned points, legend.
+    DataZoomInsideComponent,
+    DataZoomSliderComponent,
+    MarkPointComponent,
+    LegendComponent,
   ])
 
   // The holographic theme is built from the palette tokens in tokens.css.

@@ -3,6 +3,8 @@
 import VChart from 'vue-echarts'
 import type { MetricView } from '~/composables/useProfile'
 import { co2TrendOption, envelopeOption } from '~/utils/charts'
+import type { ChartClick } from '~/composables/useChartPins'
+import { interpretation, statusFor, type Thresholds } from '~/utils/chartDecor'
 import { dayText, formatNumber, formatTime, toneOf } from '~/utils/format'
 
 interface OrganSummary {
@@ -28,13 +30,16 @@ interface Results {
   pulmonary: OrganSummary | null
   spo2_pct: number | null
   fitness: MetricView[]
-  co2: { current_mmhg: number | null, status: string, limits_mmhg: { target: number, alert: number }
+  co2: { current_mmhg: number | null, status: string, period: string, limits_mmhg: { target: number, alert: number }
     trend: { recorded_at_utc: string, co2_mmhg: number }[] }
 }
 
 const { crew } = useSession()
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<Results>(`/auscultation/${crew.value!.id}`), 60_000, ['auscultation', 'alerts'])
+const CO2_PERIODS = [{ id: '24h', label: '24H' }, { id: '7d', label: '7D' }, { id: '30d', label: '30D' }]
+const co2Period = ref('24h')
+const { data, loading, error, refresh } = useResource(
+  () => api<Results>(`/auscultation/${crew.value!.id}`, { query: { co2_period: co2Period.value } }), 60_000, ['auscultation', 'alerts'])
 
 usePageHeader(() => ({
   title: 'Cardiac & Pulmonary Auscultation',
@@ -45,9 +50,59 @@ const SITE_NAMES: Record<string, string> = {
   aortic: 'Aortic', pulmonic: 'Pulmonic', tricuspid: 'Tricuspid', mitral: 'Mitral',
   upper_left: 'Upper Left', upper_right: 'Upper Right', lower_left: 'Lower Left', lower_right: 'Lower Right',
 }
-const cardiacChart = computed(() => (data.value?.cardiac?.envelope.length ? envelopeOption(data.value.cardiac.envelope.slice(0, 150), 'cardiac') : null))
-const lungChart = computed(() => (data.value?.pulmonary?.envelope.length ? envelopeOption(data.value.pulmonary.envelope, 'pulmonary') : null))
-const co2Chart = computed(() => (data.value?.co2.trend.length ? co2TrendOption(data.value.co2.trend, data.value.co2.limits_mmhg) : null))
+// Recorded sound envelopes: 600 points over 30 s (20 per second); time in seconds on the x axis.
+const ENVELOPE_RATE = 20
+function envelopePin(kind: 'cardiac' | 'pulmonary') {
+  return (click: ChartClick) => {
+    const organ = data.value?.[kind]
+    const point = click.value as [number, number] | undefined
+    if (!organ || !point) return null
+    return {
+      key: `${kind}-${click.dataIndex}`, series: kind === 'cardiac' ? 'Heart' : 'Lungs', value: Math.abs(point[1]), unit: '', digits: 2,
+      time_utc: organ.recorded_at_utc, stage: null, delta: null, reference_label: `at ${point[0].toFixed(2)} s`,
+      status: 'NOMINAL' as const, coord: [point[0], point[1]] as [number, number],
+    }
+  }
+}
+const cardiacPins = useChartPins(envelopePin('cardiac'))
+const lungPins = useChartPins(envelopePin('pulmonary'))
+const cardiacChart = computed(() => (data.value?.cardiac?.envelope.length
+  ? envelopeOption(data.value.cardiac.envelope.slice(0, 150), 'cardiac', cardiacPins.marks(), ENVELOPE_RATE) : null))
+const lungChart = computed(() => (data.value?.pulmonary?.envelope.length
+  ? envelopeOption(data.value.pulmonary.envelope, 'pulmonary', lungPins.marks(), ENVELOPE_RATE) : null))
+
+// Cabin CO2: target zone = band, target = watch line, alert limit = red line.
+const co2Thresholds = computed<Thresholds>(() => {
+  const l = data.value?.co2.limits_mmhg
+  return { band: l ? [0, l.target] : null, watch: l ? [l.target] : [], critical: l ? [l.alert] : [], alertWhen: 'above' }
+})
+const co2Pins = useChartPins((click: ChartClick) => {
+  const point = data.value?.co2.trend[click.dataIndex]
+  if (!point) return null
+  const target = data.value!.co2.limits_mmhg.target
+  return {
+    key: point.recorded_at_utc, series: 'CO₂', value: point.co2_mmhg, unit: 'mmHg', digits: 2,
+    time_utc: point.recorded_at_utc, stage: null, delta: point.co2_mmhg - target, reference_label: 'target',
+    status: statusFor(point.co2_mmhg, co2Thresholds.value), coord: [point.recorded_at_utc, point.co2_mmhg],
+  }
+})
+watch(co2Period, () => {
+  co2Pins.clear()
+  void refresh()
+})
+const co2Chart = computed(() => (data.value?.co2.trend.length
+  ? co2TrendOption(data.value.co2.trend, co2Thresholds.value, co2Pins.marks(), co2Period.value !== '24h') : null))
+const co2Reading = computed(() => interpretation(co2Thresholds.value, 'mmHg'))
+const pinsFor = (kind: 'cardiac' | 'pulmonary') => (kind === 'cardiac' ? cardiacPins : lungPins)
+const wavePins = computed(() => [...cardiacPins.pins.value, ...lungPins.pins.value])
+function onWaveClick(click: ChartClick) {
+  pinsFor(click.seriesName === 'Heart sound' ? 'cardiac' : 'pulmonary').onClick(click)
+}
+function unpinWave(key: string) {
+  cardiacPins.remove(key)
+  lungPins.remove(key)
+}
+const co2Title = computed(() => ({ '24h': '24-Hour', '7d': '7-Day', '30d': '30-Day' } as Record<string, string>)[co2Period.value])
 
 function fitnessRef(view: MetricView): string {
   if (view.metric_key === 'vo2_max_ml_kg_min') {
@@ -120,7 +175,9 @@ v-for="view in data.fitness" :key="view.metric_key" :label="fitnessLabel[view.me
         <ShellHudWindow
 class="flex-[1.6] min-h-0" title="Recorded Cardiac & Pulmonary Acoustic Waveforms" icon="mic" help-key="signal_quality" flush
                         :tag-text="data.signal_quality_pct === null ? undefined : `SIGNAL ${data.signal_quality_pct}%`">
-          <div class="flex-1 min-h-0 flex flex-col gap-[clamp(10px,1.7dvh,16px)] p-[clamp(12px,2.1dvh,20px)]">
+          <div class="flex-1 min-h-0 flex flex-col p-[clamp(12px,2.1dvh,20px)]">
+            <UiInteractiveChartFrame :pins="wavePins" interpretation="MAX / MIN mark the loudest and quietest sound in view · click the trace to pin a moment (seconds into the 30 s recording)" @unpin="unpinWave" @point="onWaveClick">
+            <div class="absolute inset-0 flex flex-col gap-[clamp(10px,1.7dvh,16px)]">
             <div
 v-for="channel in ([
               ['cardiac', cardiacChart, `Channel 1 · Cardiac phonocardiogram (${SITE_NAMES[data.cardiac?.waveform_site ?? 'mitral']} S1 / S2)`],
@@ -133,27 +190,31 @@ v-for="channel in ([
               </span>
               <ClientOnly>
                 <VChart
-v-if="channel[1]" :option="channel[1]" theme="spacescan-hud" autoresize class="absolute inset-0 top-[26px]"
+v-if="channel[1]" :option="channel[1]" theme="spacescan-hud" autoresize class="absolute inset-0 top-[26px] !h-auto"
                         :aria-label="`${channel[0]} recording waveform`" />
               </ClientOnly>
               <p v-if="!channel[1]" class="absolute inset-0 flex items-center justify-center text-[12px] text-cabin-ice">No recording yet.</p>
             </div>
+            </div>
+            </UiInteractiveChartFrame>
           </div>
         </ShellHudWindow>
 
         <ShellHudWindow
-class="flex-1 min-h-0" title="24-Hour Cabin CO₂ Trend (mmHg)" icon="rocket" help-key="cabin_co2_ppm" flush
+class="flex-1 min-h-0" :title="`${co2Title} Cabin CO₂ Trend (mmHg)`" icon="rocket" help-key="cabin_co2_ppm" flush
                         :tag-text="data.co2.current_mmhg === null ? undefined : `${data.co2.current_mmhg.toFixed(1)} mmHg · ${data.co2.status === 'NOMINAL' ? 'NOMINAL' : 'HIGH'}`"
                         :tag-tone="toneOf(data.co2.status) === 'critical' ? 'critical' : 'reference'">
-          <div class="flex-1 min-h-0 relative m-[clamp(12px,1.9dvh,18px)] tile">
-            <template v-if="co2Chart">
-              <span class="absolute top-[8px] right-[26px] z-10 text-[10px] font-bold">ALERT LIMIT ({{ data.co2.limits_mmhg.alert.toFixed(1) }} mmHg)</span>
-              <span class="absolute bottom-[54px] left-[56px] z-10 text-[10px] font-bold">TARGET ZONE (&lt; {{ data.co2.limits_mmhg.target.toFixed(1) }} mmHg)</span>
-              <ClientOnly>
-                <VChart :option="co2Chart" theme="spacescan-hud" autoresize class="absolute inset-0" aria-label="Cabin carbon dioxide over 24 hours" />
-              </ClientOnly>
-            </template>
-            <UiStateNote v-else class="h-full" empty="No cabin readings in the last 24 hours." />
+          <div class="flex-1 min-h-0 flex flex-col m-[clamp(10px,1.6dvh,16px)]">
+            <UiInteractiveChartFrame v-model:period="co2Period" :periods="CO2_PERIODS" :pins="co2Pins.pins.value" :interpretation="co2Reading" @unpin="co2Pins.remove" @point="co2Pins.onClick">
+              <div class="absolute inset-0 tile">
+                <ClientOnly>
+                  <VChart
+v-if="co2Chart" :option="co2Chart" theme="spacescan-hud" autoresize class="absolute inset-0"
+                          :aria-label="`Cabin carbon dioxide, ${co2Title}`" />
+                </ClientOnly>
+                <UiStateNote v-if="!co2Chart" class="h-full" empty="No cabin readings in this window." />
+              </div>
+            </UiInteractiveChartFrame>
           </div>
         </ShellHudWindow>
       </div>

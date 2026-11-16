@@ -4,6 +4,8 @@ import VChart from 'vue-echarts'
 import type { SleepBout } from '~/utils/charts'
 import { sleepHistoryOption, sleepRibbonOption } from '~/utils/charts'
 import { formatDuration } from '~/utils/format'
+import type { ChartClick } from '~/composables/useChartPins'
+import { interpretation, statusFor, type Thresholds } from '~/utils/chartDecor'
 
 type Period = 'last_night' | '7d' | '14d' | '30d'
 interface StageCard { stage: string, label: string, minutes: number, pct: number, target_low_pct?: number
@@ -17,7 +19,8 @@ interface SleepMonitor {
     efficiency_pct: number | null, day_label: string, window_start: string, window_end: string, stages_recorded: boolean }
   stages: StageCard[]
   night: null | { bouts: SleepBout[], bout_count: number, cycles: number, lapses: Lapse[] }
-  trend: { day_label: string, deep_min: number, rem_min: number, light_min: number, awake_min: number }[]
+  trend: { day_label: string, recorded_at_utc: string, mission_stage: string, deep_min: number, rem_min: number
+    light_min: number, awake_min: number }[]
 }
 
 const { crew } = useSession()
@@ -25,7 +28,12 @@ const { api } = useApi()
 const period = ref<Period>('last_night')
 const { data, loading, error, refresh } = useResource(
   () => api<SleepMonitor>(`/sleep/${crew.value!.id}`, { query: { period: period.value } }), 60_000, ['sleep', 'psych'])
-watch(period, () => void refresh())
+// The period tabs above (Last Night · 7 · 14 · 30 days) are this screen's time window.
+watch(period, () => {
+  historyPins.clear()
+  ribbonPins.clear()
+  void refresh()
+})
 
 const summary = computed(() => data.value?.summary ?? null)
 const lastNight = computed(() => period.value === 'last_night')
@@ -57,10 +65,49 @@ function stagePill(card: StageCard): string {
   const bouts = data.value.night.lapses.find(l => l.stage === 'AWAKE')?.bouts ?? 0
   return card.status === 'NOMINAL' ? `${bouts} Brief` : card.status_text
 }
+// Total sleep per night: 7-9 h band, 7 h target = watch line, under 6 h = alert.
+const thresholds = computed<Thresholds>(() => {
+  const target = (data.value?.target_min ?? 420) / 60
+  return { band: [target, 9], watch: [target], critical: [6], alertWhen: 'below' }
+})
+const historyPins = useChartPins((click: ChartClick) => {
+  const night = data.value?.trend[click.dataIndex]
+  if (!night) return null
+  const total = (night.deep_min + night.rem_min + night.light_min) / 60
+  const target = (data.value!.target_min) / 60
+  return {
+    key: night.recorded_at_utc, series: `Night ${night.day_label}`, value: total, unit: 'h', digits: 1,
+    time_utc: night.recorded_at_utc, stage: night.mission_stage, delta: total - target, reference_label: 'target',
+    status: statusFor(total, thresholds.value), coord: [night.day_label, Number(total.toFixed(2))],
+  }
+})
+const ribbonPins = useChartPins((click: ChartClick) => {
+  const value = click.value as [number, number, number, number, number] | undefined
+  const bout = data.value?.night?.bouts.find(b => new Date(b.start_utc).getTime() === value?.[0])
+  if (!value || !bout) return null
+  return {
+    key: `${bout.start_utc}-${bout.stage}`, series: bout.stage === 'REM' ? 'REM' : bout.stage.charAt(0) + bout.stage.slice(1).toLowerCase(),
+    value: bout.minutes, unit: 'min', digits: 0, time_utc: bout.start_utc, stage: null, delta: null,
+    reference_label: null, status: bout.stage === 'AWAKE' && bout.minutes > 15 ? 'WATCH' : 'NOMINAL',
+    coord: [(value[0] + value[1]) / 2, value[2]],
+  }
+})
 const ribbon = computed(() => (lastNight.value && data.value?.night?.bouts.length
-  ? sleepRibbonOption(data.value.night.bouts) : null))
+  ? sleepRibbonOption(data.value.night.bouts, ribbonPins.marks()) : null))
 const history = computed(() => (!lastNight.value && data.value?.trend.length
-  ? sleepHistoryOption(data.value.trend, data.value.target_min) : null))
+  ? sleepHistoryOption(data.value.trend, thresholds.value, historyPins.marks()) : null))
+const chartPins = computed(() => (lastNight.value ? ribbonPins.pins.value : historyPins.pins.value))
+const reading = computed(() => (lastNight.value
+  ? 'Each lane is one sleep stage; the bottom ribbon is the whole night · click a block to pin it · scroll to zoom into an hour'
+  : interpretation(thresholds.value, 'h')))
+function onChartClick(click: ChartClick) {
+  if (lastNight.value) ribbonPins.onClick(click)
+  else historyPins.onClick(click)
+}
+function unpin(key: string) {
+  ribbonPins.remove(key)
+  historyPins.remove(key)
+}
 const legend = computed(() => {
   const totals = Object.fromEntries((data.value?.night?.lapses ?? []).map(l => [l.stage, l.total_min]))
   return [
@@ -142,7 +189,9 @@ class="h-full rounded-full" :class="stageColor[card.stage]"
 class="flex-[1.3] min-h-0" icon="reticle" flush
                         :title="lastNight ? `Sleep Stage Ribbon Chart · ${summary.window_start} – ${summary.window_end} UTC` : 'Nightly Sleep Stages'"
                         :tag-text="lastNight && data.night ? `${data.night.cycles} CYCLES` : `${data.nights} NIGHTS`">
-          <div class="flex-1 min-h-0 m-[clamp(12px,1.9dvh,18px)] tile relative">
+          <div class="flex-1 min-h-0 flex flex-col m-[clamp(10px,1.6dvh,16px)]">
+          <UiInteractiveChartFrame :pins="chartPins" :interpretation="reading" @unpin="unpin" @point="onChartClick">
+          <div class="absolute inset-0 tile">
             <div class="absolute top-[12px] left-[22px] right-[18px] z-10 flex items-center gap-[30px] text-[10.5px] font-semibold pointer-events-none">
               <span v-for="item in legend" :key="item.stage" class="flex items-center gap-[8px]">
                 <i class="w-[14px] h-[8px] rounded-[2px]" :class="stageColor[item.stage]" />{{ item.text }}
@@ -154,9 +203,11 @@ class="flex-[1.3] min-h-0" icon="reticle" flush
             <ClientOnly>
               <VChart
 v-if="ribbon || history" :option="(ribbon ?? history)!" theme="spacescan-hud" autoresize
-                      class="absolute inset-0 top-[30px]" aria-label="Sleep stages through the night" />
+                      class="absolute inset-0 top-[30px] !h-auto" aria-label="Sleep stages through the night" />
             </ClientOnly>
             <UiStateNote v-if="!ribbon && !history" class="h-full" empty="Stage detail is not available for this night." />
+          </div>
+          </UiInteractiveChartFrame>
           </div>
         </ShellHudWindow>
 

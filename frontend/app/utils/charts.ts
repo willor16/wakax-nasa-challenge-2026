@@ -2,6 +2,14 @@
 // tokens at render time (never written here), so charts follow the palette and
 // the cabin alert mode exactly like the rest of the interface.
 import type { EChartsOption } from 'echarts'
+import type { PinMark, Thresholds } from './chartDecor'
+import {
+  GRID_BOTTOM_WITH_ZOOM,
+  alertColoured,
+  dataZoomFor,
+  markPointsFor,
+  thresholdMarks,
+} from './chartDecor'
 
 export function token(name: string): string {
   if (typeof document === 'undefined') return ''
@@ -78,15 +86,17 @@ function axisStyle() {
 
 export interface TrendPoint { label: string, values: (number | null)[] }
 
-/** 14-day mood and calmness lines over the optimal wellbeing zone (screen 05). */
+/** Mood and calmness lines over the optimal wellbeing zone (screen 05), interactive. */
 export function moodTrendOption(points: { day_label: string, mood: number, calmness: number }[],
-  zone: [number, number]): EChartsOption {
+  thresholds: Thresholds, pins: Record<string, PinMark[]> = {}): EChartsOption {
   const c = palette()
+  const decor = thresholdMarks(thresholds, '/ 5', 1)
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: baseGrid(40, 20, 46, 30),
-    tooltip: { trigger: 'axis' },
+    grid: baseGrid(40, 20, 46, GRID_BOTTOM_WITH_ZOOM),
+    dataZoom: dataZoomFor(),
+    tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(1)} / 5` },
     xAxis: { type: 'category', data: points.map(p => p.day_label), boundaryGap: false, ...axisStyle() },
     yAxis: { type: 'value', min: 1, max: 5, interval: 1, ...axisStyle(),
       axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO, formatter: (v: number) => v.toFixed(1) } },
@@ -94,53 +104,59 @@ export function moodTrendOption(points: { day_label: string, mood: number, calmn
       {
         name: 'Mood',
         type: 'line',
-        data: points.map(p => p.mood),
+        data: alertColoured(points.map(p => p.mood), thresholds),
         symbol: 'circle',
         symbolSize: 6,
         lineStyle: { color: c.ok, width: 2.4 },
         itemStyle: { color: c.ok },
-        markArea: { silent: true, itemStyle: { color: c.band },
-          data: [[{ yAxis: zone[0] }, { yAxis: zone[1] }]] },
-        markLine: { silent: true, symbol: 'none', label: { show: false },
-          lineStyle: { color: c.navyEdge, type: 'solid', width: 1.2 }, data: [{ yAxis: zone[0] }] },
+        markArea: decor.markArea,
+        markLine: decor.markLine,
+        markPoint: markPointsFor('', 1, pins.Mood),
       },
       {
         name: 'Calmness',
         type: 'line',
-        data: points.map(p => p.calmness),
-        showSymbol: false,
+        data: alertColoured(points.map(p => p.calmness), thresholds),
+        symbol: 'circle',
+        symbolSize: 4,
         lineStyle: { color: c.rem, width: 1.8 },
         itemStyle: { color: c.rem },
+        markPoint: markPointsFor('', 1, pins.Calmness, false),
       },
     ],
   }
 }
 
-/** Live Lead II strip (screen 06). */
-export function ecgOption(samples: number[], sampleRateHz: number): EChartsOption {
+/** Stored Lead II strip (screen 06): zoom, max / min in mV and pinned samples. */
+export function ecgOption(samples: number[], sampleRateHz: number, pins: PinMark[] = []): EChartsOption {
   const c = palette()
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: { left: 10, right: 10, top: 34, bottom: 12 },
+    grid: { left: 34, right: 34, top: 34, bottom: GRID_BOTTOM_WITH_ZOOM - 14 },
+    dataZoom: dataZoomFor('none'),
+    tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(2)} mV` },
     xAxis: { type: 'value', min: 0, max: samples.length / sampleRateHz, show: false },
     yAxis: { type: 'value', min: -0.8, max: 1.6, interval: 0.6, axisLabel: { show: false },
       axisLine: { show: false }, axisTick: { show: false },
       splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } } },
     series: [{
+      name: 'ECG',
       type: 'line',
       data: samples.map((value, index) => [index / sampleRateHz, value]),
       showSymbol: false,
       sampling: 'lttb',
       lineStyle: { color: c.ok, width: 2 },
       areaStyle: { color: c.okSoft, origin: -0.8 },
+      markPoint: markPointsFor('mV', 2, pins),
     }],
   }
 }
 
 /**
  * Live ECG: a fixed 6-second window that slides as new samples arrive (newest on the right),
- * drawn without animation so four updates a second stay smooth.
+ * drawn without animation so four updates a second stay smooth. Wheel zoom stays where the
+ * crew member left it; max / min marks follow the visible beats.
  */
 export function ecgLiveOption(samples: number[], sampleRateHz: number, windowSeconds = 6): EChartsOption {
   const c = palette()
@@ -148,40 +164,49 @@ export function ecgLiveOption(samples: number[], sampleRateHz: number, windowSec
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: { left: 10, right: 10, top: 34, bottom: 12 },
+    grid: { left: 34, right: 34, top: 34, bottom: GRID_BOTTOM_WITH_ZOOM - 14 },
+    dataZoom: dataZoomFor('none'),
+    tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(2)} mV` },
     xAxis: { type: 'value', min: 0, max: windowSeconds, show: false },
     yAxis: { type: 'value', min: -0.8, max: 1.6, interval: 0.6, axisLabel: { show: false },
       axisLine: { show: false }, axisTick: { show: false },
       splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } } },
     series: [{
+      name: 'ECG',
       type: 'line',
       data: samples.map((value, index) => [offset + index / sampleRateHz, value]),
       showSymbol: false,
       sampling: 'lttb',
-      silent: true,
+      silent: false,
       lineStyle: { color: c.ok, width: 2 },
       areaStyle: { color: c.okSoft, origin: -0.8 },
+      markPoint: markPointsFor('mV', 2),
     }],
   }
 }
 
-/** Sound envelope of a recording: heart bursts (green) or breathing (cream fill). */
-export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary'): EChartsOption {
+/** Sound envelope of a recording: heart bursts (green) or breathing (cream fill), interactive. */
+export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary', pins: PinMark[] = [],
+  pointsPerSecond = 20): EChartsOption {
   const c = palette()
   const cardiac = kind === 'cardiac'
   // Heart sounds are drawn as a mirrored trace around the centre line, like a phonocardiogram.
   const data = cardiac
-    ? envelope.map((value, index) => [index, index % 2 === 0 ? value : -value * 0.8])
-    : envelope.map((value, index) => [index, value])
+    ? envelope.map((value, index) => [index / pointsPerSecond, index % 2 === 0 ? value : -value * 0.8])
+    : envelope.map((value, index) => [index / pointsPerSecond, value])
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: { left: 10, right: 10, top: 12, bottom: 10 },
-    xAxis: { type: 'value', min: 0, max: Math.max(1, envelope.length - 1), show: false },
+    grid: { left: 34, right: 34, top: 22, bottom: GRID_BOTTOM_WITH_ZOOM - 18 },
+    dataZoom: dataZoomFor('none'),
+    tooltip: { trigger: 'axis', valueFormatter: value => Number(value).toFixed(2),
+      axisPointer: { type: 'line' } },
+    xAxis: { type: 'value', min: 0, max: Math.max(1, envelope.length - 1) / pointsPerSecond, show: false },
     yAxis: { type: 'value', min: cardiac ? -1.1 : 0, max: 1.1, interval: cardiac ? 0.55 : 0.37,
       axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
       splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } } },
     series: [{
+      name: cardiac ? 'Heart sound' : 'Breath sound',
       type: 'line',
       data,
       showSymbol: false,
@@ -189,70 +214,79 @@ export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary'
       smooth: !cardiac,
       lineStyle: { color: cardiac ? c.ok : c.text, width: cardiac ? 1.8 : 2 },
       areaStyle: cardiac ? undefined : { color: c.envelope },
+      markPoint: markPointsFor('', 2, pins),
     }],
   }
 }
 
-/** 24-hour cabin CO2 with target zone and alert limit (screen 09). */
+/** Cabin CO2 with target band, watch (target) and alert lines (screen 09), interactive. */
 export function co2TrendOption(points: { recorded_at_utc: string, co2_mmhg: number }[],
-  limits: { target: number, alert: number }): EChartsOption {
+  thresholds: Thresholds, pins: PinMark[] = [], hourly = false): EChartsOption {
   const c = palette()
   const values = points.map(p => p.co2_mmhg)
+  const alert = thresholds.critical?.[0] ?? 4
   const low = Math.floor(Math.min(2, ...values) - 0.2)
-  const high = Math.max(limits.alert + 0.5, Math.ceil(Math.max(...values, 0) + 0.3))
+  const high = Math.max(alert + 0.5, Math.ceil(Math.max(...values, 0) + 0.3))
+  const decor = thresholdMarks(thresholds, 'mmHg', 1)
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: baseGrid(40, 22, 14, 28),
+    grid: baseGrid(40, 22, 14, GRID_BOTTOM_WITH_ZOOM),
+    dataZoom: dataZoomFor(),
     tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(2)} mmHg` },
     xAxis: { type: 'time', ...axisStyle(), splitLine: { show: false },
       axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO,
-        formatter: (value: number) => `${String(new Date(value).getUTCHours()).padStart(2, '0')}:00` } },
+        formatter: (value: number) => {
+          const d = new Date(value)
+          return hourly ? `${d.toISOString().slice(5, 10)}` : `${String(d.getUTCHours()).padStart(2, '0')}:00`
+        } } },
     yAxis: { type: 'value', min: low, max: high, interval: 1, ...axisStyle(),
       axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO, formatter: (v: number) => v.toFixed(1) } },
     series: [{
+      name: 'Cabin CO₂',
       type: 'line',
-      data: points.map(p => [p.recorded_at_utc, p.co2_mmhg]),
+      data: alertColoured(values, thresholds, (v, i) => [points[i]!.recorded_at_utc, v]),
       symbol: 'circle',
       symbolSize: 5,
       showAllSymbol: false,
       lineStyle: { color: c.ok, width: 2.2 },
       itemStyle: { color: c.ok },
-      markArea: { silent: true, itemStyle: { color: c.band }, data: [[{ yAxis: low }, { yAxis: limits.target }]] },
-      markLine: { silent: true, symbol: 'none', label: { show: false },
-        data: [
-          { yAxis: limits.alert, lineStyle: { color: c.crit, type: 'dashed', width: 1.4 } },
-          { yAxis: limits.target, lineStyle: { color: c.navyEdge, type: 'solid', width: 1.2 } },
-        ] },
+      markArea: decor.markArea,
+      markLine: decor.markLine,
+      markPoint: markPointsFor('mmHg', 2, pins),
     }],
   }
 }
 
-export interface OcularPoint { label: string, left: number | null, right: number | null, kind: string }
+export interface OcularPoint { label: string, left: number | null, right: number | null, kind: string
+  recorded_at_utc?: string | null, mission_stage?: string | null }
 
-/** Bilateral optic nerve sheath trend against baseline band and alert threshold (screen 08). */
-export function ocularTrendOption(points: OcularPoint[], limits: { alert: number | null
-  nominalMax: number | null, baselineLow: number | null }, target: { label: string, value: number } | null,
+/** Bilateral optic nerve sheath trend: personal band, watch and alert lines (screen 08). */
+export function ocularTrendOption(points: OcularPoint[], thresholds: Thresholds,
+  target: { label: string, value: number } | null, pins: Record<string, PinMark[]> = {},
 ): EChartsOption {
   const c = palette()
   const labels = points.map(p => p.label)
   const measured = points.flatMap(p => [p.left, p.right]).filter((v): v is number => v !== null)
-  const low = Math.floor((Math.min(...measured, limits.baselineLow ?? 4) - 0.3) * 2) / 2
-  const high = Math.ceil((Math.max(...measured, limits.alert ?? 5.8) + 0.4) * 2) / 2
+  const alert = thresholds.critical?.[0] ?? 5.8
+  const low = Math.floor((Math.min(...measured, thresholds.band?.[0] ?? 4) - 0.3) * 2) / 2
+  const high = Math.ceil((Math.max(...measured, alert) + 0.4) * 2) / 2
   const dashed = (side: 'left' | 'right') => {
     const last = points.at(-1)?.[side]
     if (!target || last === null || last === undefined || last <= target.value) return []
     return [...labels.slice(0, -1).map(() => null), last, target.value]
   }
+  const decor = thresholdMarks(thresholds, 'mm', 1)
   const line = (name: string, side: 'left' | 'right', color: string) => ({
     name,
     type: 'line' as const,
-    data: points.map(p => p[side]),
+    data: alertColoured(points.map(p => p[side]), thresholds),
     connectNulls: true,
     symbol: 'circle',
     symbolSize: 7,
     lineStyle: { color, width: 2.4 },
     itemStyle: { color },
+    markPoint: markPointsFor('mm', 2, pins[name]),
   })
   const projection = (side: 'left' | 'right', color: string) => ({
     type: 'line' as const,
@@ -263,31 +297,18 @@ export function ocularTrendOption(points: OcularPoint[], limits: { alert: number
     lineStyle: { color, width: 1.8, type: 'dashed' as const },
     itemStyle: { color },
   })
-  const marks = []
-  if (limits.alert !== null) {
-    marks.push({ yAxis: limits.alert, lineStyle: { color: c.crit, type: 'dashed' as const, width: 1.4 } })
-  }
-  if (limits.nominalMax !== null) {
-    marks.push({ yAxis: limits.nominalMax, lineStyle: { color: c.navyEdge, type: 'solid' as const, width: 1.2 } })
-  }
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: baseGrid(44, 36, 18, 34),
+    grid: baseGrid(44, 36, 18, GRID_BOTTOM_WITH_ZOOM),
+    dataZoom: dataZoomFor('none'),
     tooltip: { trigger: 'axis', valueFormatter: value => (value == null ? '—' : `${Number(value).toFixed(2)} mm`) },
     xAxis: { type: 'category', data: target ? [...labels, target.label] : labels, boundaryGap: true,
       ...axisStyle(), axisLabel: { color: c.muted, fontSize: 10.5 } },
     yAxis: { type: 'value', min: low, max: high, interval: 0.5, ...axisStyle(),
       axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO, formatter: (v: number) => v.toFixed(1) } },
     series: [
-      {
-        ...line('Right Eye', 'right', c.crit),
-        markArea: limits.nominalMax !== null && limits.baselineLow !== null
-          ? { silent: true, itemStyle: { color: c.band },
-              data: [[{ yAxis: limits.baselineLow }, { yAxis: limits.nominalMax }]] }
-          : undefined,
-        markLine: { silent: true, symbol: 'none', label: { show: false }, data: marks },
-      },
+      { ...line('Right Eye', 'right', c.crit), markArea: decor.markArea, markLine: decor.markLine },
       line('Left Eye', 'left', c.ok),
       projection('right', c.crit),
       projection('left', c.ok),
@@ -301,7 +322,7 @@ export interface SleepBout { stage: 'DEEP' | 'REM' | 'LIGHT' | 'AWAKE', start_ut
 const STAGE_ROWS = ['RIBBON', 'DEEP', 'LIGHT', 'REM', 'AWAKE'] as const
 
 /** Sleep stage ribbon: one lane per stage plus the continuous ribbon (screen 07). */
-export function sleepRibbonOption(bouts: SleepBout[]): EChartsOption {
+export function sleepRibbonOption(bouts: SleepBout[], pins: PinMark[] = []): EChartsOption {
   const c = palette()
   const colors: Record<string, string> = { AWAKE: c.crit, REM: c.rem, LIGHT: c.navyEdge, DEEP: c.ok }
   const start = new Date(bouts[0]!.start_utc).getTime()
@@ -320,7 +341,8 @@ export function sleepRibbonOption(bouts: SleepBout[]): EChartsOption {
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: { left: 62, right: 24, top: 14, bottom: 30 },
+    grid: { left: 62, right: 24, top: 14, bottom: GRID_BOTTOM_WITH_ZOOM },
+    dataZoom: dataZoomFor('weakFilter'),
     tooltip: {
       formatter: (params: unknown) => {
         const item = params as { value: [number, number, number, number, number] }
@@ -335,9 +357,11 @@ export function sleepRibbonOption(bouts: SleepBout[]): EChartsOption {
     yAxis: { type: 'category', data: [...STAGE_ROWS], ...axisStyle(),
       axisLabel: { color: c.ice, fontSize: 9.5, fontFamily: MONO } },
     series: [{
+      name: 'Sleep stage',
       type: 'custom',
       encode: { x: [0, 1], y: 2 },
       data,
+      markPoint: markPointsFor('min', 0, pins, false),
       renderItem: (_params, api) => {
         const ribbon = api.value(4) === 1
         const from = api.coord([api.value(0), api.value(2)])
@@ -365,9 +389,12 @@ export function sleepRibbonOption(bouts: SleepBout[]): EChartsOption {
   }
 }
 
-/** Nightly stage totals as stacked bars for the 7 / 14 / 30 day views (screen 07). */
+/**
+ * Nightly stage totals as stacked bars for the 7 / 14 / 30 day views (screen 07), with the
+ * total-sleep line carrying max / min, the 7 h target (watch) and the 6 h alert line.
+ */
 export function sleepHistoryOption(nights: { day_label: string, deep_min: number, rem_min: number
-  light_min: number, awake_min: number }[], targetMin: number): EChartsOption {
+  light_min: number, awake_min: number }[], thresholds: Thresholds, pins: PinMark[] = []): EChartsOption {
   const c = palette()
   const bar = (name: string, key: 'deep_min' | 'rem_min' | 'light_min' | 'awake_min', color: string) => ({
     name,
@@ -377,21 +404,34 @@ export function sleepHistoryOption(nights: { day_label: string, deep_min: number
     itemStyle: { color },
     data: nights.map(n => +(n[key] / 60).toFixed(2)),
   })
+  const totals = nights.map(n => +((n.deep_min + n.rem_min + n.light_min) / 60).toFixed(2))
+  const decor = thresholdMarks(thresholds, 'h', 1)
   return {
     backgroundColor: 'transparent',
     animation: false,
-    grid: baseGrid(40, 22, 16, 30),
+    grid: baseGrid(40, 22, 16, GRID_BOTTOM_WITH_ZOOM),
+    dataZoom: dataZoomFor(),
     tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(1)} h` },
     xAxis: { type: 'category', data: nights.map(n => n.day_label), ...axisStyle(), splitLine: { show: false } },
     yAxis: { type: 'value', min: 0, max: 10, interval: 2, ...axisStyle(),
       axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO, formatter: '{value}h' } },
     series: [
-      { ...bar('Deep', 'deep_min', c.ok),
-        markLine: { silent: true, symbol: 'none', label: { show: false },
-          lineStyle: { color: c.text, type: 'dashed', width: 1 }, data: [{ yAxis: targetMin / 60 }] } },
+      bar('Deep', 'deep_min', c.ok),
       bar('REM', 'rem_min', c.rem),
       bar('Light', 'light_min', c.navyEdge),
       bar('Awake', 'awake_min', c.crit),
+      {
+        name: 'Total sleep',
+        type: 'line',
+        data: alertColoured(totals, thresholds),
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { color: c.text, width: 1.6 },
+        itemStyle: { color: c.text },
+        markArea: decor.markArea,
+        markLine: decor.markLine,
+        markPoint: markPointsFor('h', 1, pins),
+      },
     ],
   }
 }

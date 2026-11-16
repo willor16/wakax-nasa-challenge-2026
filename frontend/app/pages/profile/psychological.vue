@@ -1,14 +1,16 @@
 <script setup lang="ts">
 // 05 · Astronaut Profile · Psychological (read-only): mood scales, 14-day trend, reaction test.
 import VChart from 'vue-echarts'
+import type { ChartClick } from '~/composables/useChartPins'
 import { moodTrendOption } from '~/utils/charts'
+import { interpretation, statusFor, type Thresholds } from '~/utils/chartDecor'
 import { formatTime } from '~/utils/format'
 
 interface Scale { value: number, range?: [number, number], target_below?: number, label: string }
 interface PsychProfile {
   latest_state: { mood_state: string | null, recorded_at_utc: string, wellbeing_index: number } | null
   scales: { mood: Scale, stress_index: Scale, isolation: Scale, motivation: Scale } | null
-  trend: { day_label: string, mood: number, calmness: number }[]
+  trend: { day_label: string, recorded_at_utc: string, mission_stage: string, mood: number, calmness: number }[]
   optimal_zone: [number, number]
   stability_pct: number
   reaction: null | { reaction_ms: number | null, reaction_target_ms: number, accuracy_pct: number
@@ -17,7 +19,11 @@ interface PsychProfile {
 }
 
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<PsychProfile>('/psych/profile'), 60_000, ['psych', 'sleep', 'alerts'])
+// Trend window (buttons only); changing it reloads real check-ins from the onboard server.
+const PERIODS = [{ id: '7d', label: '7D' }, { id: '14d', label: '14D' }, { id: '30d', label: '30D' }, { id: 'all', label: 'ALL' }]
+const period = ref('14d')
+const { data, loading, error, refresh } = useResource(
+  () => api<PsychProfile>('/psych/profile', { query: { period: period.value } }), 60_000, ['psych', 'sleep', 'alerts'])
 
 const STATES: Record<string, { title: string, detail: string }> = {
   CALM: { title: 'Calm & Focused', detail: 'Emotional stability and crew cohesion within optimal personal baseline.' },
@@ -62,7 +68,30 @@ const rows = computed(() => {
       good: s.motivation.label !== 'Low' },
   ]
 })
-const chart = computed(() => (data.value?.trend.length ? moodTrendOption(data.value.trend, data.value.optimal_zone) : null))
+// Optimal wellbeing zone = nominal band; 3.0 / 5 = watch; 2.0 / 5 = alert (low mood or calmness).
+const thresholds = computed<Thresholds>(() => ({
+  band: data.value?.optimal_zone ?? [3.8, 5], watch: [3], critical: [2], alertWhen: 'below',
+}))
+const pins = useChartPins((click: ChartClick) => {
+  const point = data.value?.trend[click.dataIndex]
+  if (!point || !click.seriesName) return null
+  const value = click.seriesName === 'Mood' ? point.mood : point.calmness
+  const zone = thresholds.value.band!
+  return {
+    key: `${click.seriesName}-${point.recorded_at_utc}`, series: click.seriesName, value, unit: '/ 5', digits: 1,
+    time_utc: point.recorded_at_utc, stage: point.mission_stage, delta: value - (zone[0] + zone[1]) / 2,
+    reference_label: 'zone centre', status: statusFor(value, thresholds.value), coord: [point.day_label, value],
+  }
+})
+watch(period, () => {
+  pins.clear()
+  void refresh()
+})
+const chart = computed(() => (data.value?.trend.length
+  ? moodTrendOption(data.value.trend, thresholds.value, { Mood: pins.marks('Mood'), Calmness: pins.marks('Calmness') })
+  : null))
+const reading = computed(() => interpretation(thresholds.value, '/ 5'))
+const periodTitle = computed(() => ({ '7d': 'Last 7 Days', '14d': 'Last 14 Days', '30d': 'Last 30 Days', 'all': 'Whole Mission' } as Record<string, string>)[period.value])
 const lastTrend = computed(() => data.value?.trend.at(-1) ?? null)
 </script>
 
@@ -115,11 +144,12 @@ class="absolute top-[1px] w-[8px] h-[8px] -ml-[4px] rounded-full" :class="row.go
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-class="flex-[1.35] min-h-0" title="Mood & Calmness Trend · Last 14 Days" icon="reticle" help-key="mood_calmness"
+class="flex-[1.35] min-h-0" :title="`Mood & Calmness Trend · ${periodTitle}`" icon="reticle" help-key="mood_calmness"
                         :tag-text="data.trend.length ? `STABILITY ${data.stability_pct}%` : undefined" flush>
-          <div class="flex-1 min-h-0 relative mx-[20px] my-[14px]">
+          <div class="flex-1 min-h-0 flex flex-col mx-[20px] my-[12px]">
+            <UiInteractiveChartFrame v-model:period="period" :periods="PERIODS" :pins="pins.pins.value" :interpretation="reading" @unpin="pins.remove" @point="pins.onClick">
             <template v-if="chart">
-              <div class="absolute top-[22px] left-[56px] right-[30px] z-10 flex items-center justify-between pointer-events-none">
+              <div class="absolute top-[14px] left-[56px] right-[30px] z-10 flex items-center justify-between pointer-events-none">
                 <span class="text-[10px] font-bold">OPTIMAL WELLBEING ZONE ({{ data.optimal_zone[0].toFixed(1) }} – {{ data.optimal_zone[1].toFixed(1) }})</span>
                 <span v-if="lastTrend" class="flex items-center gap-[18px] text-[10.5px]">
                   <span class="flex items-center gap-[6px] font-bold"><i class="w-[8px] h-[8px] rounded-full bg-cabin-ok" />Mood Score ({{ lastTrend.mood.toFixed(1) }} / 5)</span>
@@ -129,10 +159,11 @@ class="flex-[1.35] min-h-0" title="Mood & Calmness Trend · Last 14 Days" icon="
               <ClientOnly>
                 <VChart
 :option="chart" theme="spacescan-hud" autoresize class="absolute inset-0"
-                        aria-label="Mood and calmness over the last 14 days" />
+                        :aria-label="`Mood and calmness, ${periodTitle}`" />
               </ClientOnly>
             </template>
-            <UiStateNote v-else empty="The trend appears after the first check-ins." class="h-full" />
+            <UiStateNote v-else empty="No check-ins in this window." class="h-full" />
+            </UiInteractiveChartFrame>
           </div>
         </ShellHudWindow>
 

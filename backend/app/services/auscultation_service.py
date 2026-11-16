@@ -20,7 +20,7 @@ from app.config import AUDIO_STORAGE_DIR
 from app.services import acoustics, reference_ranges
 from app.services.clinical_view import crew_row, latest, metric_view
 from app.services.contracts import evaluate_alerts
-from app.services.environment import cabin_snapshot, co2_limits_mmhg, co2_trend_24h
+from app.services.environment import cabin_snapshot, co2_limits_mmhg, co2_trend
 from app.services.mission_clock import (
     current_stage,
     day_label,
@@ -243,7 +243,9 @@ def session_progress(conn: sqlite3.Connection, crew_id: str) -> dict[str, list[s
     }
 
 
-def build_auscultation_results(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any] | None:
+def build_auscultation_results(
+    conn: sqlite3.Connection, crew_id: str, co2_period: str = "24h"
+) -> dict[str, Any] | None:
     if crew_row(conn, crew_id) is None:
         return None
     cardiac = cardiac_summary(conn, crew_id)
@@ -257,7 +259,7 @@ def build_auscultation_results(conn: sqlite3.Connection, crew_id: str) -> dict[s
         header, status = "PHYSICIAN REVIEW NEEDED", "WARNING"
     qualities = [o["signal_quality_pct"] for o in (cardiac, pulmonary) if o]
     cabin = cabin_snapshot(conn)
-    trend = co2_trend_24h(conn)
+    trend = co2_trend(conn, co2_period)
     return {
         "crew_id": crew_id,
         "status": status,
@@ -276,6 +278,7 @@ def build_auscultation_results(conn: sqlite3.Connection, crew_id: str) -> dict[s
             "status": cabin["statuses"]["co2_ppm"] if cabin else "NO_DATA",
             "limits_mmhg": co2_limits_mmhg(),
             "trend": trend,
+            "period": co2_period,
         },
         "quiet_limit_dba": quiet_limit_dba(),
     }

@@ -3,6 +3,7 @@
 import VChart from 'vue-echarts'
 import type { MetricView } from '~/composables/useProfile'
 import { ecgLiveOption, ecgOption } from '~/utils/charts'
+import type { ChartClick } from '~/composables/useChartPins'
 import { digitsFor, formatNumber, toneOf } from '~/utils/format'
 
 const { data: profile, loading, error, refresh } = useProfile(20_000)
@@ -52,11 +53,25 @@ const label = (row: MetricView) => ({
 
 // Live wearable sensor (4 frames/s); the last stored strip is shown until the stream connects.
 const live = useLiveVitalsStream()
+// A pin keeps the exact voltage and time of the clicked sample. On the moving live trace the
+// mark is not redrawn (the beat scrolls away), but the reading stays listed above the chart.
+const ecgPins = useChartPins((click: ChartClick) => {
+  const point = click.value as [number, number] | undefined
+  if (!point) return null
+  const strip = profile.value?.ecg
+  const time = isLive.value || !strip
+    ? new Date().toISOString().replace(/\.\d+Z$/, 'Z')
+    : new Date(new Date(strip.recorded_at_utc).getTime() + point[0] * 1000).toISOString().replace(/\.\d+Z$/, 'Z')
+  return {
+    key: `${time}-${point[0].toFixed(3)}`, series: point[1] > 0.9 ? 'R wave' : 'ECG', value: point[1], unit: 'mV', digits: 2,
+    time_utc: time, stage: null, delta: null, reference_label: null, status: 'NOMINAL', coord: [point[0], point[1]],
+  }
+})
 const ecg = computed(() => profile.value?.ecg ?? null)
 const isLive = computed(() => live.state.value === 'live' && live.samples.value.length > 0)
 const ecgChart = computed(() => {
   if (isLive.value) return ecgLiveOption(live.samples.value, live.sampleRate.value)
-  return ecg.value ? ecgOption(ecg.value.samples, ecg.value.sample_rate_hz) : null
+  return ecg.value ? ecgOption(ecg.value.samples, ecg.value.sample_rate_hz, ecgPins.marks()) : null
 })
 const trace = computed(() => {
   const frame = live.latest.value
@@ -116,10 +131,12 @@ class="w-[41%] shrink-0" title="Daily Vitals, Exercise & Nutrition" icon="heart"
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-class="h-[clamp(200px,31dvh,380px)] shrink-0" title="Live ECG & Body Temperature" icon="bolt" help-key="ecg_lead_ii_mv"
+class="h-[clamp(240px,35dvh,430px)] shrink-0" title="Live ECG & Body Temperature" icon="bolt" help-key="ecg_lead_ii_mv"
                         :tag-text="liveTag"
                         :tag-tone="trace && trace.rhythm !== 'Normal Sinus' ? 'critical' : 'reference'" flush>
-          <div class="flex-1 min-h-0 m-[clamp(12px,2.1dvh,20px)] tile relative">
+          <div class="flex-1 min-h-0 flex flex-col mx-[clamp(12px,2.1dvh,20px)] my-[clamp(8px,1.4dvh,14px)]">
+          <UiInteractiveChartFrame :pins="ecgPins.pins.value" interpretation="MAX marks the tallest R wave in view and MIN the deepest S wave (mV) · click the trace to pin a sample · scroll to zoom into a beat" @unpin="ecgPins.remove" @point="ecgPins.onClick">
+          <div class="absolute inset-0 tile">
             <template v-if="trace && ecgChart">
               <span class="absolute top-[12px] left-[14px] mono text-[9.5px] text-cabin-ok z-10 flex items-center gap-[8px]">
                 <i v-if="isLive" class="w-[6px] h-[6px] rounded-full bg-cabin-ok animate-pulse" aria-hidden="true" />
@@ -136,6 +153,8 @@ class="h-[clamp(200px,31dvh,380px)] shrink-0" title="Live ECG & Body Temperature
               </ClientOnly>
             </template>
             <UiStateNote v-else empty="No heart tracing recorded yet." class="h-full" />
+          </div>
+          </UiInteractiveChartFrame>
           </div>
         </ShellHudWindow>
 

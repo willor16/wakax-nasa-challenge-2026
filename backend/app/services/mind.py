@@ -255,19 +255,25 @@ def _reference_range(conn: sqlite3.Connection, crew_id: str, column: str, day: s
     return OPTIMAL_ZONE, "OPTIMAL_ZONE"
 
 
-def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int = 14,
+def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int | None = 14,
                   now: datetime | None = None) -> dict:
-    """Read-only data for screen 05: latest state, 14-day trend and reaction results."""
+    """Read-only data for screen 05: latest state, mood trend and reaction results.
+
+    ``days`` sets the trend window (None = the whole mission).
+    """
     now = now or datetime.now(UTC)
     newest = conn.execute(
         "SELECT MAX(recorded_at_utc) FROM psych_tests WHERE crew_id = ?", (crew_id,)
     ).fetchone()[0]
     if newest:  # the 14-day window ends on the last logged day
         now = min(now, parse_iso(newest))
-    since = (now - timedelta(days=days - 1)).strftime("%Y-%m-%dT00:00:00Z")
+    since = (
+        (now - timedelta(days=days - 1)).strftime("%Y-%m-%dT00:00:00Z") if days else "0000"
+    )
     rows = conn.execute(
         """
         SELECT substr(recorded_at_utc, 1, 10) AS day,
+               MAX(recorded_at_utc) AS last_at, mission_stage,
                AVG(mood_score) AS mood, AVG(stress_score) AS stress,
                AVG(loneliness_score) AS isolation, AVG(motivation_score) AS motivation
         FROM psych_tests
@@ -279,6 +285,7 @@ def psych_profile(conn: sqlite3.Connection, crew_id: str, days: int = 14,
     trend = [
         {"day": r["day"],
          "day_label": day_label(mission_day(conn, parse_iso(f"{r['day']}T00:00:00Z"))),
+         "recorded_at_utc": r["last_at"], "mission_stage": r["mission_stage"],
          "mood": round(r["mood"], 2), "calmness": calmness(r["stress"])}
         for r in rows
     ]
