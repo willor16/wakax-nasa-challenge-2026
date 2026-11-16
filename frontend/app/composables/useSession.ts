@@ -78,7 +78,7 @@ function writeStored(session: StoredSession | null) {
 
 export function useSession() {
   const session = useState<StoredSession | null>('session', () => readStored())
-  const base = useRuntimeConfig().public.apiBase
+  const base = useRuntimeConfig().public.apiBase.replace(/\/+$/, '')
 
   const crew = computed(() => session.value?.crew ?? null)
   const isAuthenticated = computed(() => session.value !== null)

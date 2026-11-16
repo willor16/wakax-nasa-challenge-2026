@@ -5,7 +5,7 @@ import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 
 export interface SubnavTab { id: string, label: string, to?: string }
 
-const props = defineProps<{ tabs: SubnavTab[], tabWidth?: number, label: string }>()
+const props = defineProps<{ tabs: SubnavTab[], tabWidth?: number, label: string, centered?: boolean }>()
 const active = defineModel<string>({ required: true })
 
 async function select(value: string | number) {
@@ -17,7 +17,10 @@ async function select(value: string | number) {
 </script>
 
 <template>
-  <div class="h-[37px] shrink-0 flex items-center gap-[8px]">
+  <div
+    class="relative h-[37px] shrink-0 flex items-center gap-[8px]"
+    :class="centered ? 'justify-center mt-[2px]' : ''"
+  >
     <TabsRoot :model-value="active" @update:model-value="select">
       <TabsList class="flex items-center gap-[8px]" :aria-label="label">
         <TabsTrigger
@@ -38,7 +41,10 @@ async function select(value: string | number) {
         </TabsTrigger>
       </TabsList>
     </TabsRoot>
-    <div class="ml-auto flex items-center gap-[10px]">
+    <div
+      class="flex items-center gap-[10px]"
+      :class="centered ? 'absolute right-0 top-0 bottom-0' : 'ml-auto'"
+    >
       <slot />
     </div>
   </div>

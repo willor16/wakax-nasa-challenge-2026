@@ -127,7 +127,7 @@ function intervalText(lapse: Lapse): string {
 
 <template>
   <div class="page">
-    <ShellSubnavTabs v-model="period" :tabs="tabs" :tab-width="186" label="Sleep period">
+    <ShellSubnavTabs v-model="period" :tabs="tabs" :tab-width="186" label="Sleep period" centered>
       <div v-if="summary" class="h-[30px] w-[300px] rounded-full menu-item-active flex items-center justify-center text-[10px] font-bold tracking-[0.03em]">
         REST WINDOW · {{ summary.window_start }} – {{ summary.window_end }} UTC
       </div>

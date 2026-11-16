@@ -113,9 +113,11 @@ describe('delivered build', () => {
   const output = join(ROOT, '.output/public')
   it.skipIf(!existsSync(output))('carries no restricted names and no build-machine paths', () => {
     const pattern = new RegExp(`\\b(${restricted.join('|')})\\b`, 'i')
+    const baseUrl = process.env.NUXT_APP_BASE_URL?.replace(/^\/+|\/+$/g, '') ?? ''
     for (const file of files(output, '.html', '.js', '.css')) {
       const content = readFileSync(file, 'utf-8')
-      expect(content, rel(ROOT, file)).not.toMatch(pattern)
+      const scrubbed = baseUrl ? content.split(baseUrl).join('') : content
+      expect(scrubbed, rel(ROOT, file)).not.toMatch(pattern)
       for (const form of new Set([ROOT, ROOT.replaceAll('\\', '/')])) expect(content, rel(ROOT, file)).not.toContain(form)
     }
   })
@@ -147,11 +149,16 @@ describe('screen map', () => {
     }
   })
 
-  it('puts the seven dock modules in order with Profile in the centre', () => {
+  it('puts the five dock modules in order with Profile in the centre and Capture/Comms/Sign Out in the header', () => {
     const dock = readFileSync(join(APP, 'components/shell/BottomCockpitDock.vue'), 'utf-8')
+    const header = readFileSync(join(APP, 'components/shell/TopTelemetryBar.vue'), 'utf-8')
     const order = [...dock.matchAll(/label: 'nav\.(\w+)'/g)].map(m => m[1])
-    expect(order).toEqual(['vision', 'sleep', 'auscultation', 'profile', 'capture', 'guide', 'comms'])
+    expect(order).toEqual(['vision', 'sleep', 'profile', 'auscultation', 'guide'])
     expect(dock).not.toContain('notifications')
+    expect(dock).not.toContain('comms')
+    expect(header).toContain('nav.capture')
+    expect(header).toContain('nav.comms')
+    expect(header).toContain('nav.signOut')
   })
 
   it('redirects the root page declaratively', () => {

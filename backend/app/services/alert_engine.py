@@ -409,6 +409,81 @@ def _evaluate_trend(
     return _insert_alert(conn, row, Severity.INFO, title, message, group, deferred)
 
 
+def _sandra_functional_decision(
+    payload_raw: str | None,
+    baseline: Baseline | None,
+) -> tuple[Severity, str, str] | None:
+    if not payload_raw or "sandra_test" not in payload_raw:
+        return None
+    try:
+        payload = json.loads(payload_raw)
+    except (TypeError, ValueError):
+        return None
+    sandra = payload.get("sandra_test") if isinstance(payload, dict) else None
+    if not isinstance(sandra, dict):
+        return None
+
+    reasons: list[str] = []
+    severity: Severity | None = None
+
+    def escalate(level: Severity, reason: str) -> None:
+        nonlocal severity
+        if severity is None or level > severity:
+            severity = level
+        reasons.append(reason)
+
+    amsler = sandra.get("amsler") or {}
+    for eye_key in ("OD", "OS"):
+        eye = amsler.get(eye_key) or {}
+        affected = int(eye.get("affectedCount") or 0)
+        scotoma = int(eye.get("scotomaCount") or 0)
+        central = bool(eye.get("centralInvolved"))
+        perceptual = bool(eye.get("hasPerceptualAlert"))
+        if scotoma > 0 or central:
+            escalate(
+                Severity.CRITICAL, f"{eye_key} Amsler scotoma or central defect ({affected} cells)"
+            )
+        elif affected > 0 or perceptual:
+            escalate(
+                Severity.WARNING, f"{eye_key} Amsler macular distortion ({affected} cells)"
+            )
+
+    symptoms = sandra.get("symptoms") or {}
+    triage_level = str(symptoms.get("triage_level") or "NOMINAL").upper()
+    flags = [str(f) for f in (symptoms.get("active_flags") or [])]
+    if triage_level == "ALERT" or "diplopia" in flags or "transient_vision_loss" in flags:
+        escalate(Severity.CRITICAL, "SANS neuro-ocular sentinel symptoms reported")
+    elif triage_level == "OBSERVATION" or len(flags) > 0:
+        escalate(Severity.WARNING, "SANS visual symptom shift reported")
+
+    acuity_bi = sandra.get("acuity_bilateral") or {}
+    base_denom = baseline.mean_val if baseline and baseline.mean_val > 0 else 20.0
+    for eye_key in ("OD", "OS"):
+        eye_res = acuity_bi.get(eye_key)
+        if not isinstance(eye_res, dict):
+            continue
+        snellen = str(eye_res.get("snellen") or "")
+        if "/" in snellen:
+            try:
+                denom = float(snellen.split("/")[1])
+            except ValueError:
+                denom = 20.0
+            if denom >= 70:
+                escalate(Severity.CRITICAL, f"{eye_key} visual acuity {snellen}")
+            elif denom >= 40 or (base_denom <= 20.0 and denom >= 30):
+                escalate(Severity.WARNING, f"{eye_key} visual acuity reduced to {snellen}")
+
+    if severity is None:
+        return None
+    title = (
+        "SANS Visual Battery Alert"
+        if severity is Severity.CRITICAL
+        else "SANS Visual Battery Finding"
+    )
+    message = "; ".join(reasons) + ". Physician review requested."
+    return severity, title, message
+
+
 def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[int]:
     """Evaluate a stored measurement and insert at most one alert. Returns new alert ids.
 
@@ -418,7 +493,7 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
     row = conn.execute(
         """
         SELECT
-            m.id, m.crew_id, m.metric_key, m.value_num, m.recorded_at_utc,
+            m.id, m.crew_id, m.metric_key, m.value_num, m.payload_json, m.recorded_at_utc,
             c.display_name_en, c.category, c.unit,
             c.nominal_min, c.nominal_max, c.warning_min, c.warning_max,
             c.critical_min, c.critical_threshold,
@@ -477,6 +552,26 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
             z=(value - baseline.mean_val) if baseline else None,
             is_quiet_deferred=should_defer(relative, parse_utc(row["recorded_at_utc"]), quiet),
         )
+    functional = (
+        _sandra_functional_decision(row["payload_json"], baseline)
+        if row["metric_key"] == "visual_acuity_snellen"
+        else None
+    )
+    if functional is not None:
+        f_sev, f_title, f_msg = functional
+        if decision is None or f_sev > decision.severity:
+            decision = AlertDecision(
+                severity=f_sev,
+                is_above=True,
+                z=decision.z if decision else None,
+                is_quiet_deferred=should_defer(f_sev, parse_utc(row["recorded_at_utc"]), quiet),
+            )
+            custom_texts = (f_title, f_msg)
+        else:
+            custom_texts = None
+    else:
+        custom_texts = None
+
     if decision is None:
         # Inside the limits and the personal range, a steady move in the harmful direction
         # over the last readings is still worth a quiet note.
@@ -486,15 +581,18 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
     ):
         return []
 
-    title, message = build_alert_texts(
-        row["display_name_en"],
-        row["unit"],
-        value,
-        decision,
-        limits,
-        baseline_mean=baseline.mean_val if baseline else None,
-        role=row["role"],
-    )
+    if custom_texts is not None:
+        title, message = custom_texts
+    else:
+        title, message = build_alert_texts(
+            row["display_name_en"],
+            row["unit"],
+            value,
+            decision,
+            limits,
+            baseline_mean=baseline.mean_val if baseline else None,
+            role=row["role"],
+        )
     group = care_group(row["metric_key"], row["category"])
     return _insert_alert(
         conn, row, decision.severity, title, message, group, decision.is_quiet_deferred

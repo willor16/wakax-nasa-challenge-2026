@@ -150,26 +150,10 @@ type="submit" class="hud-button !w-[416px] !h-[52px] mt-[clamp(14px,3dvh,28px)] 
         </p>
       </form>
     </ShellHudWindow>
-
-    <div class="w-[784px] max-w-full mt-[clamp(12px,2.8dvh,26px)] flex items-center gap-[56px]">
-      <span class="flex-1 h-px bg-cabin-text/20" />
-      <span class="label-caps">No sign-in required</span>
-      <span class="flex-1 h-px bg-cabin-text/20" />
-    </div>
-    <div class="w-[784px] max-w-full mt-[clamp(8px,1.5dvh,14px)] flex gap-[27px]">
-      <NuxtLink to="/crew-overview" class="hud-button !h-[54px] relative">
-        <Icon name="spacescan:vitruvian" class="w-[17px] h-[17px] absolute left-[18px]" />
-        Open Crew Overview
-      </NuxtLink>
-      <NuxtLink to="/crew-streaks" class="hud-button !h-[54px] relative">
-        <Icon name="spacescan:flame" class="w-[17px] h-[17px] absolute left-[18px]" />
-        Open Crew Streaks
-      </NuxtLink>
-    </div>
     <!-- Mission Control on Earth: opens with the pre-flight link key, not a crew PIN. -->
     <NuxtLink
       :to="{ path: '/comms', query: { station: 'ground' } }"
-      class="focus-ring mt-[clamp(8px,1.5dvh,14px)] h-[34px] px-[22px] rounded-full flex items-center gap-[10px] text-[11px] font-semibold border-[1.3px] border-cabin-navy-edge/80 bg-cabin-tile"
+      class="focus-ring mt-[clamp(12px,2.8dvh,26px)] h-[34px] px-[22px] rounded-full flex items-center gap-[10px] text-[11px] font-semibold border-[1.3px] border-cabin-navy-edge/80 bg-cabin-tile"
     >
       <Icon name="spacescan:earth" class="w-[15px] h-[15px]" />Ground Station · Mission Control (link key)
     </NuxtLink>
