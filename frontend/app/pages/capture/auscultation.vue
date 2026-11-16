@@ -3,7 +3,7 @@
 import VChart from 'vue-echarts'
 import { apiErrorMessage } from '~/composables/useApi'
 import { envelopeOption } from '~/utils/charts'
-import { RECORD_SECONDS } from '~/utils/audio'
+import { RECORD_SECONDS, gzipWav } from '~/utils/audio'
 
 const { api } = useApi()
 const { cabin } = useMission()
@@ -47,7 +47,9 @@ interface Panel {
   sites: typeof CARDIAC | typeof PULMONARY
   site: Ref<string>
   recorder: ReturnType<typeof useAuscultationRecorder>
-  result: Ref<null | { rate_per_min: number | null, rhythm_label: string, signal_quality_pct: number, regularity_pct: number }>
+  result: Ref<null | { rate_per_min: number | null, rhythm_label: string, signal_quality_pct: number, regularity_pct: number
+    classification: null | { class_label_en: string, confidence_pct: number, needs_review: boolean }
+    payload_kb: number, wav_kb: number, compression_ratio: number, finding_id: number | null }>
   error: Ref<string | null>
 }
 function panel(organ: 'CARDIAC' | 'PULMONARY', sites: typeof CARDIAC | typeof PULMONARY): Panel {
@@ -77,7 +79,10 @@ async function save(p: Panel) {
   form.append('anatomical_site', p.site.value)
   form.append('cabin_noise_dba', String(noise.value))
   form.append('sha256_hex', take.sha256)
-  form.append('audio_file', new Blob([take.wav], { type: 'audio/wav' }), `${p.organ.toLowerCase()}-${p.site.value}.wav`)
+  // Lossless gzip for the transfer; the checksum above is of the WAV itself.
+  const packed = await gzipWav(take.wav)
+  form.append('content_encoding', packed.encoding)
+  form.append('audio_file', packed.body, `${p.organ.toLowerCase()}-${p.site.value}.wav${packed.encoding === 'gzip' ? '.gz' : ''}`)
   try {
     p.result.value = await api('/auscultation/samples', { method: 'POST', body: form })
     p.recorder.state.value = 'saved'
@@ -140,10 +145,16 @@ v-for="site in p.sites" :key="site.id" type="button" role="radio" :aria-checked=
               </p>
               <p class="text-[15px] font-bold mt-[10px]">
                 <template v-if="p.result.value">
-                  {{ p.organ === 'CARDIAC' ? 'Heart Rate' : 'Breathing Rate' }}:
-                  {{ p.result.value.rate_per_min ?? '—' }} {{ p.organ === 'CARDIAC' ? 'bpm' : 'rpm' }} · Signal {{ p.result.value.signal_quality_pct }}%
+                  {{ p.result.value.classification?.class_label_en ?? (p.organ === 'CARDIAC' ? 'Heart Rate' : 'Breathing Rate') }}
+                  <span v-if="p.result.value.classification" class="text-[12px] font-normal text-cabin-ice">({{ Math.round(p.result.value.classification.confidence_pct) }}% likely)</span>
+                  · {{ p.result.value.rate_per_min ?? '—' }} {{ p.organ === 'CARDIAC' ? 'bpm' : 'rpm' }}
                 </template>
                 <template v-else>{{ p.organ === 'CARDIAC' ? 'Place the chest piece and hold still' : 'Breathe slowly through the mouth' }}</template>
+              </p>
+              <p v-if="p.result.value" class="text-[11px] mt-[6px]" :class="p.result.value.finding_id ? 'text-cabin-text' : 'text-cabin-ice'">
+                Sent {{ p.result.value.payload_kb }} KB<template v-if="p.result.value.compression_ratio > 1"> ({{ Math.round((1 - 1 / p.result.value.compression_ratio) * 100) }}% smaller)</template>
+                · integrity verified · Signal {{ p.result.value.signal_quality_pct }}%
+                <template v-if="p.result.value.finding_id"> · Sent for physician listening review</template>
               </p>
               <p class="text-[12px] mt-[8px]" :class="tooLoud ? 'text-cabin-text' : 'text-cabin-ice'">
                 Cabin Noise: {{ noise === null ? 'unknown' : `${Math.round(noise)} dBA` }} ({{ tooLoud ? 'above' : 'below' }} {{ noiseLimit }} dBA acoustic limit)

@@ -42,7 +42,7 @@ _FILTER_PATH = BACKEND_DIR / "db" / "seed_snapshots" / "screen_word_filter.json"
 _RESTRICTED = [bytes.fromhex(v).decode() for v in json.loads(_FILTER_PATH.read_text())["hex"]]
 _BLOCKED = re.compile(
     r"\b(" + "|".join(_RESTRICTED) + r"|sqlite|json|fhir|hl7|kiwix|zim|fts5|wal|offline"
-    r"|break-glass|dtn|osdr|donki|onnx|ollama|nuxt|python|neural|autoencoder|llm|ai model"
+    r"|break-glass|dtn|osdr|donki|onnx|ollama|nuxt|python|neural|autoencoder|llm|cnn|ai model"
     r"|language model)\b",
     re.IGNORECASE,
 )
@@ -77,6 +77,10 @@ _PLAIN_MARKS = str.maketrans({
     "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-",
     "\u2011": "-", "\u2010": "-", "\u2212": "-", "\u2026": "...", "\u00a0": " ", "\u202f": " ",
     "\u2009": " ", "\u2265": ">=", "\u2264": "<=", "\u00b7": "-", "\u2022": "-", "\u00d7": "x",
+    # Subscript and superscript digits (CO2, SpO2, m2) written as plain digits.
+    **{chr(0x2080 + d): str(d) for d in range(10)},
+    "\u2070": "0", "\u00b9": "1", "\u00b2": "2", "\u00b3": "3",
+    **{chr(0x2074 + d - 4): str(d) for d in range(4, 10)},
 })
 
 
@@ -197,5 +201,74 @@ def generate_guidance(finding: dict, articles: list[dict], group: str,
         return result
     except (httpx.HTTPError, KeyError, ValueError, TypeError, AttributeError) as exc:
         result = fallback(finding, group, primary)
+        result.issues = [f"assistant unavailable: {type(exc).__name__}"]
+        return result
+
+
+# -- Heart and lung sound sessions (M5) ---------------------------------------------------
+def build_acoustic_prompt(session: dict, context: dict, articles: list[dict]) -> str:
+    """Prompt for one suspicious recording, cross-checked with oxygen, fitness and cabin air."""
+    probs = ", ".join(f"{k.replace('_', ' ')} {v:g}%" for k, v in session["probabilities"].items())
+    related = "; ".join(f"{name}: {value}" for name, value in context.items() if value is not None)
+    protocols = "\n".join(
+        f"- id={a['id']} | {a['title_en']} | steps: "
+        + " / ".join(f"{s['title_en']}: {s['detail_en']}" if s.get("detail_en") else s["title_en"]
+                     for s in a["steps"])
+        + f" | call the physician when: {a['escalation_en']}"
+        for a in articles
+    )
+    organ = "heart" if session["organ_type"] == "CARDIAC" else "lungs"
+    return (
+        f"A 30-second {organ} recording at the {session['site'].replace('_', ' ')} spot "
+        f"sounds like: {session['label_en']} ({session['confidence_pct']:g}% likely; "
+        f"other sounds: {probs}). Rate: {session['rate_text']}.\n"
+        f"Related readings: {related or 'none recorded'}.\n"
+        f"Protocols you may cite:\n{protocols}\n"
+        "This is a screening suspicion, not a diagnosis. Choose the 3 listed steps that fit "
+        "best and restate them simply. Write the JSON answer now."
+    )
+
+
+def acoustic_fallback(session: dict, group: str, article: dict | None) -> Guidance:
+    """Deterministic interpretation from validated care steps; always available."""
+    organ = "heart" if session["organ_type"] == "CARDIAC" else "lung"
+    summary = (
+        f"{session['label_en']} heard at the {session['site'].replace('_', ' ')} spot "
+        f"({session['confidence_pct']:g}% likely) on a 30-second {organ} recording. "
+        "The crew physician will listen to the recording before any change is made."
+    )
+    steps = [dict(s) for s in CARE_STEPS[group]]
+    return Guidance(summary, steps, [article["id"]] if article else [], "fallback", "care-steps")
+
+
+def generate_acoustic_guidance(session: dict, context: dict, articles: list[dict], group: str,
+                               client: httpx.Client | None = None) -> Guidance:
+    """Ask the local model about a recording; fall back to validated care steps on any issue."""
+    primary = articles[0] if articles else None
+    payload = {
+        "model": LLM_MODEL,
+        "system": SYSTEM_PROMPT,
+        "prompt": build_acoustic_prompt(session, context, articles),
+        "format": "json",
+        "stream": False,
+        "options": {"temperature": 0.2},
+    }
+    try:
+        if client is not None:
+            response = client.post(f"{LLM_URL}/api/generate", json=payload)
+        else:
+            with httpx.Client(timeout=LLM_TIMEOUT_SEC) as http:
+                response = http.post(f"{LLM_URL}/api/generate", json=payload)
+        response.raise_for_status()
+        answer = json.loads(response.json()["response"])
+        guidance, issues = validate(answer, {a["id"] for a in articles},
+                                    primary["id"] if primary else None)
+        if guidance:
+            return guidance
+        result = acoustic_fallback(session, group, primary)
+        result.issues = issues
+        return result
+    except (httpx.HTTPError, KeyError, ValueError, TypeError, AttributeError) as exc:
+        result = acoustic_fallback(session, group, primary)
         result.issues = [f"assistant unavailable: {type(exc).__name__}"]
         return result

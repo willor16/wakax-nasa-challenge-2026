@@ -187,7 +187,7 @@ export function ecgLiveOption(samples: number[], sampleRateHz: number, windowSec
 
 /** Sound envelope of a recording: heart bursts (green) or breathing (cream fill), interactive. */
 export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary', pins: PinMark[] = [],
-  pointsPerSecond = 20): EChartsOption {
+  pointsPerSecond = 20, cursorSeconds: number | null = null): EChartsOption {
   const c = palette()
   const cardiac = kind === 'cardiac'
   // Heart sounds are drawn as a mirrored trace around the centre line, like a phonocardiogram.
@@ -215,6 +215,14 @@ export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary'
       lineStyle: { color: cardiac ? c.ok : c.text, width: cardiac ? 1.8 : 2 },
       areaStyle: cardiac ? undefined : { color: c.envelope },
       markPoint: markPointsFor('', 2, pins),
+      // Playback cursor: follows the recording while it is being listened to.
+      markLine: cursorSeconds === null ? undefined : {
+        silent: true, symbol: 'none', animation: false,
+        lineStyle: { color: c.text, width: 1.5, type: 'solid' },
+        label: { show: true, position: 'insideEndTop', color: c.text, fontSize: 9, fontFamily: MONO,
+          formatter: `${cursorSeconds.toFixed(1)} s` },
+        data: [{ xAxis: cursorSeconds }],
+      },
     }],
   }
 }

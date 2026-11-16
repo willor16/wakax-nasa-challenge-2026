@@ -21,6 +21,12 @@ interface OrganSummary {
   waveform_site: string
   envelope: number[]
   needs_physician_review: boolean
+  audio_url: string
+  waveform_recording_id: number
+  classification: null | { class_key: string, class_label_en: string, confidence_pct: number, needs_review: boolean }
+  interpretation: null | { finding_id: number, status: 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'PROMOTED_TO_GUIDE'
+    label_en: string, summary_en: string, steps: { title_en: string, detail_en: string }[], source: string
+    reviewed_by: string | null }
 }
 interface Results {
   status: string
@@ -66,10 +72,31 @@ function envelopePin(kind: 'cardiac' | 'pulmonary') {
 }
 const cardiacPins = useChartPins(envelopePin('cardiac'))
 const lungPins = useChartPins(envelopePin('pulmonary'))
+// Listening: the saved recording of the spot on screen, with a cursor on the waveform.
+const player = useRecordingPlayer()
+const cursorFor = (kind: 'cardiac' | 'pulmonary') => (player.playing.value === kind ? player.position.value : null)
 const cardiacChart = computed(() => (data.value?.cardiac?.envelope.length
-  ? envelopeOption(data.value.cardiac.envelope.slice(0, 150), 'cardiac', cardiacPins.marks(), ENVELOPE_RATE) : null))
+  ? envelopeOption(data.value.cardiac.envelope, 'cardiac', cardiacPins.marks(), ENVELOPE_RATE, cursorFor('cardiac')) : null))
 const lungChart = computed(() => (data.value?.pulmonary?.envelope.length
-  ? envelopeOption(data.value.pulmonary.envelope, 'pulmonary', lungPins.marks(), ENVELOPE_RATE) : null))
+  ? envelopeOption(data.value.pulmonary.envelope, 'pulmonary', lungPins.marks(), ENVELOPE_RATE, cursorFor('pulmonary')) : null))
+function playLabel(kind: 'cardiac' | 'pulmonary'): string {
+  if (player.loading.value === kind) return 'Loading…'
+  if (player.failed.value === kind) return 'Unavailable'
+  return player.playing.value === kind ? '❚❚ Pause' : '▶ Play'
+}
+
+// Assisted interpretation: the finding sent for physician review (lungs first, then heart).
+const soundReview = computed(() => data.value?.pulmonary?.interpretation ?? data.value?.cardiac?.interpretation ?? null)
+const REVIEW_TEXT: Record<string, string> = {
+  PENDING_REVIEW: 'Pending physician validation', APPROVED: 'Validated by the physician',
+  PROMOTED_TO_GUIDE: 'Validated and added to the guide', REJECTED: 'Not confirmed by the physician',
+}
+function reviewText(): string {
+  const found = soundReview.value
+  if (!found) return ''
+  const name = found.reviewed_by ? ` (Dr. ${found.reviewed_by.replace('Dr. ', '')})` : ''
+  return REVIEW_TEXT[found.status] + (found.status === 'PENDING_REVIEW' ? '' : name)
+}
 
 // Cabin CO2: target zone = band, target = watch line, alert limit = red line.
 const co2Thresholds = computed<Thresholds>(() => {
@@ -137,13 +164,13 @@ class="w-[30.2%] shrink-0" title="Cardiac & Pulmonary Audio Results" icon="steth
         <div class="flex-1 min-h-0 flex flex-col px-[19px] pt-[clamp(10px,1.8dvh,17px)] pb-[14px]">
           <div
 v-for="organ in ([['cardiac', 'heart'], ['pulmonary', 'lungs']] as const)" :key="organ[0]"
-               class="tile relative h-[clamp(112px,15.7dvh,170px)] shrink-0 mb-[clamp(8px,1.7dvh,16px)] flex items-center px-[clamp(14px,1.5vw,22px)] gap-[clamp(14px,1.5vw,22px)]">
+               class="tile relative h-[clamp(96px,12.8dvh,150px)] shrink-0 mb-[clamp(6px,1.2dvh,12px)] flex items-center px-[clamp(14px,1.5vw,22px)] gap-[clamp(14px,1.5vw,22px)]">
             <span class="absolute top-[7px] right-[7px]"><UiParamHelp :metric-key="organ[0] === 'cardiac' ? 'heart_sound_rate' : 'lung_sound_rate'" /></span>
-            <UiHoloFigure :figure="organ[1]" size="clamp(72px, 10.4dvh, 112px)" :label="organ[0] === 'cardiac' ? 'Heart' : 'Lungs'" />
+            <UiHoloFigure :figure="organ[1]" size="clamp(64px, 8.8dvh, 104px)" :label="organ[0] === 'cardiac' ? 'Heart' : 'Lungs'" />
             <div v-if="data[organ[0]]" class="min-w-0">
               <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok">{{ organ[0] }} audio · 30s sample</p>
-              <p class="mt-[8px] flex items-baseline gap-[12px]">
-                <span class="text-[26px] font-bold">{{ data[organ[0]]!.rate_per_min === null ? '—' : formatNumber(data[organ[0]]!.rate_per_min, organ[0] === 'cardiac' ? 0 : 1) }}
+              <p class="mt-[4px] flex items-baseline gap-[12px]">
+                <span class="text-[24px] font-bold">{{ data[organ[0]]!.rate_per_min === null ? '—' : formatNumber(data[organ[0]]!.rate_per_min, organ[0] === 'cardiac' ? 0 : 1) }}
                   {{ organ[0] === 'cardiac' ? 'bpm' : 'rpm' }}</span>
                 <span v-if="organ[0] === 'cardiac'" class="text-[13px] font-bold" :class="data.cardiac!.regular ? 'text-cabin-ok' : 'text-cabin-text'">{{ data.cardiac!.rhythm_text }}</span>
                 <span v-else-if="data.spo2_pct !== null" class="text-[13px] font-bold text-cabin-ok">SpO₂ {{ formatNumber(data.spo2_pct) }}%</span>
@@ -160,7 +187,28 @@ v-for="organ in ([['cardiac', 'heart'], ['pulmonary', 'lungs']] as const)" :key=
             </div>
             <p v-else class="text-[12px] text-cabin-ice">No {{ organ[0] }} recording yet. Record in Capture · Auscultation Audio.</p>
           </div>
-          <div class="flex-1 min-h-0 flex flex-col justify-around gap-[6px]">
+          <div class="tile-hi relative shrink-0 px-[14px] py-[10px] mb-[clamp(6px,1.2dvh,12px)]" aria-label="Assisted sound interpretation">
+            <UiAiWatermark position="top-right" />
+            <p class="label-caps !text-[9px]">Assisted sound interpretation</p>
+            <div class="mt-[6px] flex flex-col gap-[3px] text-[11.5px]">
+              <p v-for="organ in (['cardiac', 'pulmonary'] as const)" :key="organ" class="truncate">
+                <b>{{ organ === 'cardiac' ? 'Heart' : 'Lungs' }}</b> ·
+                <template v-if="data[organ]?.classification">
+                  <span :class="data[organ]!.classification!.needs_review ? 'text-cabin-text font-bold' : 'text-cabin-ok'">{{ data[organ]!.classification!.class_label_en }}</span>
+                  <span class="text-cabin-ice"> · {{ Math.round(data[organ]!.classification!.confidence_pct) }}% likely · {{ SITE_NAMES[data[organ]!.waveform_site] }}</span>
+                </template>
+                <span v-else class="text-cabin-dim">{{ data[organ] ? 'Recorded before sound analysis · record again to analyse' : 'No recording yet' }}</span>
+              </p>
+            </div>
+            <template v-if="soundReview">
+              <p class="mt-[6px]">
+                <UiStatusPill size="sm" :tone="soundReview.status === 'PENDING_REVIEW' ? 'watch' : 'reference'">{{ reviewText() }}</UiStatusPill>
+              </p>
+              <p class="text-[11px] mt-[5px] leading-[1.45] line-clamp-2">{{ soundReview.summary_en }}</p>
+              <p class="text-[10.5px] text-cabin-ice mt-[3px] truncate">{{ soundReview.steps.map(s => s.title_en).join(' · ') }}</p>
+            </template>
+          </div>
+          <div class="flex-1 min-h-0 flex flex-col justify-around gap-[4px]">
             <UiBandRow
 v-for="view in data.fitness" :key="view.metric_key" :label="fitnessLabel[view.metric_key] ?? view.label" :help-key="view.metric_key"
                        :reference="fitnessRef(view)" :value-text="fitnessValue(view)" :unit="fitnessUnit[view.metric_key]"
@@ -184,9 +232,21 @@ v-for="channel in ([
               ['pulmonary', lungChart, 'Channel 2 · Pulmonary breath envelope (bilateral)'],
             ] as const)" :key="channel[0]" class="tile relative flex-1">
               <span class="absolute top-[12px] left-[16px] mono text-[9.5px] z-10 uppercase" :class="channel[0] === 'cardiac' ? 'text-cabin-ok' : ''">{{ channel[2] }}</span>
-              <span v-if="data[channel[0]]" class="absolute top-[12px] right-[16px] mono text-[9.5px] z-10 uppercase">
-                {{ formatNumber(data[channel[0]]!.rate_per_min, channel[0] === 'cardiac' ? 0 : 1) }} {{ channel[0] === 'cardiac' ? 'BPM' : 'RPM' }}
-                · {{ channel[0] === 'cardiac' ? `Signal ${data.cardiac!.signal_quality_pct}%` : `Cabin noise ${Math.round(data.pulmonary!.cabin_noise_dba)} dBA` }}
+              <span v-if="data[channel[0]]" class="absolute top-[8px] right-[12px] z-10 flex items-center gap-[10px]">
+                <span class="mono text-[9.5px] uppercase">
+                  {{ formatNumber(data[channel[0]]!.rate_per_min, channel[0] === 'cardiac' ? 0 : 1) }} {{ channel[0] === 'cardiac' ? 'BPM' : 'RPM' }}
+                  · {{ channel[0] === 'cardiac' ? `Signal ${data.cardiac!.signal_quality_pct}%` : `Cabin noise ${Math.round(data.pulmonary!.cabin_noise_dba)} dBA` }}
+                </span>
+                <button
+                  type="button"
+                  class="focus-ring h-[22px] min-w-[74px] px-[8px] rounded-[3px] mono text-[10px] font-bold border"
+                  :class="player.playing.value === channel[0] ? 'menu-item-active text-cabin-text' : 'border-cabin-edge/70 text-cabin-ice hover:text-cabin-text'"
+                  :aria-pressed="player.playing.value === channel[0]"
+                  :aria-label="`${player.playing.value === channel[0] ? 'Pause' : 'Play'} the ${channel[0]} recording`"
+                  @click.stop="player.toggle(channel[0], data[channel[0]]!.audio_url)"
+                >
+                  {{ playLabel(channel[0]) }}
+                </button>
               </span>
               <ClientOnly>
                 <VChart

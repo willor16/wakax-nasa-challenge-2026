@@ -95,6 +95,21 @@ export async function sha256Hex(data: Uint8Array<ArrayBuffer>): Promise<string> 
   return sha256Fallback(data)
 }
 
+/**
+ * Lossless gzip of the WAV for upload (the stethoscope band is kept intact). Browsers
+ * without CompressionStream send the WAV as is. The checksum is always taken on the WAV,
+ * so the onboard server verifies it after unpacking.
+ */
+export async function gzipWav(wav: Uint8Array<ArrayBuffer>): Promise<{ body: Blob, encoding: 'gzip' | 'identity' }> {
+  if (typeof CompressionStream === 'undefined') return { body: new Blob([wav], { type: 'audio/wav' }), encoding: 'identity' }
+  const stream = new Blob([wav]).stream().pipeThrough(new CompressionStream('gzip'))
+  const packed = await new Response(stream).arrayBuffer()
+  // Keep whichever is smaller (a very noisy recording may not shrink).
+  return packed.byteLength < wav.byteLength
+    ? { body: new Blob([packed], { type: 'application/gzip' }), encoding: 'gzip' }
+    : { body: new Blob([wav], { type: 'audio/wav' }), encoding: 'identity' }
+}
+
 /** Root-mean-square level of a block in decibels relative to full scale. */
 export function levelDb(block: Float32Array): number {
   let sum = 0

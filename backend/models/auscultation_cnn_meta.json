@@ -1,0 +1,57 @@
+{
+  "version": "20261116",
+  "trained_at_utc": "2026-11-16T00:29:58Z",
+  "training_data": "simulated heart and lung sounds (ml/simulate_auscultation.py)",
+  "note": "Demonstration model: results are suspicions for the crew physician to review.",
+  "sample_rate_hz": 4000,
+  "features": {
+    "bands": 24,
+    "channels": 25,
+    "frames": 64,
+    "fft": 512
+  },
+  "organs": {
+    "CARDIAC": {
+      "file": "auscultation_cnn_cardiac.onnx",
+      "classes": [
+        "normal_s1_s2",
+        "systolic_murmur_suspected",
+        "extra_gallop_sound",
+        "irregular_rhythm",
+        "low_signal_noise"
+      ],
+      "accuracy": {
+        "normal_s1_s2": 1.0,
+        "systolic_murmur_suspected": 1.0,
+        "extra_gallop_sound": 1.0,
+        "irregular_rhythm": 1.0,
+        "low_signal_noise": 1.0
+      },
+      "accuracy_overall": 1.0,
+      "window_s": 4.0,
+      "fmin_hz": 20.0,
+      "fmax_hz": 800.0
+    },
+    "PULMONARY": {
+      "file": "auscultation_cnn_pulmonary.onnx",
+      "classes": [
+        "normal_vesicular",
+        "wheeze_suspected",
+        "crackle_suspected",
+        "diminished_breath_sounds",
+        "low_signal_noise"
+      ],
+      "accuracy": {
+        "normal_vesicular": 1.0,
+        "wheeze_suspected": 1.0,
+        "crackle_suspected": 1.0,
+        "diminished_breath_sounds": 1.0,
+        "low_signal_noise": 1.0
+      },
+      "accuracy_overall": 1.0,
+      "window_s": 8.0,
+      "fmin_hz": 80.0,
+      "fmax_hz": 1800.0
+    }
+  }
+}
