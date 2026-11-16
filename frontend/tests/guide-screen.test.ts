@@ -10,11 +10,11 @@ const template = page.slice(page.indexOf('<template>'))
 const script = page.slice(0, page.indexOf('<template>'))
 
 describe('medical guide screen', () => {
-  it('always lists the protocols and opens one on arrival', () => {
+  it('always lists the protocols and explains the guide on arrival', () => {
     expect(template).toMatch(/v-for="item in results"/)
     expect(template).toContain('aria-label="Protocols"')
     expect(script).toMatch(/route\.query\.article/)
-    expect(script).toMatch(/else \{\s*await search\(\)\s*\}/) // no words: first protocol opens
+    expect(template).toContain('data-guide-intro') // no words: the short how-it-works note shows
   })
 
   it('searches while typing after a short pause', () => {

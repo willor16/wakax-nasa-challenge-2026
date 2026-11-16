@@ -83,13 +83,14 @@ onMounted(async () => {
   catch (reason) {
     error.value = apiErrorMessage(reason)
   }
-  // Coming from a notification opens its exact protocol; otherwise the first one is open.
+  // Coming from a notification opens its exact protocol, and a typed symptom its best match;
+  // otherwise the screen opens on the short "how it works" note next to the protocol list.
   if (typeof route.query.article === 'string') {
     await search(false)
     await openArticle(route.query.article)
   }
   else {
-    await search()
+    await search(Boolean(query.value))
   }
   ready = true
 })
@@ -163,6 +164,12 @@ function illuminate() {
   lightTimer = setTimeout(() => { lit.value = false }, 30_000)
 }
 const drawerShort = (code: string) => code.replace('DRAWER ', '')
+const INTRO = [
+  { title: 'Find', detail: 'Type a symptom (headache, cut, eye pressure) or tap a topic.' },
+  { title: 'Follow', detail: 'Open a protocol from the list and do the steps in order.' },
+  { title: 'Locate', detail: 'The kit panel shows the drawer with the supplies and can light it for 30 s.' },
+  { title: 'Escalate', detail: 'The red box says when to call the physician. Emergency Index lists them all.' },
+]
 const subscript = (text: string) => text.replace(/CO2/g, 'CO₂')
 </script>
 
@@ -228,10 +235,30 @@ v-if="emergency" class="flex-1 min-w-0" title="Emergency Index · When to Call t
       </ShellHudWindow>
       <ShellHudWindow
 v-else class="flex-1 min-w-0" flush icon="wiki"
-                      :title="article ? `Care Protocol · ${subscript(article.title_en)}` : 'Care Protocol'"
+                      :title="article ? `Care Protocol · ${subscript(article.title_en)}` : 'Medical Guide · How It Works'"
                       :tag-text="article ? (article.mission_protocol ? 'MISSION PROTOCOL' : 'QUICK GUIDE') : undefined"
                       >
-        <UiStateNote v-if="!article" :loading="busy" :empty="query || category ? 'No protocol matches that search. Try another word or a topic.' : 'Choose a protocol from the list.'" />
+        <UiStateNote v-if="!article && (query || category)" :loading="busy" empty="No protocol matches that search. Try another word or a topic." />
+        <!-- First view: what the guide is and how to use it, in a few words. -->
+        <div v-else-if="!article" class="flex-1 min-h-0 flex flex-col px-[24px] py-[20px] gap-[14px]" data-guide-intro>
+          <p class="text-[13px] leading-[1.7]">
+            Step-by-step care protocols for the crew, always available on board — no link to Earth needed.
+          </p>
+          <ol class="flex flex-col gap-[10px]">
+            <li v-for="(step, index) in INTRO" :key="step.title" class="tile px-[18px] py-[12px] flex items-center gap-[18px]">
+              <span class="w-[32px] h-[32px] shrink-0 rounded-[4px] mono text-[13px] font-bold flex items-center justify-center border-[1.3px] border-cabin-ok/80 bg-cabin-ok/10">
+                {{ String(index + 1).padStart(2, '0') }}
+              </span>
+              <div>
+                <p class="text-[12.5px] font-bold uppercase tracking-[0.02em]">{{ step.title }}</p>
+                <p class="text-[12px] text-cabin-ice mt-[4px]">{{ step.detail }}</p>
+              </div>
+            </li>
+          </ol>
+          <p class="text-[11px] text-cabin-muted mt-auto">
+            <span class="text-cabin-ok font-bold">MISSION PROTOCOL</span> marks protocols the crew physician added during the mission.
+          </p>
+        </div>
         <div v-else class="relative flex-1 min-h-0 flex flex-col px-[19px] pt-[14px] pb-[20px]">
           <UiAiWatermark v-if="article.assisted" position="top-right" />
           <p v-if="originLabel(article)" class="mono text-[10px] tracking-[0.05em] text-cabin-ok mb-[12px] pr-[70px]">
