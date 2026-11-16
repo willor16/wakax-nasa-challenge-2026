@@ -15,6 +15,7 @@ import os
 import random
 import sqlite3
 
+from app.services import change_feed
 from app.services.mission_clock import current_stage, to_iso, utc_now
 
 ECG_SAMPLE_RATE_HZ = 125
@@ -156,4 +157,6 @@ def run_sensor_tick_job() -> None:
     from app.deps import open_request_connection
 
     with open_request_connection() as conn:
-        run_sensor_tick(conn)
+        written = run_sensor_tick(conn)
+    if written:
+        change_feed.publish("vitals", "alerts")

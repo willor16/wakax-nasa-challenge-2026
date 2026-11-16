@@ -33,6 +33,23 @@ def normalize_utc_timestamp(raw_value: str | None) -> str:
     return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class ParameterHelpItem(BaseModel):
+    """Plain-language explanation of one parameter for the on-screen help button."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label_en: str
+    unit: str
+    summary_en: str
+    interpretation_en: str
+    operational_impact_en: str
+    nominal_min: float | None = None
+    nominal_max: float | None = None
+    # Female / male limits for metrics whose normal range differs by sex.
+    by_sex: dict[str, dict[str, float | None]] | None = None
+
+
 class MetricCatalogItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -50,6 +67,7 @@ class MetricCatalogItem(BaseModel):
     clinical_reference: str
     plausible_min: float | None = None
     plausible_max: float | None = None
+    by_sex: dict[str, dict[str, float | None]] | None = None
 
 
 class MeasurementItemIn(BaseModel):

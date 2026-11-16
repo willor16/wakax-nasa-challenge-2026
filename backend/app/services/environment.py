@@ -15,7 +15,13 @@ from typing import Any
 from app.services import reference_ranges
 from app.services.alert_engine import care_steps
 from app.services.alert_rules import QuietHours, Severity, format_amount, should_defer
-from app.services.mission_clock import mission_elapsed_days, parse_iso, to_iso, utc_now
+from app.services.mission_clock import (
+    PERIOD_HOURS,
+    mission_elapsed_days,
+    parse_iso,
+    to_iso,
+    utc_now,
+)
 
 MMHG_PER_ATM = 760.0
 # Column in ``environment_readings`` -> reference metric.
@@ -97,21 +103,33 @@ def cabin_snapshot(conn: sqlite3.Connection) -> dict[str, Any] | None:
     }
 
 
-def co2_trend_24h(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Cabin CO2 readings of the last 24 hours, oldest first, in mmHg."""
+def co2_trend(conn: sqlite3.Connection, period: str = "24h") -> list[dict[str, Any]]:
+    """Cabin CO2 in mmHg, oldest first: every reading for 24 h, hourly averages beyond that
+    (a 30-day window stays under 720 points)."""
     latest = conn.execute("SELECT MAX(recorded_at_utc) FROM environment_readings").fetchone()[0]
     if latest is None:
         return []
-    since = to_iso(parse_iso(latest) - timedelta(hours=24))
-    rows = conn.execute(
-        "SELECT recorded_at_utc, co2_ppm FROM environment_readings WHERE recorded_at_utc >= ? "
-        "ORDER BY recorded_at_utc ASC",
-        (since,),
-    ).fetchall()
+    hours = PERIOD_HOURS[period] or 24 * 365
+    since = to_iso(parse_iso(latest) - timedelta(hours=hours))
+    if hours <= 24:
+        rows = conn.execute(
+            "SELECT recorded_at_utc, co2_ppm FROM environment_readings "
+            "WHERE recorded_at_utc >= ? ORDER BY recorded_at_utc ASC",
+            (since,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT substr(recorded_at_utc, 1, 13) || ':00:00Z' AS recorded_at_utc,
+                      AVG(co2_ppm) AS co2_ppm
+               FROM environment_readings WHERE recorded_at_utc >= ?
+               GROUP BY substr(recorded_at_utc, 1, 13) ORDER BY 1 ASC""",
+            (since,),
+        ).fetchall()
     return [
         {"recorded_at_utc": r["recorded_at_utc"], "co2_mmhg": ppm_to_mmhg(r["co2_ppm"])}
         for r in rows
     ]
+
 
 
 def _cabin_alert(

@@ -12,7 +12,7 @@ interface Comms { earth_latency_min: number, pending_packets: number, synchroniz
   messages: Message[], transmission_log: LogEntry[], solar_weather: Solar | null }
 
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<Comms>('/comms'), 15_000)
+const { data, loading, error, refresh } = useResource(() => api<Comms>('/comms'), 15_000, ['alerts'])
 const sending = ref(false)
 const sendNote = ref<{ tone: 'ok' | 'critical', text: string } | null>(null)
 
@@ -61,14 +61,14 @@ const kpTone = computed(() => (solar.value?.state === 'ALERT' ? 'critical' : sol
     <UiStateNote v-if="!data" :loading="loading" :error="error" @retry="refresh()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-class="w-[756px]" title="Flight Surgeon Messages · Houston" icon="mail"
+class="w-[50%] shrink-0" title="Flight Surgeon Messages · Houston" icon="mail"
                       :tag-text="`+${data.earth_latency_min} MIN ONE-WAY`" flush>
-        <div class="flex-1 min-h-0 flex flex-col px-[23px] pt-[24px] pb-[20px]">
+        <div class="flex-1 min-h-0 flex flex-col px-[23px] pt-[clamp(12px,2.5dvh,24px)] pb-[clamp(12px,2.1dvh,20px)]">
           <div class="flex-1 min-h-0 hud-scroll flex flex-col gap-[20px] pr-[2px]">
             <UiStateNote v-if="!data.messages.length" empty="No messages from Mission Control yet." />
             <div
 v-for="message in data.messages" :key="message.id"
-                 class="relative min-h-[182px] shrink-0 rounded-[5px] pl-[24px] pr-[20px] pt-[18px] pb-[18px] border-[1.2px]"
+                 class="relative min-h-[clamp(140px,19.4dvh,200px)] shrink-0 rounded-[5px] pl-[24px] pr-[20px] pt-[18px] pb-[18px] border-[1.2px]"
                  :class="message.state === 'NEW' ? 'border-cabin-text/70 bg-[var(--color-card-head)]' : 'border-cabin-line bg-cabin-tile'">
               <span class="absolute left-0 top-[18px] bottom-[18px] w-[3px] rounded-full" :class="accent(message)" />
               <div class="flex items-start justify-between gap-4">
@@ -83,7 +83,7 @@ v-for="message in data.messages" :key="message.id"
             </div>
           </div>
           <p v-if="sendNote" class="text-[11.5px] mt-[12px]" :class="sendNote.tone === 'ok' ? 'text-cabin-ok' : ''" role="status">{{ sendNote.text }}</p>
-          <button type="button" class="hud-button relative mt-[14px] !h-[56px] shrink-0" :disabled="sending" @click="sendSummary">
+          <button type="button" class="hud-button relative mt-[14px] !h-[clamp(44px,6dvh,60px)] shrink-0" :disabled="sending" @click="sendSummary">
             <Icon name="spacescan:mail" class="w-[17px] h-[17px] absolute left-[22px]" />
             {{ sending ? 'Queuing…' : 'Send Daily Crew Summary to Houston' }}
           </button>
@@ -92,25 +92,27 @@ v-for="message in data.messages" :key="message.id"
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-class="h-[392px] shrink-0" title="Solar Weather & Cabin Radiation" icon="earth" flush
+class="flex-[1.25] min-h-0" title="Solar Weather & Cabin Radiation" icon="earth" flush
                         :tag-text="solar ? (solar.state === 'QUIET' ? 'QUIET · SAFE' : solar.state) : undefined"
                         :tag-tone="kpTone === 'critical' ? 'critical' : 'reference'">
           <UiStateNote v-if="!solar" empty="No solar or radiation reading yet." />
-          <div v-else class="flex-1 flex flex-col px-[30px] pt-[30px] pb-[22px]">
-            <div class="grid grid-cols-2 gap-[28px] h-[198px] shrink-0">
-              <div class="tile flex items-center justify-center">
+          <div v-else class="flex-1 min-h-0 flex flex-col px-[clamp(16px,2vw,30px)] pt-[clamp(12px,3.2dvh,30px)] pb-[clamp(12px,2.3dvh,22px)]">
+            <div class="grid grid-cols-2 gap-[clamp(14px,1.9vw,28px)] flex-1 min-h-0 max-h-[240px]">
+              <div class="tile relative flex items-center justify-center">
+                <span class="absolute top-[7px] right-[7px]"><UiParamHelp metric-key="solar_activity" /></span>
                 <UiArcGauge
 :fraction="(solar.kp_index ?? 0) / 9" :tone="kpTone" label="Solar Activity"
-                            :value="solar.kp_index === null ? '—' : `Kp ${solar.kp_index.toFixed(0)}`" :caption="solar.kp_label" :size="140" :value-size="24" />
+                            :value="solar.kp_index === null ? '—' : `Kp ${solar.kp_index.toFixed(0)}`" :caption="solar.kp_label" size="clamp(100px, 14.9dvh, 170px)" :value-size="24" />
               </div>
-              <div class="tile flex items-center justify-center">
+              <div class="tile relative flex items-center justify-center">
+                <span class="absolute top-[7px] right-[7px]"><UiParamHelp metric-key="radiation_daily_msv" /></span>
                 <UiArcGauge
 :fraction="Math.min(1, solar.radiation_msv_day / 1)" :tone="solar.radiation_status === 'NOMINAL' ? 'ok' : solar.radiation_status === 'CRITICAL' ? 'critical' : 'watch'"
-                            label="Cabin Radiation" :value="solar.radiation_msv_day.toFixed(2)" caption="mSv / day" :size="140" :value-size="24" />
+                            label="Cabin Radiation" :value="solar.radiation_msv_day.toFixed(2)" caption="mSv / day" size="clamp(100px, 14.9dvh, 170px)" :value-size="24" />
               </div>
             </div>
-            <div class="tile mt-auto h-[70px] px-[20px] flex flex-col justify-center">
-              <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok">48-hour solar forecast</p>
+            <div class="tile mt-[clamp(10px,2dvh,20px)] h-[clamp(58px,7.4dvh,80px)] shrink-0 px-[20px] flex flex-col justify-center">
+              <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok flex items-center gap-[6px]">48-hour solar forecast<UiParamHelp metric-key="radiation_mission_dose" /></p>
               <p class="text-[12.5px] mt-[9px]">
                 {{ solar.forecast_en }} · Mission dose {{ solar.radiation_mission_msv.toFixed(1) }} mSv
               </p>
@@ -119,10 +121,10 @@ class="h-[392px] shrink-0" title="Solar Weather & Cabin Radiation" icon="earth" 
         </ShellHudWindow>
 
         <ShellHudWindow
-class="flex-1" title="Transmission Log" icon="rocket" flush
+class="flex-1 min-h-0" title="Transmission Log" icon="rocket" flush
                         :tag-text="data.synchronized ? 'SYNCHRONIZED' : `${data.pending_packets} IN TRANSIT`">
           <div class="flex-1 min-h-0 hud-scroll flex flex-col gap-[14px] px-[23px] py-[22px]">
-            <div v-for="entry in data.transmission_log.slice(0, 8)" :key="entry.id" class="tile h-[56px] shrink-0 px-[22px] flex items-center gap-[54px]">
+            <div v-for="entry in data.transmission_log.slice(0, 8)" :key="entry.id" class="tile h-[clamp(44px,6dvh,60px)] shrink-0 px-[22px] flex items-center gap-[clamp(16px,3.6vw,54px)]">
               <span class="mono text-[12px] w-[78px] shrink-0">{{ formatTime(entry.at_utc) }} UTC</span>
               <span class="text-[13px] flex-1 truncate">{{ entry.title_en }}</span>
               <UiStatusPill class="min-w-[116px]" :tone="entry.state === 'QUEUED' || entry.state === 'IN TRANSIT' || entry.state === 'INCOMING' ? 'watch' : 'reference'">

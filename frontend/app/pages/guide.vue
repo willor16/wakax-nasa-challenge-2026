@@ -4,7 +4,7 @@ import { apiErrorMessage } from '~/composables/useApi'
 
 interface Step { title_en: string, detail_en: string }
 interface Article { id: string, category_en: string, title_en: string, drawer_code: string, steps: Step[]
-  escalation_en: string, source_en: string | null }
+  escalation_en: string, source_en: string | null, assisted?: boolean }
 interface Drawer { code: string, name_en: string, items: { slot_code: string, name_en: string, status_en: string }[] }
 interface EmergencyItem { id: string, title_en: string, drawer_code: string, escalation_en: string }
 
@@ -103,8 +103,8 @@ const subscript = (text: string) => text.replace(/CO2/g, 'CO₂')
 
 <template>
   <div class="page">
-    <ShellHudWindow class="h-[148px] shrink-0" flush>
-      <form class="flex-1 flex flex-col px-[19px] pt-[18px]" role="search" @submit.prevent="search()">
+    <ShellHudWindow class="shrink-0" flush>
+      <form class="flex-1 flex flex-col px-[19px] pt-[18px] pb-[clamp(12px,2dvh,22px)]" role="search" @submit.prevent="search()">
         <div class="flex gap-[14px]">
           <label class="hud-field flex-1 !h-[48px] !bg-cabin-tile">
             <Icon name="spacescan:search" class="w-[17px] h-[17px] text-cabin-ice" />
@@ -131,7 +131,7 @@ v-for="name in categories" :key="name" type="button"
     <UiStateNote v-if="error" :error="error" @retry="search()" />
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-v-if="emergency" class="w-[786px]" title="Emergency Index · When to Call the Physician" icon="alert"
+v-if="emergency" class="w-[52%] shrink-0" title="Emergency Index · When to Call the Physician" icon="alert"
                       tag-text="ALL PROTOCOLS" tag-tone="critical" flush>
         <div class="flex-1 hud-scroll px-[19px] py-[16px] flex flex-col gap-[10px]">
           <button v-for="item in emergency" :key="item.id" type="button" class="tile focus-ring text-left px-[18px] py-[12px]" @click="openArticle(item.id)">
@@ -141,11 +141,12 @@ v-if="emergency" class="w-[786px]" title="Emergency Index · When to Call the Ph
         </div>
       </ShellHudWindow>
       <ShellHudWindow
-v-else class="w-[786px]" flush icon="wiki"
+v-else class="w-[52%] shrink-0" flush icon="wiki"
                       :title="article ? `Care Protocol · ${subscript(article.title_en)}` : 'Care Protocol'"
                       :tag-text="article ? 'QUICK GUIDE' : undefined">
         <UiStateNote v-if="!article" :loading="busy" :empty="query || category ? 'No protocol matches that search. Try another word or a topic.' : 'Search by symptom or choose a topic to open a protocol.'" />
-        <div v-else class="flex-1 min-h-0 flex flex-col px-[19px] pt-[18px] pb-[20px]">
+        <div v-else class="relative flex-1 min-h-0 flex flex-col px-[19px] pt-[18px] pb-[20px]">
+          <UiAiWatermark v-if="article.assisted" position="top-right" />
           <div class="flex-1 min-h-0 hud-scroll flex flex-col gap-[14px] pr-[2px]">
             <div v-for="(step, index) in article.steps" :key="index" class="tile min-h-[98px] px-[20px] py-[18px] flex gap-[22px]">
               <span

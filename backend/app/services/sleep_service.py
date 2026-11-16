@@ -269,6 +269,8 @@ def build_sleep_monitor(
     trend = [
         {
             "date_utc": s["sleep_end_utc"][:10],
+            "recorded_at_utc": s["sleep_end_utc"],
+            "mission_stage": s["mission_stage"],
             "day_label": day_label(mission_day(conn, parse_iso(s["sleep_end_utc"]))),
             "total_min": s["total_sleep_min"],
             "score": s["sleep_score"],

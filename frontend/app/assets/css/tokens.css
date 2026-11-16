@@ -61,7 +61,6 @@
   --color-pill-edge: rgba(38, 59, 176, 0.85);
   --color-ok-soft: rgba(42, 239, 75, 0.16);
   --color-ok-glow: rgba(42, 239, 75, 0.22);
-  --color-ok-scan: rgba(42, 239, 75, 0.65);
   --color-crit-soft: rgba(213, 17, 11, 0.2);
   --color-crit-edge: rgba(213, 17, 11, 0.85);
   --color-text-line: rgba(255, 236, 209, 0.18);
@@ -114,23 +113,23 @@ body,
   background-color: var(--color-bg-top);
 }
 
-/* The cockpit is designed at 1568 x 940 and scaled as one piece to the display. */
+/* The cockpit fills the whole display: top bar, working area and dock in one column. */
 .cockpit-stage {
   position: fixed;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 100vw;
+  height: 100dvh;
   overflow: clip;
 }
 
 .cockpit-canvas {
   position: relative;
-  flex: none;
-  width: 1568px;
-  height: 940px;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
   overflow: clip; /* never scrolls, even when a focused control asks to be revealed */
-  border-radius: 10px;
   background-color: var(--color-bg-base);
   background-image:
     radial-gradient(66% 52% at 50% 86%, var(--horizon-glow-core) 0%, var(--horizon-glow-mid) 38%, rgba(3, 31, 47, 0.28) 74%, transparent 100%),
@@ -179,7 +178,7 @@ body,
   align-items: center;
   justify-content: center;
   gap: 10px;
-  height: 56px;
+  height: clamp(44px, 6dvh, 60px); /* 56px on the 940px design height */
   width: 100%;
   border-radius: 4px;
   background: linear-gradient(180deg, rgba(21, 97, 109, 0.95) 0%, rgba(21, 97, 109, 0.72) 100%);
@@ -216,7 +215,7 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 58px;
+  height: clamp(44px, 6.2dvh, 62px); /* 58px on the 940px design height */
   padding: 0 14px;
   border-radius: 4px;
   background: var(--color-tile-fill);
@@ -249,38 +248,6 @@ body,
 
 .hologram-shell {
   filter: drop-shadow(0 0 12px var(--color-ok-glow));
-}
-
-.hologram-scanline {
-  position: relative;
-  overflow: hidden;
-}
-
-.hologram-scanline::after {
-  content: "";
-  position: absolute;
-  inset-inline: 12%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-ok-scan), transparent);
-  animation: scan-sweep 4.5s ease-in-out infinite;
-}
-
-@keyframes scan-sweep {
-  0%, 100% {
-    top: 10%;
-    opacity: 0.25;
-  }
-  50% {
-    top: 88%;
-    opacity: 0.85;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hologram-scanline::after {
-    animation: none;
-    opacity: 0;
-  }
 }
 
 /* Thin scrollbar for the few lists that can grow (notifications, guide results). */

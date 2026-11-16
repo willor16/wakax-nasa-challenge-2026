@@ -1,7 +1,7 @@
 {
   "mission": {
-    "mission_code": "ARES VII",
-    "mission_name": "Deep Space Transit & Orbital Habitat",
+    "mission_code": "DSM-01",
+    "mission_name": "Deep Space Transit",
     "current_stage": "MISSION",
     "launch_utc": "2026-10-01T08:00:00Z",
     "planned_return_utc": "2027-03-15T16:00:00Z",

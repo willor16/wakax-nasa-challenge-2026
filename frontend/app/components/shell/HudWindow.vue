@@ -7,11 +7,14 @@ withDefaults(defineProps<{
   icon?: string
   critical?: boolean
   flush?: boolean
+  /** Parameter key for the "?" help button next to the title. */
+  helpKey?: string
 }>(), {
   title: undefined,
   tagText: undefined,
   tagTone: 'reference',
   icon: undefined,
+  helpKey: undefined,
 })
 </script>
 
@@ -39,6 +42,7 @@ withDefaults(defineProps<{
             <Icon :name="`spacescan:${icon}`" class="w-[13px] h-[13px]" />
           </div>
           <h2 class="text-[13px] font-bold tracking-[0.02em] uppercase truncate">{{ title }}</h2>
+          <UiParamHelp v-if="helpKey" :metric-key="helpKey" />
         </div>
       </slot>
       <UiStatusPill v-if="tagText" :tone="tagTone === 'critical' ? 'critical' : 'reference'" :dot="tagTone === 'warn'">

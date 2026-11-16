@@ -1,6 +1,7 @@
 // Metric catalog (units, usual ranges, possible ranges) and the crew member's baselines.
 // Capture forms validate entries against these instead of hard-coded limits.
 import { z } from 'zod'
+import { nominalFor, type Sex } from '~/utils/admission'
 
 export interface CatalogItem {
   metric_key: string
@@ -14,6 +15,8 @@ export interface CatalogItem {
   critical_threshold: number | null
   plausible_min: number | null
   plausible_max: number | null
+  /** Female / male limits for metrics whose normal range differs by sex. */
+  by_sex?: Record<string, { nominal_min?: number | null, nominal_max?: number | null }> | null
 }
 export interface BaselineItem { metric_key: string, mean_val: number, std_dev: number, sample_count: number }
 
@@ -37,9 +40,12 @@ export function useCatalog() {
   /** Zod rule for one numeric entry: required, a number, and physically possible. */
   function numberRule(metricKey: string, label: string) {
     const item = catalog.value[metricKey]
+    const range = item?.plausible_min != null && item.plausible_max != null
+      ? `Non-admissible reading · admissible ${item.plausible_min}–${item.plausible_max} ${item.unit}`
+      : `${label}: not possible`
     let rule = z.number({ invalid_type_error: `${label}: enter a number`, required_error: `${label}: required` })
-    if (item?.plausible_min != null) rule = rule.min(item.plausible_min, `${label}: minimum ${item.plausible_min}`)
-    if (item?.plausible_max != null) rule = rule.max(item.plausible_max, `${label}: maximum ${item.plausible_max}`)
+    if (item?.plausible_min != null) rule = rule.min(item.plausible_min, range)
+    if (item?.plausible_max != null) rule = rule.max(item.plausible_max, range)
     return rule
   }
 
@@ -55,9 +61,12 @@ export function useCatalog() {
     return `Baseline: ${base.mean_val.toFixed(digits)} ${unit}`
   }
 
-  function usualRange(metricKey: string): string {
+  /** ``Normal 12–16 g/dL`` using the female or male range when the metric has one. */
+  function usualRange(metricKey: string, sex?: Sex): string {
     const item = catalog.value[metricKey]
-    return item ? `Normal ${item.nominal_min}–${item.nominal_max} ${item.unit}` : ''
+    if (!item) return ''
+    const [low, high] = nominalFor(item, sex)
+    return `Normal ${low}–${high} ${item.unit}`
   }
 
   return { catalog, baselines, ready, load, numberRule, baselineHint, usualRange }

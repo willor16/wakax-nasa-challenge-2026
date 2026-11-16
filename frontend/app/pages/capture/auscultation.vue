@@ -2,8 +2,9 @@
 // 10 · Data Capture · Auscultation Audio: 30-second heart and lung recordings.
 import VChart from 'vue-echarts'
 import { apiErrorMessage } from '~/composables/useApi'
-import { envelopeOption } from '~/utils/charts'
-import { RECORD_SECONDS } from '~/utils/audio'
+import { ENVELOPE_POINTS } from '~/composables/useAuscultationRecorder'
+import { captureTraceOption } from '~/utils/charts'
+import { RECORD_SECONDS, gzipWav } from '~/utils/audio'
 
 const { api } = useApi()
 const { cabin } = useMission()
@@ -47,7 +48,9 @@ interface Panel {
   sites: typeof CARDIAC | typeof PULMONARY
   site: Ref<string>
   recorder: ReturnType<typeof useAuscultationRecorder>
-  result: Ref<null | { rate_per_min: number | null, rhythm_label: string, signal_quality_pct: number, regularity_pct: number }>
+  result: Ref<null | { rate_per_min: number | null, rhythm_label: string, signal_quality_pct: number, regularity_pct: number
+    classification: null | { class_label_en: string, confidence_pct: number, needs_review: boolean }
+    payload_kb: number, wav_kb: number, compression_ratio: number, finding_id: number | null }>
   error: Ref<string | null>
 }
 function panel(organ: 'CARDIAC' | 'PULMONARY', sites: typeof CARDIAC | typeof PULMONARY): Panel {
@@ -77,7 +80,10 @@ async function save(p: Panel) {
   form.append('anatomical_site', p.site.value)
   form.append('cabin_noise_dba', String(noise.value))
   form.append('sha256_hex', take.sha256)
-  form.append('audio_file', new Blob([take.wav], { type: 'audio/wav' }), `${p.organ.toLowerCase()}-${p.site.value}.wav`)
+  // Lossless gzip for the transfer; the checksum above is of the WAV itself.
+  const packed = await gzipWav(take.wav)
+  form.append('content_encoding', packed.encoding)
+  form.append('audio_file', packed.body, `${p.organ.toLowerCase()}-${p.site.value}.wav${packed.encoding === 'gzip' ? '.gz' : ''}`)
   try {
     p.result.value = await api('/auscultation/samples', { method: 'POST', body: form })
     p.recorder.state.value = 'saved'
@@ -108,8 +114,9 @@ function progressLine(p: Panel): string {
     return `${name}: ${done.includes(site.id) ? `Saved (${RECORD_SECONDS}s)` : p.site.value === site.id ? 'Ready' : 'Queued'}`
   }).join(' · ')
 }
+// Monitor-style trace while recording: fills from the right with a pulsing head.
 const liveChart = (p: Panel) => (p.recorder.envelope.value.length > 4
-  ? envelopeOption(p.recorder.envelope.value, p.organ === 'CARDIAC' ? 'cardiac' : 'pulmonary') : null)
+  ? captureTraceOption(p.recorder.envelope.value, p.organ === 'CARDIAC' ? 'cardiac' : 'pulmonary', ENVELOPE_POINTS) : null)
 </script>
 
 <template>
@@ -121,7 +128,7 @@ v-for="p in panels" :key="p.organ" class="flex-1" flush
                       :title="p.organ === 'CARDIAC' ? 'Cardiac Audio Recording' : 'Pulmonary Audio Recording'"
                       :icon="p.organ === 'CARDIAC' ? 'heart' : 'stethoscope'"
                       :tag-text="p.organ === 'CARDIAC' ? 'HEART · 30S' : 'LUNGS · 30S'">
-        <div class="flex-1 flex flex-col px-[19px] pt-[16px] pb-[20px]">
+        <div class="flex-1 min-h-0 flex flex-col px-[19px] pt-[clamp(10px,1.7dvh,16px)] pb-[clamp(12px,2.1dvh,20px)]">
           <p class="label-caps">{{ p.organ === 'CARDIAC' ? 'Select cardiac valve placement' : 'Select bilateral lung zone' }}</p>
           <div class="grid grid-cols-4 gap-[9px] mt-[10px]" role="radiogroup" :aria-label="p.organ === 'CARDIAC' ? 'Valve placement' : 'Lung zone'">
             <button
@@ -131,18 +138,25 @@ v-for="site in p.sites" :key="site.id" type="button" role="radio" :aria-checked=
                     @click="pickSite(p, site.id)">{{ site.label }}</button>
           </div>
 
-          <div class="tile-hi h-[162px] shrink-0 mt-[16px] flex items-center px-[24px] gap-[26px]">
-            <UiHoloFigure :figure="p.organ === 'CARDIAC' ? 'heart' : 'lungs'" :size="108" :label="p.organ === 'CARDIAC' ? 'Heart' : 'Lungs'" />
+          <div class="tile-hi relative h-[clamp(140px,17.2dvh,180px)] shrink-0 mt-[clamp(10px,1.7dvh,16px)] flex items-center px-[clamp(14px,1.6vw,24px)] gap-[clamp(14px,1.7vw,26px)]">
+            <span class="absolute top-[7px] right-[7px]"><UiParamHelp metric-key="signal_quality" /></span>
+            <UiHoloFigure :figure="p.organ === 'CARDIAC' ? 'heart' : 'lungs'" size="clamp(80px, 11.5dvh, 120px)" :label="p.organ === 'CARDIAC' ? 'Heart' : 'Lungs'" />
             <div class="min-w-0 flex-1">
               <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok truncate">
                 {{ p.organ === 'CARDIAC' ? 'Digital stethoscope' : 'Pulmonary pickup' }} · {{ p.sites.find(s => s.id === p.site.value)?.pickup }}
               </p>
               <p class="text-[15px] font-bold mt-[10px]">
                 <template v-if="p.result.value">
-                  {{ p.organ === 'CARDIAC' ? 'Heart Rate' : 'Breathing Rate' }}:
-                  {{ p.result.value.rate_per_min ?? '—' }} {{ p.organ === 'CARDIAC' ? 'bpm' : 'rpm' }} · Signal {{ p.result.value.signal_quality_pct }}%
+                  {{ p.result.value.classification?.class_label_en ?? (p.organ === 'CARDIAC' ? 'Heart Rate' : 'Breathing Rate') }}
+                  <span v-if="p.result.value.classification" class="text-[12px] font-normal text-cabin-ice">({{ Math.round(p.result.value.classification.confidence_pct) }}% likely)</span>
+                  · {{ p.result.value.rate_per_min ?? '—' }} {{ p.organ === 'CARDIAC' ? 'bpm' : 'rpm' }}
                 </template>
                 <template v-else>{{ p.organ === 'CARDIAC' ? 'Place the chest piece and hold still' : 'Breathe slowly through the mouth' }}</template>
+              </p>
+              <p v-if="p.result.value" class="text-[11px] mt-[6px]" :class="p.result.value.finding_id ? 'text-cabin-text' : 'text-cabin-ice'">
+                Sent {{ p.result.value.payload_kb }} KB<template v-if="p.result.value.compression_ratio > 1"> ({{ Math.round((1 - 1 / p.result.value.compression_ratio) * 100) }}% smaller)</template>
+                · integrity verified · Signal {{ p.result.value.signal_quality_pct }}%
+                <template v-if="p.result.value.finding_id"> · Sent for physician listening review</template>
               </p>
               <p class="text-[12px] mt-[8px]" :class="tooLoud ? 'text-cabin-text' : 'text-cabin-ice'">
                 Cabin Noise: {{ noise === null ? 'unknown' : `${Math.round(noise)} dBA` }} ({{ tooLoud ? 'above' : 'below' }} {{ noiseLimit }} dBA acoustic limit)
@@ -159,7 +173,7 @@ class="flex-1" thick :pct="p.recorder.inputDb.value === null ? 0 : Math.max(0, 1
             </div>
           </div>
 
-          <div class="tile relative flex-1 mt-[16px] min-h-0">
+          <div class="tile relative flex-1 mt-[clamp(10px,1.7dvh,16px)] min-h-[110px]">
             <p
 class="absolute top-[14px] left-[18px] mono text-[10.5px] z-10"
                :class="p.recorder.state.value === 'recording' ? '' : p.recorder.state.value === 'captured' || p.recorder.state.value === 'saved' ? 'text-cabin-ok' : 'text-cabin-ice'">
@@ -179,7 +193,7 @@ v-if="liveChart(p)" :option="liveChart(p)!" theme="spacescan-hud" autoresize cla
             </div>
           </div>
 
-          <div class="tile h-[74px] shrink-0 mt-[14px] px-[18px] flex flex-col justify-center">
+          <div class="tile h-[clamp(58px,7.9dvh,80px)] shrink-0 mt-[clamp(8px,1.5dvh,14px)] px-[18px] flex flex-col justify-center">
             <p class="label-caps">{{ p.organ === 'CARDIAC' ? 'Cardiac' : 'Pulmonary' }} recording progress</p>
             <p class="text-[11.5px] font-semibold mt-[9px] truncate">{{ progressLine(p) }}</p>
           </div>

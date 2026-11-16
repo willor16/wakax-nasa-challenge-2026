@@ -22,7 +22,7 @@ async function signOut() {
 </script>
 
 <template>
-  <nav class="absolute bottom-0 left-0 right-0 h-[74px]" :aria-label="t('nav.cockpitLabel')">
+  <nav class="relative shrink-0 w-full h-[72px]" :aria-label="t('nav.cockpitLabel')">
     <div class="absolute left-[24px] bottom-[12px] w-[211px] h-[46px] tile-hi flex items-center px-[20px] gap-[14px]">
       <Icon name="spacescan:profile" class="w-[16px] h-[16px] shrink-0" />
       <span class="flex-1 text-center text-[10.5px] font-bold tracking-[0.03em] truncate">
@@ -30,8 +30,9 @@ async function signOut() {
       </span>
     </div>
 
-    <div class="dock-trapezoid absolute left-[232px] right-[232px] bottom-0 h-[74px]" />
-    <div class="absolute left-[256px] right-[256px] bottom-0 h-[74px] flex items-end justify-between">
+    <!-- The trapezoid keeps the design width on large displays and narrows on small ones. -->
+    <div class="dock-trapezoid absolute left-1/2 -translate-x-1/2 bottom-0 h-[72px] w-[min(1104px,calc(100%-464px))]" />
+    <div class="absolute left-1/2 -translate-x-1/2 bottom-0 h-[72px] w-[min(1056px,calc(100%-512px))] flex items-end justify-between gap-[6px]">
       <NuxtLink
         v-for="slot in slots"
         :key="slot.to"
@@ -39,8 +40,8 @@ async function signOut() {
         class="focus-ring relative rounded-[4px] flex flex-col items-center justify-center border-[1.3px]"
         :class="[
           slot.main
-            ? 'w-[172px] h-[76px] -translate-y-[6px] gap-[6px] text-[12.5px] font-bold'
-            : 'w-[124px] h-[62px] mb-[6px] gap-[7px] text-[10.5px]',
+            ? 'flex-[1.39] max-w-[172px] min-w-0 h-[76px] -translate-y-[6px] gap-[6px] text-[12.5px] font-bold'
+            : 'flex-1 max-w-[124px] min-w-0 h-[62px] mb-[6px] gap-[7px] text-[10.5px] whitespace-nowrap',
           isActive(slot.match)
             ? 'menu-item-active font-bold text-cabin-text'
             : slot.main

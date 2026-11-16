@@ -9,6 +9,7 @@ interface Item {
   id: number
   kind: 'ADVISORY' | 'SCHEDULED' | 'MISSION_CONTROL'
   severity?: 'INFO' | 'WARNING' | 'CRITICAL'
+  category?: string
   title_en: string
   message_en?: string
   detail_en?: string
@@ -45,10 +46,10 @@ const selectedId = ref<string | null>(null)
 const actionError = ref<string | null>(null)
 const busy = ref(false)
 
-const { data, loading, error, refresh } = useResource(() => api<Alerts>('/alerts', { query: { view: 'all' } }), 20_000)
+const { data, loading, error, refresh } = useResource(() => api<Alerts>('/alerts', { query: { view: 'all' } }), 20_000, ['alerts'])
 const reviews = useResource(() => (isPhysician.value
   ? api<{ items: Finding[] }>('/diagnosis', { query: { status: 'PENDING_REVIEW' } })
-  : Promise.resolve({ items: [] as Finding[] })), 30_000)
+  : Promise.resolve({ items: [] as Finding[] })), 30_000, ['alerts'])
 watch(data, (value) => {
   if (value) unread.value = value.counts.advisories
 })
@@ -174,7 +175,7 @@ function stepKicker(step: CareStep, index: number): string {
 
     <div v-else-if="view === 'reviews'" class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-class="w-[684px]" title="Assisted Findings Awaiting Review" icon="bell"
+class="w-[45.2%] shrink-0" title="Assisted Findings Awaiting Review" icon="bell"
                       :tag-text="`${reviews.data.value?.items.length ?? 0} PENDING`" flush>
         <UiStateNote
 v-if="!reviews.data.value?.items.length" :loading="reviews.loading.value"
@@ -186,6 +187,7 @@ v-for="finding in reviews.data.value.items" :key="finding.id" type="button"
                   :class="selectedFinding?.id === finding.id ? 'border-cabin-text/70 bg-[var(--color-card-head)]' : 'border-cabin-line bg-cabin-tile'"
                   @click="selectedFinding = finding">
             <span class="absolute left-0 top-[16px] bottom-[16px] w-[3px] rounded-full bg-cabin-navy-edge" />
+            <UiAiWatermark position="top-right" />
             <p class="text-[10px] font-bold uppercase tracking-[0.04em]">{{ finding.crew_name }} · {{ formatAgo(finding.created_at_utc, now) }}</p>
             <p class="text-[15px] font-bold mt-[10px]">{{ finding.pattern_label_en }}</p>
             <p class="text-[12px] text-cabin-ice mt-[8px]">{{ finding.top_metrics.map(m => `${m.display_name_en ?? m.label} ${m.value} ${m.unit}`).join(' · ') }}</p>
@@ -195,7 +197,8 @@ v-for="finding in reviews.data.value.items" :key="finding.id" type="button"
       <ShellHudWindow class="flex-1" title="Physician Review" icon="shield" tag-text="SUGGESTION ONLY" flush>
         <UiStateNote v-if="!selectedFinding" empty="Select a finding to review it." />
         <div v-else class="flex-1 flex flex-col px-[23px] pt-[22px] pb-[20px]">
-          <div class="tile-hi px-[20px] py-[16px]">
+          <div class="tile-hi relative px-[20px] py-[16px]">
+            <UiAiWatermark position="top-right" />
             <p class="text-[10px] font-bold uppercase text-cabin-ok">{{ selectedFinding.guidance_source === 'assistant' ? 'Onboard assistant summary' : 'Care-step summary' }}</p>
             <p class="text-[13px] mt-[10px] leading-[1.7]">{{ selectedFinding.llm_summary_en }}</p>
           </div>
@@ -221,7 +224,7 @@ id="review-note" v-model="reviewNote" rows="2" maxlength="500"
     </div>
 
     <div v-else class="flex-1 min-h-0 flex gap-[18px]">
-      <ShellHudWindow class="w-[684px]" title="Recent Notifications" icon="bell" :tag-text="`${items.length} ITEMS`" flush>
+      <ShellHudWindow class="w-[45.2%] shrink-0" title="Recent Notifications" icon="bell" :tag-text="`${items.length} ITEMS`" flush>
         <UiStateNote v-if="!items.length" empty="Nothing here right now. New advisories and checks appear as they arrive." />
         <div v-else class="flex-1 min-h-0 hud-scroll flex flex-col gap-[18px] p-[23px]">
           <div
@@ -231,6 +234,8 @@ v-for="item in items" :key="keyOf(item)"
                  ? (item.severity === 'CRITICAL' ? 'border-cabin-crit/90 bg-[var(--color-card-head)]' : 'border-cabin-text/70 bg-[var(--color-card-head)]')
                  : 'border-cabin-line bg-cabin-tile'">
             <span class="absolute left-0 top-[18px] bottom-[18px] w-[3px] rounded-full" :class="accent(item)" />
+            <!-- Advisories from a physician-reviewed pattern finding started from assisted analysis. -->
+            <UiAiWatermark v-if="item.category === 'REVIEWED_PATTERN'" position="top-right" />
             <p class="text-[10px] font-bold uppercase tracking-[0.04em]" :class="item.kind === 'MISSION_CONTROL' ? 'text-cabin-ok' : ''">{{ kicker(item) }}</p>
             <p class="text-[15.5px] font-bold mt-[12px]">{{ item.title_en }}</p>
             <p class="text-[12px] text-cabin-ice mt-[10px]">{{ item.message_en ?? item.detail_en }}</p>
@@ -250,19 +255,19 @@ v-else-if="item.kind === 'SCHEDULED'" to="/capture/physical"
       </ShellHudWindow>
 
       <ShellHudWindow class="flex-1" title="Recommended Care" icon="shield" tag-text="PREVENTIVE PLAN" flush>
-        <div class="flex-1 min-h-0 flex flex-col px-[23px] pt-[22px] pb-[20px]">
-          <div class="tile-hi h-[98px] shrink-0 px-[20px] flex flex-col justify-center">
+        <div class="flex-1 min-h-0 flex flex-col px-[23px] pt-[clamp(12px,2.3dvh,22px)] pb-[clamp(12px,2.1dvh,20px)]">
+          <div class="tile-hi h-[clamp(80px,10.4dvh,110px)] shrink-0 px-[20px] flex flex-col justify-center">
             <p class="text-[10px] font-bold uppercase tracking-[0.04em] text-cabin-ok">Summary · {{ data.summary.crew_name }}</p>
             <p class="text-[13px] mt-[10px]">{{ data.summary.text_en }}</p>
             <p class="text-[12.5px] text-cabin-ice mt-[6px]">
               {{ selected?.care_steps?.length ? 'Follow these three preventive steps before tonight\'s rest period:' : 'Select an advisory to see its care steps.' }}
             </p>
           </div>
-          <div class="flex-1 min-h-0 flex flex-col justify-around">
+          <div class="flex-1 min-h-0 flex flex-col justify-around gap-[8px] py-[8px]">
             <template v-if="selected?.care_steps?.length">
               <button
 v-for="(step, index) in selected.care_steps" :key="index" type="button"
-                      class="focus-ring tile relative text-left h-[118px] pl-[24px] pr-[20px] flex items-center gap-[20px]"
+                      class="focus-ring tile relative text-left flex-1 min-h-0 max-h-[130px] overflow-hidden pl-[24px] pr-[20px] flex items-center gap-[20px]"
                       :aria-pressed="Boolean(step.done_at_utc)" @click="toggleStep(index)">
                 <span class="absolute left-0 top-[12px] bottom-[12px] w-[3px] rounded-full" :class="step.done_at_utc ? 'bg-cabin-ok' : 'bg-cabin-navy-edge'" />
                 <span
@@ -273,15 +278,15 @@ class="w-[36px] h-[36px] shrink-0 rounded-[4px] flex items-center justify-center
                 </span>
                 <span>
                   <span class="block text-[10.5px] font-bold uppercase tracking-[0.03em]" :class="step.done_at_utc ? 'text-cabin-ok' : ''">{{ stepKicker(step, index) }}</span>
-                  <span class="block text-[16px] font-bold mt-[8px]">{{ step.title_en }}</span>
-                  <span class="block text-[12px] text-cabin-ice mt-[8px]">{{ step.detail_en }}</span>
+                  <span class="block text-[16px] font-bold mt-[clamp(4px,0.85dvh,8px)]">{{ step.title_en }}</span>
+                  <span class="block text-[12px] text-cabin-ice mt-[clamp(4px,0.85dvh,8px)]">{{ step.detail_en }}</span>
                 </span>
               </button>
             </template>
             <UiStateNote v-else empty="No open advisory. Scheduled checks are listed on the left." />
           </div>
           <p v-if="actionError" class="text-[11px] mb-[8px]" role="alert">{{ actionError }}</p>
-          <div class="tile h-[96px] shrink-0 px-[24px] flex items-center gap-[20px]">
+          <div class="tile h-[clamp(72px,10.2dvh,104px)] shrink-0 px-[24px] flex items-center gap-[20px]">
             <button type="button" class="hud-button relative !h-[52px]" :disabled="busy || selected?.kind !== 'ADVISORY'" @click="acknowledge">
               <Icon name="spacescan:shield" class="w-[17px] h-[17px] absolute left-[20px]" />Acknowledge Advisory
             </button>

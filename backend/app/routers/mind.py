@@ -97,6 +97,7 @@ def get_psych_profile(
     claims: Crew,
     days: Annotated[int, Query(ge=1, le=60)] = 14,
     crew_id: Annotated[str | None, Query(max_length=32)] = None,
+    period: Annotated[Literal["7d", "14d", "30d", "all"] | None, Query()] = None,
 ) -> dict:
     """Read-only psychological and reaction results for screen 05.
 
@@ -107,4 +108,5 @@ def get_psych_profile(
     with open_connection() as conn:
         if conn.execute("SELECT 1 FROM crew_members WHERE id = ?", (target,)).fetchone() is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
-        return psych_profile(conn, target, days=days)
+        window = days if period is None else {"7d": 7, "14d": 14, "30d": 30, "all": None}[period]
+        return psych_profile(conn, target, days=window)

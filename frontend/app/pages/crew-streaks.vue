@@ -37,13 +37,16 @@ interface Streaks {
 }
 
 const { api } = useApi()
-const { data, loading, error, refresh } = useResource(() => api<Streaks>('/crew-streaks'), 15_000)
+const { data, loading, error, refresh } = useResource(() => api<Streaks>('/crew-streaks'), 15_000, ['streaks', 'vitals', 'psych', 'sleep'])
 
 usePageHeader(() => ({
   title: 'Crew Streaks',
   status: data.value ? { text: `Team streak · ${data.value.team_streak_days} days`, tone: 'ok' } : null,
 }))
 
+const HABIT_HELP: Record<string, string> = {
+  hydration: 'hydration_ml', nutrition: 'calories_kcal', exercise: 'exercise_min', sleep: 'sleep_duration',
+}
 const attention = (member: StreakCrew) => !member.today_compliant && member.habits_done_today < 3
 function habitTone(pct: number): Tone {
   return pct >= 80 ? 'ok' : pct >= 60 ? 'watch' : 'critical'
@@ -76,7 +79,7 @@ const windowText = computed(() => {
 <template>
   <UiStateNote v-if="!data" :loading="loading" :error="error" empty="No streak data yet." @retry="refresh()" />
   <div v-else class="flex-1 min-h-0 flex flex-col gap-[14px]">
-    <div class="flex gap-[19px] h-[592px] shrink-0">
+    <div class="flex gap-[19px] flex-1 min-h-0">
       <ShellHudWindow v-for="member in data.crew" :key="member.id" class="flex-1" flush :critical="attention(member)">
         <template #header>
           <div class="leading-tight min-w-0">
@@ -85,8 +88,9 @@ const windowText = computed(() => {
           </div>
           <UiStatusPill :tone="attention(member) ? 'critical' : 'reference'">{{ tag(member) }}</UiStatusPill>
         </template>
-        <div class="flex-1 flex flex-col px-[16px] pt-[16px] pb-[14px]">
-          <div class="tile h-[168px] flex items-center justify-center">
+        <div class="flex-1 min-h-0 flex flex-col px-[16px] pt-[clamp(10px,1.7dvh,16px)] pb-[14px]">
+          <div class="tile relative flex-1 min-h-[110px] max-h-[200px] flex items-center justify-center">
+            <span class="absolute top-[8px] right-[8px]"><UiParamHelp metric-key="habit_streak" /></span>
             <UiArcGauge
               :fraction="member.active_streak_days / Math.max(member.best_streak_days, member.active_streak_days, 1)"
               :tone="attention(member) ? 'critical' : 'ok'"
@@ -97,12 +101,12 @@ const windowText = computed(() => {
               :value-size="19"
             />
           </div>
-          <p class="label-caps mt-[22px]">Last 7 days ({{ windowText }})</p>
+          <p class="label-caps mt-[clamp(10px,2.3dvh,22px)]">Last 7 days ({{ windowText }})</p>
           <div class="flex gap-[5px] mt-[10px]">
             <div
               v-for="(day, index) in member.last_7_days"
               :key="day.day_label"
-              class="flex-1 h-[46px] rounded-[4px] border-[1.2px] flex flex-col items-center justify-center gap-[3px]"
+              class="flex-1 h-[clamp(38px,4.9dvh,52px)] rounded-[4px] border-[1.2px] flex flex-col items-center justify-center gap-[3px]"
               :class="dayClass(day, index === member.last_7_days.length - 1)"
               :title="`${day.day_label}: ${day.habits_done} of 4 habits`"
             >
@@ -113,11 +117,11 @@ const windowText = computed(() => {
               <span v-else class="mono text-[9px] font-bold">{{ day.habits_done }}/4</span>
             </div>
           </div>
-          <p class="label-caps mt-[20px]">{{ data.today_label }} habits</p>
-          <div class="flex flex-col gap-[10px] mt-[10px]">
-            <div v-for="habit in member.habits" :key="habit.key" class="tile h-[44px] px-[14px] flex flex-col justify-center">
+          <p class="label-caps mt-[clamp(10px,2.1dvh,20px)]">{{ data.today_label }} habits</p>
+          <div class="flex flex-col gap-[clamp(6px,1dvh,10px)] mt-[10px]">
+            <div v-for="habit in member.habits" :key="habit.key" class="tile h-[clamp(40px,4.7dvh,52px)] px-[14px] flex flex-col justify-center">
               <div class="flex items-center justify-between">
-                <span class="text-[11.5px] font-bold">{{ habit.label }}</span>
+                <span class="text-[11.5px] font-bold flex items-center gap-[6px]">{{ habit.label }}<UiParamHelp v-if="HABIT_HELP[habit.key]" :metric-key="HABIT_HELP[habit.key]!" /></span>
                 <span class="mono text-[10.5px]" :class="habit.pct >= 80 ? 'text-cabin-ok' : 'text-cabin-text'">
                   {{ habit.pct }}%
                 </span>
@@ -130,36 +134,37 @@ const windowText = computed(() => {
     </div>
 
     <ShellHudWindow
-      class="flex-1"
+      class="shrink-0 h-[clamp(128px,19dvh,200px)]"
       title="Collective Streak & Daily Habits · Habitat A"
       icon="flame"
+      help-key="habit_streak"
       :tag-text="data.team_completed_pct === null ? undefined : `${data.team_completed_pct}% COMPLETED`"
       flush
     >
-      <div class="flex-1 flex items-center px-[50px] gap-[58px]">
+      <div class="flex-1 min-h-0 flex items-center px-[clamp(20px,3vw,50px)] gap-[clamp(20px,3.6vw,58px)]">
         <UiArcGauge
 :fraction="Math.min(1, data.team_streak_days / 30)" label="Team Streak"
                     :value="String(data.team_streak_days)" caption="Days active" :size="100" />
         <div
 v-for="item in [
-          { label: 'Crew Hydration', pct: data.team.hydration_pct,
+          { label: 'Crew Hydration', help: 'hydration_ml', pct: data.team.hydration_pct,
             note: `${data.team.hydration_on_pace} of ${data.team.crew_count} crew on pace` },
-          { label: 'Daily Nutrition', pct: data.team.nutrition_pct,
+          { label: 'Daily Nutrition', help: 'calories_kcal', pct: data.team.nutrition_pct,
             note: data.team.nutrition_met === data.team.crew_count
               ? `All ${data.team.crew_count} meal plans completed`
               : `${data.team.nutrition_met} of ${data.team.crew_count} meal plans completed` },
-          { label: 'Scheduled Exercise', pct: data.team.exercise_pct,
+          { label: 'Scheduled Exercise', help: 'exercise_min', pct: data.team.exercise_pct,
             note: `${data.team.exercise_met} complete`
               + (data.team.post_eva_rest ? ` · ${data.team.post_eva_rest} post-EVA rest` : '') },
-        ]" :key="item.label" class="w-[248px]">
+        ]" :key="item.label" class="flex-1 min-w-0 max-w-[320px]">
           <div class="flex items-baseline justify-between">
-            <span class="text-[12.5px] font-bold">{{ item.label }}</span>
+            <span class="text-[12.5px] font-bold flex items-center gap-[6px]">{{ item.label }}<UiParamHelp :metric-key="item.help" /></span>
             <span class="text-[15px] font-bold">{{ item.pct === null ? '—' : `${item.pct}%` }}</span>
           </div>
           <UiProgressBar :pct="item.pct ?? 0" :tone="(item.pct ?? 0) >= 80 ? 'ok' : 'watch'" thick class="mt-[10px]" />
           <p class="text-[10.5px] text-cabin-ice mt-[12px]">{{ item.note }}</p>
         </div>
-        <div class="tile-hi flex-1 h-[82px] px-[20px] flex flex-col justify-center">
+        <div class="tile-hi flex-1 min-w-0 h-[82px] px-[20px] flex flex-col justify-center">
           <p class="text-[9.5px] font-bold tracking-[0.04em] uppercase text-cabin-ok">30-day mission consistency</p>
           <p class="text-[12.5px] font-semibold mt-[10px]">
             <template v-if="data.team.consistency_30d_pct !== null">

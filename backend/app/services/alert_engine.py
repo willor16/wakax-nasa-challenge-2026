@@ -388,7 +388,7 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
             c.nominal_min, c.nominal_max, c.warning_min, c.warning_max,
             c.critical_min, c.critical_threshold,
             b.mean_val, b.std_dev, b.sample_count,
-            cm.role
+            cm.role, cm.sex
         FROM measurements AS m
         JOIN metric_catalog AS c ON c.metric_key = m.metric_key
         JOIN crew_members AS cm ON cm.id = m.crew_id
@@ -405,7 +405,10 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
         return _evaluate_habit(conn, row, quiet)
 
     value = float(row["value_num"])
-    limits = MetricThresholds(
+    # Sex-specific limits (haemoglobin, muscle mass) come from the reference ranges; the
+    # catalog columns hold the shared range and remain the fallback.
+    limits = reference_ranges.thresholds_for_crew(row["metric_key"], row["sex"])
+    limits = limits or MetricThresholds(
         nominal_min=row["nominal_min"],
         nominal_max=row["nominal_max"],
         warning_min=row["warning_min"],

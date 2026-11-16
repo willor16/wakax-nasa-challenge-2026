@@ -67,6 +67,9 @@ def _article(row: Any) -> dict:
         "steps": normalize_steps(row["steps_json"]),
         "escalation_en": row["escalation_en"],
         "source_en": row["source_en"],
+        # Protocols promoted from a physician-reviewed finding started from the onboard
+        # pattern scan, so the screen marks them as produced with assisted analysis.
+        "assisted": row["source_diagnosis_id"] is not None,
     }
 
 

@@ -82,7 +82,7 @@ def test_load_is_idempotent_and_searchable(temp_db_path: Path) -> None:
     seed_database(db_path=temp_db_path, schema_path=SCHEMA_PATH, snapshot_path=SEED_SNAPSHOT_PATH)
     with open_connection(temp_db_path) as conn:
         # seed.py already loads the guide articles and the kit.
-        assert conn.execute("SELECT COUNT(*) FROM wiki_articles").fetchone()[0] == 9
+        assert conn.execute("SELECT COUNT(*) FROM wiki_articles").fetchone()[0] == 10
         assert load_wiki_articles(conn) == 0
         assert load_medical_kit(conn) == 0
         source = conn.execute(

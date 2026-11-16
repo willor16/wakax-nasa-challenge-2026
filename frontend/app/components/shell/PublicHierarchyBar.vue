@@ -10,8 +10,8 @@ const tabs = [
 </script>
 
 <template>
-  <nav class="absolute bottom-0 left-0 right-0 h-[74px] flex justify-center" :aria-label="t('nav.publicLabel')">
-    <div class="dock-trapezoid w-[690px] h-full flex items-end justify-center gap-[24px] px-[52px] pb-[6px]">
+  <nav class="relative shrink-0 w-full h-[72px] flex justify-center" :aria-label="t('nav.publicLabel')">
+    <div class="dock-trapezoid w-[690px] max-w-full h-full flex items-end justify-center gap-[24px] px-[52px] pb-[6px]">
       <NuxtLink
         v-for="tab in tabs"
         :key="tab.to"
