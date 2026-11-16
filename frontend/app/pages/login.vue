@@ -8,6 +8,7 @@ interface CrewProfile {
   code: string
   full_name: string
   title_en: string
+  sex: 'F' | 'M' | null
   status: string
   is_locked: boolean
 }
@@ -68,20 +69,20 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col items-center">
-    <h1 class="text-[21px] font-bold mt-[14px]">Select Crew Profile</h1>
+  <div class="flex-1 min-h-0 flex flex-col items-center justify-center">
+    <h1 class="text-[21px] font-bold">Select Crew Profile</h1>
 
     <UiStateNote
 v-if="loading || error || !profiles?.length" :loading="loading" :error="error"
-                 empty="No crew profiles are set up yet." class="!flex-none h-[257px] mt-[20px]" @retry="refresh()" />
-    <div v-else class="mt-[20px] flex gap-[21px]" role="radiogroup" aria-label="Crew profile">
+                 empty="No crew profiles are set up yet." class="!flex-none h-[clamp(210px,27.3dvh,300px)] mt-[clamp(10px,2.1dvh,20px)]" @retry="refresh()" />
+    <div v-else class="mt-[clamp(10px,2.1dvh,20px)] flex gap-[21px]" role="radiogroup" aria-label="Crew profile">
       <button
         v-for="profile in profiles"
         :key="profile.id"
         type="button"
         role="radio"
         :aria-checked="profile.id === selectedId"
-        class="focus-ring relative w-[249px] h-[257px] rounded-[5px] flex flex-col items-center cursor-pointer border-[1.4px]"
+        class="focus-ring relative w-[clamp(210px,16.5vw,300px)] h-[clamp(210px,27.3dvh,300px)] rounded-[5px] flex flex-col items-center cursor-pointer border-[1.4px]"
         :class="profile.id === selectedId
           ? 'bg-[var(--color-card-head)] border-cabin-text/85'
           : 'bg-[var(--color-card-fill)] border-cabin-line hover:border-cabin-edge'"
@@ -95,14 +96,14 @@ v-if="loading || error || !profiles?.length" :loading="loading" :error="error"
           {{ profile.is_locked ? 'LOCKED' : profile.id === selectedId ? 'SELECTED' : profile.status.toUpperCase() }}
         </UiStatusPill>
         <UiHoloFigure
-figure="body" :tone="crewTone(profile.status)" :size="104" class="mt-[66px]"
+figure="body" :sex="profile.sex" :tone="crewTone(profile.status)" size="clamp(80px, 11dvh, 124px)" class="mt-[clamp(44px,7dvh,72px)]"
                       :label="`${profile.full_name}: ${profile.status}`" />
-        <span class="mt-[20px] text-[15px] font-bold">{{ profile.full_name }}</span>
+        <span class="mt-[clamp(14px,2.1dvh,22px)] text-[15px] font-bold">{{ profile.full_name }}</span>
         <span class="mt-[5px] text-[11.5px] text-cabin-ice">{{ profile.title_en }}</span>
       </button>
     </div>
 
-    <ShellHudWindow class="w-[500px] h-[232px] mt-[23px]" flush>
+    <ShellHudWindow class="w-[500px] max-w-full h-[clamp(206px,24.7dvh,240px)] shrink-0 mt-[clamp(12px,2.4dvh,23px)]" flush>
       <template #header>
         <div class="flex items-center gap-[10px] min-w-0">
           <div class="w-[22px] h-[22px] rounded-[4px] bg-cabin-tile border border-cabin-edge/70 flex items-center justify-center">
@@ -115,7 +116,7 @@ figure="body" :tone="crewTone(profile.status)" :size="104" class="mt-[66px]"
         <UiStatusPill>4-DIGIT PIN</UiStatusPill>
       </template>
       <form class="flex-1 flex flex-col items-center" @submit.prevent="signIn">
-        <label class="relative mt-[26px] flex gap-[18px] cursor-text">
+        <label class="relative mt-[clamp(14px,2.8dvh,26px)] flex gap-[18px] cursor-text">
           <span class="sr-only">4-digit PIN for {{ selected?.full_name }}</span>
           <input
             ref="pinInput"
@@ -139,7 +140,7 @@ figure="body" :tone="crewTone(profile.status)" :size="104" class="mt-[66px]"
           </span>
         </label>
         <button
-type="submit" class="hud-button !w-[416px] !h-[52px] mt-[28px] relative"
+type="submit" class="hud-button !w-[416px] !h-[52px] mt-[clamp(14px,3dvh,28px)] relative"
                 :disabled="!selected || selected.is_locked || pin.length !== 4 || busy">
           <Icon name="spacescan:lock" class="w-[15px] h-[15px] absolute left-[20px]" />
           {{ busy ? 'Signing In…' : 'Sign In' }}
@@ -150,12 +151,12 @@ type="submit" class="hud-button !w-[416px] !h-[52px] mt-[28px] relative"
       </form>
     </ShellHudWindow>
 
-    <div class="w-[784px] mt-[26px] flex items-center gap-[56px]">
+    <div class="w-[784px] max-w-full mt-[clamp(12px,2.8dvh,26px)] flex items-center gap-[56px]">
       <span class="flex-1 h-px bg-cabin-text/20" />
       <span class="label-caps">No sign-in required</span>
       <span class="flex-1 h-px bg-cabin-text/20" />
     </div>
-    <div class="w-[784px] mt-[14px] flex gap-[27px]">
+    <div class="w-[784px] max-w-full mt-[clamp(8px,1.5dvh,14px)] flex gap-[27px]">
       <NuxtLink to="/crew-overview" class="hud-button !h-[54px] relative">
         <Icon name="spacescan:vitruvian" class="w-[17px] h-[17px] absolute left-[18px]" />
         Open Crew Overview

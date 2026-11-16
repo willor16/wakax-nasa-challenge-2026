@@ -21,6 +21,16 @@ def parse_iso(text: str) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+# Time windows offered by every trend chart (24H · 7D · 14D · 30D · ALL).
+PERIOD_HOURS: dict[str, int | None] = {"24h": 24, "7d": 168, "14d": 336, "30d": 720, "all": None}
+
+
+def period_since(anchor: datetime, period: str) -> str | None:
+    """Start (ISO) of a trend window ending at ``anchor``; None for the whole mission."""
+    hours = PERIOD_HOURS[period]
+    return None if hours is None else to_iso(anchor - timedelta(hours=hours))
+
+
 def mission_row(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM mission WHERE id = 1").fetchone()
 

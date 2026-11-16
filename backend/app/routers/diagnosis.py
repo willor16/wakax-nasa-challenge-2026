@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.auth_utils import get_current_crew
 from app.db import open_connection
+from app.services import change_feed
 from app.services.diagnosis import (
     ReviewError,
     list_diagnoses,
@@ -92,3 +93,4 @@ def run_anomaly_scan_tick() -> None:
         conn.execute("PRAGMA busy_timeout = 5000;")
         scan_all(conn)
         conn.commit()
+    change_feed.publish("alerts")

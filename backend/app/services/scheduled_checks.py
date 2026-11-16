@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.db import open_connection
+from app.services import change_feed
 from app.services.alert_engine import load_quiet_hours
 from app.services.alert_rules import QuietHours, is_quiet_hours, parse_utc
 
@@ -150,3 +151,4 @@ def run_scheduled_checks_tick() -> None:
     with open_connection() as conn:
         refresh_scheduled_checks(conn)
         conn.commit()
+    change_feed.publish("alerts")

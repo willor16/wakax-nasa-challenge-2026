@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 
 // Build output must not carry paths from the build machine (folder names, home directory).
+// The root is matched across OS path separators and encoded URIs alike.
 const projectRoot = fileURLToPath(new URL('.', import.meta.url)).replace(/[/\\]+$/, '')
 const localRoots = Array.from(new Set([
   projectRoot,
@@ -35,6 +36,13 @@ export default defineNuxtConfig({
   future: {
     compatibilityVersion: 4,
   },
+  app: {
+    head: {
+      // The interface is English only: declare it, and stop browsers from auto-translating it.
+      htmlAttrs: { lang: 'en', translate: 'no' },
+      meta: [{ name: 'google', content: 'notranslate' }],
+    },
+  },
   css: ['~/assets/css/tokens.css'],
   modules: [
     '@nuxt/eslint',
@@ -46,8 +54,22 @@ export default defineNuxtConfig({
   vite: {
     plugins: [tailwindcss(), stripLocalPaths],
     server: {
+      // The browser always calls relative /api/... URLs, so any device on the cabin network
+      // (http://<LAN-IP>:3000) reaches the onboard server through this proxy. Live streams
+      // are passed through uncompressed and unbuffered.
       proxy: {
-        '/api': 'http://127.0.0.1:8080',
+        '/api': {
+          target: process.env.SPACESCAN_API_TARGET ?? 'http://127.0.0.1:8080',
+          changeOrigin: true,
+          configure(proxy) {
+            proxy.on('proxyRes', (response, request) => {
+              if (!request.url?.startsWith('/api/v1/stream/')) return
+              response.headers['x-accel-buffering'] = 'no'
+              response.headers['cache-control'] = 'no-cache, no-transform'
+              delete response.headers['content-encoding']
+            })
+          },
+        },
       },
     },
   },

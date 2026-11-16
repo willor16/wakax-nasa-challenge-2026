@@ -38,6 +38,12 @@ RR_REFRACTORY_SEC = 0.25
 SINUS_RATE = (40.0, 100.0)  # trained crew rest at 40-60 bpm, adults at 60-100 bpm
 
 
+
+SEX_REFERENCE_TEXT = {
+    "F": "Female ranges",
+    "M": "Male ranges",
+}
+
 def analyse_ecg(samples: list[float], sample_rate_hz: float) -> dict[str, Any]:
     """Heart rate and beat-to-beat regularity from the R peaks of a Lead II strip."""
     if len(samples) < sample_rate_hz or not sample_rate_hz:
@@ -103,6 +109,8 @@ def _biometrics(conn: sqlite3.Connection, crew: sqlite3.Row) -> list[dict[str, A
         cards.append(metric_view(conn, crew_id, key, with_stages=True))
     low, high = personal_targets(dict(crew), weight).muscle_mass_kg
     cards[3]["reference_low"], cards[3]["reference_high"] = low, high
+    # Skeletal muscle index: muscle mass against height, judged against the sex limit.
+    cards[3]["smi"] = reference_ranges.smi(cards[3]["value"], height, crew["sex"])
     return cards
 
 
@@ -299,6 +307,7 @@ def build_crew_profile(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any]
             "sex": crew["sex"],
             "blood_type": crew["blood_type"],
         },
+        "reference_profile_en": SEX_REFERENCE_TEXT.get(crew["sex"] or "", "Shared adult ranges"),
         "mission_stage": current_stage(conn),
         "mission_day": mission_day(conn),
         "habits_day_label": day_label(mission_day(conn, parse_iso(f"{day}T00:00:00Z"))),

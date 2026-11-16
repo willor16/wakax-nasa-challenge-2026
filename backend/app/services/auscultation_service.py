@@ -12,15 +12,16 @@ import hashlib
 import json
 import sqlite3
 import wave
+import zlib
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from app.config import AUDIO_STORAGE_DIR
-from app.services import acoustics, reference_ranges
+from app.services import acoustic_review, acoustics, reference_ranges
 from app.services.clinical_view import crew_row, latest, metric_view
 from app.services.contracts import evaluate_alerts
-from app.services.environment import cabin_snapshot, co2_limits_mmhg, co2_trend_24h
+from app.services.environment import cabin_snapshot, co2_limits_mmhg, co2_trend
 from app.services.mission_clock import (
     current_stage,
     day_label,
@@ -34,11 +35,30 @@ CARDIAC_SITES = ("aortic", "pulmonic", "tricuspid", "mitral")
 PULMONARY_SITES = ("upper_left", "upper_right", "lower_left", "lower_right")
 SAMPLE_SECONDS = 30
 MAX_AUDIO_BYTES = 6 * 1024 * 1024
+# A 30 s, 4 kHz, 16-bit mono WAV is about 240 KB; anything that inflates far beyond a
+# full-quality recording is rejected (protects against compressed "bombs").
+MAX_DECODED_BYTES = 6 * 1024 * 1024
 SESSION_WINDOW_HOURS = 12
 
 
 def quiet_limit_dba() -> float:
     return float((reference_ranges.metric("cabin_noise_dba") or {}).get("nominal_max", 55.0))
+
+
+def decode_payload(payload: bytes, content_encoding: str) -> bytes:
+    """The WAV inside an upload: as sent, or gzip-compressed by the browser."""
+    if content_encoding == "identity":
+        return payload
+    decoder = zlib.decompressobj(wbits=31)  # gzip container
+    try:
+        audio = decoder.decompress(payload, MAX_DECODED_BYTES + 1)
+    except zlib.error as exc:
+        raise ValueError(
+            "The compressed recording could not be opened. Please record again."
+        ) from exc
+    if len(audio) > MAX_DECODED_BYTES or decoder.unconsumed_tail:
+        raise ValueError("The recording is empty or too large. Please record again.")
+    return audio
 
 
 def save_auscultation_sample(
@@ -50,8 +70,13 @@ def save_auscultation_sample(
     sha256_hex: str,
     audio_bytes: bytes,
     storage_dir: Path | None = None,
+    content_encoding: str = "identity",
 ) -> dict:
-    """Validate, analyse and store one 30-second recording."""
+    """Validate, analyse and store one 30-second recording.
+
+    The checksum is computed by the browser on the WAV itself, so it is verified after
+    decompression: it proves the recording arrived exactly as it was captured.
+    """
     if crew_row(conn, crew_id) is None:
         raise LookupError("Crew member not found.")
     sites = CARDIAC_SITES if organ_type == "CARDIAC" else PULMONARY_SITES
@@ -64,6 +89,10 @@ def save_auscultation_sample(
         )
     if not audio_bytes or len(audio_bytes) > MAX_AUDIO_BYTES:
         raise ValueError("The recording is empty or too large. Please record again.")
+    payload_bytes = len(audio_bytes)
+    audio_bytes = decode_payload(audio_bytes, content_encoding)
+    if not audio_bytes:
+        raise ValueError("The recording is empty or too large. Please record again.")
     if hashlib.sha256(audio_bytes).hexdigest() != sha256_hex.lower():
         raise ValueError("The recording was damaged while saving. Please record again.")
     try:
@@ -75,6 +104,20 @@ def save_auscultation_sample(
         raise ValueError("A full 30-second recording is needed. Please record again.")
 
     findings = acoustics.analyse(samples, rate, organ_type).to_dict()
+    classification = acoustics.classify(samples, rate, organ_type)
+    findings.update({
+        "classification": classification,
+        "payload_kb": round(payload_bytes / 1024, 1),
+        "wav_kb": round(len(audio_bytes) / 1024, 1),
+        "compression_ratio": round(len(audio_bytes) / payload_bytes, 2),
+        "content_encoding": content_encoding,
+        "sample_rate_hz": rate,
+        "sha256_verified": True,
+        "s1_s2_energy_ratio": acoustics.heart_sound_balance(samples, rate)
+        if organ_type == "CARDIAC" else None,
+        "ie_ratio": acoustics.breath_phase_ratio(samples, rate)
+        if organ_type == "PULMONARY" else None,
+    })
     now = utc_now()
     name = f"{crew_id}_{organ_type.lower()}_{anatomical_site}_{now.strftime('%Y%m%dT%H%M%S')}.wav"
     storage_dir = storage_dir or AUDIO_STORAGE_DIR
@@ -113,6 +156,15 @@ def save_auscultation_sample(
             ),
         )
         alerts = evaluate_alerts(conn, int(measurement.lastrowid))
+    recording_id = int(cursor.lastrowid)
+    review = None
+    reason = acoustic_review.review_reason(organ_type, classification, findings["rate_per_min"])
+    if reason:
+        review = acoustic_review.open_finding(
+            conn, crew_id, recording_id, organ_type, anatomical_site, findings, reason
+        )
+        if review["alert_id"]:
+            alerts.append(review["alert_id"])
     return {
         "id": int(cursor.lastrowid),
         "organ_type": organ_type,
@@ -122,6 +174,13 @@ def save_auscultation_sample(
         "regularity_pct": findings["regularity_pct"],
         "signal_quality_pct": findings["signal_quality_pct"],
         "rhythm_label": findings["rhythm_label"],
+        "classification": classification,
+        "payload_kb": findings["payload_kb"],
+        "wav_kb": findings["wav_kb"],
+        "compression_ratio": findings["compression_ratio"],
+        "sha256_verified": True,
+        "finding_id": review["finding_id"] if review else None,
+        "finding_repeated": bool(review and review["repeated"]),
         "alerts_created": alerts,
     }
 
@@ -183,8 +242,15 @@ def _organ_summary(conn: sqlite3.Connection, crew_id: str, organ_type: str) -> d
         and s.get("rate_per_min") is not None
     ]
     latest_sample = samples[0]
-    preferred = next((s for s in samples if s["site"] in ("mitral", "upper_right")), latest_sample)
-    regular = len(steady) == len(samples)
+    # A recording sent for physician review is the one shown (and played) on screen.
+    flagged = [s for s in samples if (s.get("classification") or {}).get("needs_review")]
+    preferred = flagged[0] if flagged else next(
+        (s for s in samples if s["site"] in ("mitral", "upper_right")), latest_sample
+    )
+    interpretation = acoustic_review.interpretation_for(
+        conn, crew_id, organ_type, latest_sample["recorded_at_utc"]
+    )
+    regular = len(steady) == len(samples) and not flagged
     if organ_type == "CARDIAC":
         text = "Rhythmic S1/S2" if regular else "Uneven rhythm"
     else:
@@ -204,6 +270,12 @@ def _organ_summary(conn: sqlite3.Connection, crew_id: str, organ_type: str) -> d
         "day_label": day_label(mission_day(conn, parse_iso(latest_sample["recorded_at_utc"]))),
         "waveform_site": preferred["site"],
         "waveform_recording_id": preferred["id"],
+        "audio_url": f"/auscultation/samples/{preferred['id']}/audio",
+        "classification": preferred.get("classification"),
+        "payload_kb": preferred.get("payload_kb"),
+        "s1_s2_energy_ratio": preferred.get("s1_s2_energy_ratio"),
+        "ie_ratio": preferred.get("ie_ratio"),
+        "interpretation": interpretation,
         "envelope": preferred.get("envelope", []),
         "needs_physician_review": not regular,
         "samples": [
@@ -217,6 +289,7 @@ def _organ_summary(conn: sqlite3.Connection, crew_id: str, organ_type: str) -> d
                     "regularity_pct",
                     "signal_quality_pct",
                     "rhythm_label",
+                    "classification",
                 )
                 if k in s
             }
@@ -243,7 +316,9 @@ def session_progress(conn: sqlite3.Connection, crew_id: str) -> dict[str, list[s
     }
 
 
-def build_auscultation_results(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any] | None:
+def build_auscultation_results(
+    conn: sqlite3.Connection, crew_id: str, co2_period: str = "24h"
+) -> dict[str, Any] | None:
     if crew_row(conn, crew_id) is None:
         return None
     cardiac = cardiac_summary(conn, crew_id)
@@ -257,7 +332,7 @@ def build_auscultation_results(conn: sqlite3.Connection, crew_id: str) -> dict[s
         header, status = "PHYSICIAN REVIEW NEEDED", "WARNING"
     qualities = [o["signal_quality_pct"] for o in (cardiac, pulmonary) if o]
     cabin = cabin_snapshot(conn)
-    trend = co2_trend_24h(conn)
+    trend = co2_trend(conn, co2_period)
     return {
         "crew_id": crew_id,
         "status": status,
@@ -276,6 +351,7 @@ def build_auscultation_results(conn: sqlite3.Connection, crew_id: str) -> dict[s
             "status": cabin["statuses"]["co2_ppm"] if cabin else "NO_DATA",
             "limits_mmhg": co2_limits_mmhg(),
             "trend": trend,
+            "period": co2_period,
         },
         "quiet_limit_dba": quiet_limit_dba(),
     }

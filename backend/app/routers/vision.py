@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.auth_utils import CurrentCrew, PhysicianCrew, ensure_crew_access
@@ -21,9 +21,14 @@ class VisionReviewIn(BaseModel):
 
 
 @router.get("/vision/{crew_id}")
-def get_vision_exam(crew_id: str, conn: DbConn, claims: CurrentCrew) -> dict:
+def get_vision_exam(
+    crew_id: str,
+    conn: DbConn,
+    claims: CurrentCrew,
+    period: Annotated[Literal["30d", "all"], Query()] = "all",
+) -> dict:
     ensure_crew_access(claims, crew_id)
-    exam = build_vision_exam(conn, crew_id)
+    exam = build_vision_exam(conn, crew_id, period)
     if exam is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
     return exam

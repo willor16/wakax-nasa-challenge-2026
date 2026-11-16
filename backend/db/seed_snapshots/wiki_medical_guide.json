@@ -212,5 +212,31 @@
     ],
     "escalation_en": "Call the crew physician now if there is swelling of the face or throat, trouble breathing, a spreading rash or fainting after taking a medicine.",
     "source_en": "World Health Organization. Model List of Essential Medicines, 23rd list (2023)."
+  },
+  {
+    "id": "wiki-sex-01",
+    "category_en": "Sex-Specific Physiology",
+    "title_en": "Sex-Specific Countermeasures: Orthostatic Tolerance, Pelvic/Lumbar Bone & Iron Balance",
+    "drawer_code": "DRAWER A2",
+    "steps_json": [
+      {
+        "title_en": "Prepare for Upright Gravity",
+        "detail_en": "Women show more light-headedness and fainting when standing after flight. Before return or surface work, drink 1 L of salted fluid, wear the lower-body compression garment and stand up in stages, sitting down at the first sign of dizziness."
+      },
+      {
+        "title_en": "Protect Pelvic and Lumbar Bone",
+        "detail_en": "The pelvis and lumbar spine lose the most bone (about 6.2% on long missions). Keep daily resistance training with heavy loads on hips and spine, and compare each density scan with the pre-flight value."
+      },
+      {
+        "title_en": "Balance Iron by Sex",
+        "detail_en": "Judge haemoglobin against the female range (12.0-16.0 g/dL) or the male range (13.5-17.5 g/dL). When menstruation is suppressed during flight, iron is no longer lost each month: avoid iron supplements unless the physician prescribes them and report fatigue or a falling value."
+      },
+      {
+        "title_en": "Watch the Eyes in Everyone",
+        "detail_en": "Optic disc swelling and choroidal folds have been reported more often in men, but women are not exempt. Keep the scheduled ultrasound and pressure checks and report any blurred near vision."
+      }
+    ],
+    "escalation_en": "Call the crew physician now if fainting occurs on standing, haemoglobin falls below 11 g/dL in a woman or 12.5 g/dL in a man, or vision changes suddenly.",
+    "source_en": "Mark S, et al. The impact of sex and gender on adaptation to space: executive summary. Journal of Women's Health 23(11), 2014."
   }
 ]

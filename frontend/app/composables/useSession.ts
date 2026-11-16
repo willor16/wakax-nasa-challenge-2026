@@ -8,6 +8,8 @@ export interface SessionCrew {
   short_name: string
   role: 'ASTRONAUT' | 'PILOT' | 'OPERATOR' | 'PHYSICIAN'
   title_en: string
+  /** Physiological sex, used to show the female or male normal range. */
+  sex?: 'F' | 'M' | null
 }
 
 interface StoredSession {

@@ -16,6 +16,8 @@ const props = defineProps<{
   scaleMax?: number | null
   bandLow?: number | null
   bandHigh?: number | null
+  /** Parameter key for the "?" help button next to the name. */
+  helpKey?: string
 }>()
 
 const hasScale = computed(() => props.scaleMin != null && props.scaleMax != null && props.scaleMax > props.scaleMin)
@@ -35,7 +37,10 @@ const tone = computed(() => toneOf(props.status))
   <div>
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
-        <p class="text-[13px] font-semibold leading-tight truncate">{{ label }}</p>
+        <p class="text-[13px] font-semibold leading-tight flex items-center gap-[6px] min-w-0">
+          <span class="truncate">{{ label }}</span>
+          <UiParamHelp v-if="helpKey" :metric-key="helpKey" />
+        </p>
         <p v-if="reference" class="text-[9.8px] text-cabin-ice mt-[3px] truncate">{{ reference }}</p>
       </div>
       <div class="flex items-center gap-[14px] shrink-0">

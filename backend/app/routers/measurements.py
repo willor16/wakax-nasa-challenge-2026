@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from datetime import timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -14,12 +14,13 @@ from app.schemas.measurements import (
     MeasurementSource,
     MetricCatalogItem,
     MissionStage,
+    ParameterHelpItem,
     StreakUpdateSummary,
     normalize_utc_timestamp,
 )
 from app.services import reference_ranges
 from app.services.contracts import evaluate_alerts, update_streaks
-from app.services.mission_clock import current_stage, parse_iso, utc_now
+from app.services.mission_clock import current_stage, parse_iso, period_since, utc_now
 
 router = APIRouter(prefix="/api/v1", tags=["measurements"])
 
@@ -41,7 +42,8 @@ def _fetch_catalog(conn: sqlite3.Connection, category: str | None) -> list[Metri
     for r in rows:
         entry = reference_ranges.metric(r["metric_key"]) or {}
         items.append(MetricCatalogItem(**dict(r), plausible_min=entry.get("plausible_min"),
-                                       plausible_max=entry.get("plausible_max")))
+                                       plausible_max=entry.get("plausible_max"),
+                                       by_sex=reference_ranges.by_sex_nominal(entry)))
     return items
 
 
@@ -51,6 +53,12 @@ def get_metric_catalog(
     category: Annotated[str | None, Query()] = None,
 ) -> list[MetricCatalogItem]:
     return _fetch_catalog(conn, category)
+
+
+@router.get("/metrics/help", response_model=list[ParameterHelpItem])
+def get_parameter_help() -> list[ParameterHelpItem]:
+    """What each parameter measures, how to read it and its mission impact (public text)."""
+    return [ParameterHelpItem(**entry) for entry in reference_ranges.help_entries()]
 
 
 @router.get("/metrics", response_model=list[MetricCatalogItem])
@@ -69,6 +77,8 @@ def list_measurements(
     metric_key: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
     mission_stage: Annotated[MissionStage | None, Query()] = None,
+    stage: Annotated[MissionStage | None, Query()] = None,
+    period: Annotated[Literal["24h", "7d", "14d", "30d", "all"] | None, Query()] = None,
     source_type: Annotated[MeasurementSource | None, Query()] = None,
     from_utc: Annotated[str | None, Query()] = None,
     to_utc: Annotated[str | None, Query()] = None,
@@ -86,9 +96,12 @@ def list_measurements(
     if category:
         clauses.append("c.category = ?")
         params.append(category.upper())
-    if mission_stage:
+    if mission_stage or stage:
         clauses.append("m.mission_stage = ?")
-        params.append(mission_stage)
+        params.append(mission_stage or stage)
+    if period and (since := period_since(utc_now(), period)):
+        clauses.append("m.recorded_at_utc >= ?")
+        params.append(since)
     if source_type:
         clauses.append("m.source_type = ?")
         params.append(source_type)
@@ -123,6 +136,24 @@ def list_measurements(
     """
     rows = conn.execute(sql, tuple(params)).fetchall()
     return [MeasurementRowOut(**dict(r)) for r in rows]
+
+
+MIN_PULSE_PRESSURE_MMHG = 10.0
+
+
+def _check_pressure_pair(items: list[Any]) -> None:
+    """Diastolic pressure must sit at least 10 mmHg below systolic in the same reading."""
+    values = {item.metric_key: item.value_num for item in items}
+    systolic = values.get("bp_systolic_mmhg")
+    diastolic = values.get("bp_diastolic_mmhg")
+    if systolic is None or diastolic is None:
+        return
+    if systolic - diastolic < MIN_PULSE_PRESSURE_MMHG:
+        raise HTTPException(
+            HTTP_422_UNPROCESSABLE,
+            f"Non-admissible reading · blood pressure {systolic:g} / {diastolic:g} mmHg. "
+            f"Diastolic must be at least {MIN_PULSE_PRESSURE_MMHG:g} mmHg below systolic.",
+        )
 
 
 def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection,
@@ -162,16 +193,21 @@ def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection,
             HTTP_422_UNPROCESSABLE,
             f"These readings are not part of the health catalog: {', '.join(unknown_keys)}",
         )
+    # Level 1 - non-admissible readings (typing errors, values no living person can have)
+    # are rejected as a whole batch before anything is stored. Readings that are possible
+    # but outside the normal range are stored and judged by the alert engine (level 2).
     for item in body.items:
         if not reference_ranges.is_plausible(item.metric_key, item.value_num):
             entry = reference_ranges.metric(item.metric_key) or {}
             name = catalog[item.metric_key]["display_name_en"]
+            unit = catalog[item.metric_key]["unit"]
             raise HTTPException(
                 HTTP_422_UNPROCESSABLE,
-                f"{name} of {item.value_num:g} {catalog[item.metric_key]['unit']} is not possible. "
-                f"Enter a value between {entry.get('plausible_min'):g} and "
-                f"{entry.get('plausible_max'):g}.",
+                f"Non-admissible reading · {name} {item.value_num:g} {unit}. "
+                f"Admissible range: {entry.get('plausible_min'):g}–"
+                f"{entry.get('plausible_max'):g} {unit}.",
             )
+    _check_pressure_pair(body.items)
 
     inserted_ids: list[int] = []
     alerts_created: list[int] = []

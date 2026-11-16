@@ -9,8 +9,15 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.auth_utils import STREAM_SCOPE, CurrentCrew, decode_access_token, verify_session_claims
+from app.auth_utils import (
+    STREAM_SCOPE,
+    CurrentCrew,
+    decode_access_token,
+    ensure_crew_access,
+    verify_session_claims,
+)
 from app.db import open_connection
+from app.services import change_feed, live_sensor
 from app.services.environment import cabin_mode, cabin_snapshot, record_reading
 from app.services.mission_clock import mission_day, to_iso, utc_now
 
@@ -82,6 +89,26 @@ def _sse(event: str, payload: dict | list) -> str:
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
+# Live streams must reach every cabin display at once: no caching, no compression and no
+# buffering by any proxy in between (the cockpit dev server, a LAN proxy).
+SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse_response(generator) -> StreamingResponse:
+    return StreamingResponse(generator, media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+def _stream_claims(token: str) -> dict:
+    claims = verify_session_claims(decode_access_token(token, scope=STREAM_SCOPE))
+    if not claims["sub"]:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in with your crew PIN.")
+    return claims
+
+
 async def _keep_streaming(request: Request, started: float) -> bool:
     if await request.is_disconnected():
         return False
@@ -90,12 +117,19 @@ async def _keep_streaming(request: Request, started: float) -> bool:
 
 @router.get("/stream/telemetry")
 async def stream_cabin_telemetry(request: Request) -> StreamingResponse:
-    """Public live stream: cabin environment and cabin mode only."""
+    """Public live stream: cabin environment, cabin mode and which kinds of data changed.
+
+    The ``sync`` event names data domains only (never crew values), so it stays public.
+    """
 
     async def event_generator():
         started = time.monotonic()
+        seen = change_feed.current()
         yield "retry: 2000\n\n"
         while await _keep_streaming(request, started):
+            seen, changed = change_feed.changes_since(seen)
+            if changed:
+                yield _sse("sync", {"domains": changed})
             with open_connection() as conn:
                 payload = {
                     "cabin": cabin_snapshot(conn),
@@ -106,11 +140,7 @@ async def stream_cabin_telemetry(request: Request) -> StreamingResponse:
             yield _sse("cabin", payload)
             await asyncio.sleep(STREAM_INTERVAL_SEC)
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers=SSE_HEADERS,
-    )
+    return _sse_response(event_generator())
 
 
 @router.get("/stream/vitals")
@@ -147,8 +177,82 @@ async def stream_crew_vitals(
             })
             await asyncio.sleep(STREAM_INTERVAL_SEC)
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers=SSE_HEADERS,
+    return _sse_response(event_generator())
+
+
+@router.get("/stream/live-ecg")
+async def stream_live_ecg(
+    request: Request, token: Annotated[str, Query(min_length=10)]
+) -> StreamingResponse:
+    """Private live sensor: continuous Lead II ECG (4 frames/s) and core temperature.
+
+    The waveform follows the crew member's latest real heart rate, heart-rate variability
+    and temperature, re-read every two seconds, so a new reading shows up straight away.
+    """
+    crew_id = _stream_claims(token)["sub"]
+    with open_connection() as conn:
+        values, override = live_sensor.sensor_inputs(conn, crew_id)
+    generator_state = live_sensor.LiveEcg(seed=int(time.time()))
+    generator_state.update(values["resting_hr_bpm"], values["hrv_rmssd_ms"], values["body_temp_c"])
+
+    async def event_generator():
+        nonlocal override
+        started = time.monotonic()
+        next_frame = time.monotonic()
+        refreshed = time.monotonic()
+        yield "retry: 1000\n\n"
+        while await _keep_streaming(request, started):
+            if time.monotonic() - refreshed >= live_sensor.REFRESH_SECONDS:
+                refreshed = time.monotonic()
+                with open_connection() as conn:
+                    values, override = live_sensor.sensor_inputs(conn, crew_id)
+                generator_state.update(
+                    values["resting_hr_bpm"], values["hrv_rmssd_ms"], values["body_temp_c"]
+                )
+            frame = generator_state.frame()
+            frame["override_en"] = override
+            frame["server_utc"] = to_iso(utc_now())
+            yield _sse("ecg", frame)
+            next_frame += live_sensor.FRAME_SECONDS
+            await asyncio.sleep(max(0.0, next_frame - time.monotonic()))
+
+    return _sse_response(event_generator())
+
+
+class SensorSimulateIn(BaseModel):
+    """Temporary sensor condition for demonstrations and tests (never stored as a reading)."""
+
+    crew_id: str | None = Field(default=None, max_length=32)
+    heart_rate_bpm: float | None = Field(default=None, ge=30, le=220)
+    body_temp_c: float | None = Field(default=None, ge=34, le=42)
+    hrv_rmssd_ms: float | None = Field(default=None, ge=2, le=200)
+    duration_s: float = Field(default=120, ge=10, le=600)
+    clear: bool = False
+
+
+@router.post("/sensors/simulate")
+def simulate_sensor(body: SensorSimulateIn, claims: CurrentCrew) -> dict:
+    """Inject (or clear) a temporary condition on the live sensor, e.g. tachycardia or fever."""
+    crew_id = body.crew_id or claims["sub"]
+    ensure_crew_access(claims, crew_id)
+    if body.clear:
+        live_sensor.clear_override(crew_id)
+        return {"crew_id": crew_id, "active": False}
+    parts = []
+    if body.heart_rate_bpm is not None:
+        parts.append(f"heart rate {body.heart_rate_bpm:g} bpm")
+    if body.body_temp_c is not None:
+        parts.append(f"temperature {body.body_temp_c:g} °C")
+    if body.hrv_rmssd_ms is not None:
+        parts.append(f"HRV {body.hrv_rmssd_ms:g} ms")
+    if not parts:
+        raise HTTPException(422, "Give a heart rate, temperature or HRV to simulate.")
+    live_sensor.set_override(
+        crew_id,
+        heart_rate_bpm=body.heart_rate_bpm,
+        body_temp_c=body.body_temp_c,
+        hrv_rmssd_ms=body.hrv_rmssd_ms,
+        duration_s=body.duration_s,
+        label_en="Simulated sensor: " + ", ".join(parts),
     )
+    return {"crew_id": crew_id, "active": True, "duration_s": body.duration_s}

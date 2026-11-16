@@ -19,6 +19,7 @@ const SCALES = [
   { key: 'isolation', label: 'Sense of Isolation (1–5)' }, { key: 'motivation', label: 'Mission Motivation (1–5)' },
 ] as const
 type ScaleKey = typeof SCALES[number]['key']
+const SCALE_HELP: Record<ScaleKey, string> = { mood: 'overall_mood', stress: 'stress_index', isolation: 'isolation', motivation: 'motivation' }
 
 const moodState = ref<string | null>(null)
 const scales = reactive<Record<ScaleKey, number | null>>({ mood: null, stress: null, isolation: null, motivation: null })
@@ -122,20 +123,20 @@ function onArenaKey(event: KeyboardEvent) {
   <div class="page">
     <ShellCaptureTabs />
     <div class="flex-1 min-h-0 flex gap-[18px]">
-      <ShellHudWindow class="w-[740px]" title="Behavioral & Sleep Window Entry" icon="moon" tag-text="DAILY CHECK-IN" flush>
-        <form class="flex-1 flex flex-col px-[23px] pt-[17px] pb-[20px]" novalidate @submit.prevent="saveCheckin">
+      <ShellHudWindow class="w-[48.9%] shrink-0" title="Behavioral & Sleep Window Entry" icon="moon" tag-text="DAILY CHECK-IN" flush>
+        <form class="flex-1 min-h-0 flex flex-col px-[23px] pt-[clamp(10px,1.8dvh,17px)] pb-[clamp(12px,2.1dvh,20px)]" novalidate @submit.prevent="saveCheckin">
           <p class="label-caps">Select current mood state</p>
           <div class="grid grid-cols-4 gap-[14px] mt-[10px]" role="radiogroup" aria-label="Current mood state">
             <button
 v-for="state in STATES" :key="state.id" type="button" role="radio" :aria-checked="moodState === state.id"
-                    class="focus-ring h-[40px] rounded-[4px] text-[12px] border-[1.3px]"
+                    class="focus-ring h-[clamp(34px,4.3dvh,44px)] rounded-[4px] text-[12px] border-[1.3px]"
                     :class="moodState === state.id ? 'menu-item-active font-bold' : 'bg-cabin-tile border-cabin-line text-cabin-ice'"
                     @click="moodState = state.id">{{ state.label }}</button>
           </div>
-          <div class="flex flex-col gap-[12px] mt-[18px]">
-            <div v-for="scale in SCALES" :key="scale.key" class="tile h-[74px] px-[18px] flex items-center justify-between">
-              <div>
-                <p class="text-[13px] font-semibold">{{ scale.label }}</p>
+          <div class="flex flex-col gap-[clamp(6px,1.3dvh,12px)] mt-[clamp(10px,1.9dvh,18px)]">
+            <div v-for="scale in SCALES" :key="scale.key" class="tile h-[clamp(56px,7.9dvh,82px)] px-[18px] flex items-center justify-between gap-[10px]">
+              <div class="min-w-0">
+                <p class="text-[13px] font-semibold flex items-center gap-[6px]">{{ scale.label }}<UiParamHelp :metric-key="SCALE_HELP[scale.key]" /></p>
                 <p class="text-[11px] font-bold mt-[6px]" :class="scales[scale.key] ? 'text-cabin-ok' : 'text-cabin-dim'">
                   {{ scales[scale.key] ? `Selected: ${scales[scale.key]} / 5` : 'Not selected' }}
                 </p>
@@ -143,24 +144,24 @@ v-for="state in STATES" :key="state.id" type="button" role="radio" :aria-checked
               <div class="flex gap-[10px]" role="radiogroup" :aria-label="scale.label">
                 <button
 v-for="n in 5" :key="n" type="button" role="radio" :aria-checked="scales[scale.key] === n"
-                        class="focus-ring w-[44px] h-[40px] rounded-[4px] text-[13px] border-[1.3px]"
+                        class="focus-ring w-[clamp(34px,2.9vw,44px)] h-[clamp(34px,4.3dvh,42px)] rounded-[4px] text-[13px] border-[1.3px]"
                         :class="scales[scale.key] === n ? 'menu-item-active font-bold' : 'border-cabin-edge/60 text-cabin-ice'"
                         @click="scales[scale.key] = n">{{ n }}</button>
               </div>
             </div>
           </div>
-          <p class="label-caps mt-[22px]">Confirm last night sleep window (feeds sleep module)</p>
-          <div class="grid grid-cols-2 gap-[19px] mt-[12px]">
+          <p class="label-caps mt-[clamp(10px,2.3dvh,22px)] flex items-center gap-[6px]">Confirm last night sleep window (feeds sleep module)<UiParamHelp metric-key="sleep_duration" /></p>
+          <div class="grid grid-cols-2 gap-[19px] mt-[clamp(8px,1.3dvh,12px)]">
             <div>
               <div class="flex justify-between mb-[8px]"><label for="onset" class="label-caps">Sleep onset (UTC)</label><span class="text-[9.5px] text-cabin-ice">Lights out</span></div>
-              <div class="hud-field !h-[56px]"><input id="onset" v-model="onset" placeholder="22:18" inputmode="numeric" maxlength="5"><span class="text-[11px] font-bold text-cabin-ice">UTC</span></div>
+              <div class="hud-field !h-[clamp(44px,6dvh,58px)]"><input id="onset" v-model="onset" placeholder="22:18" inputmode="numeric" maxlength="5"><span class="text-[11px] font-bold text-cabin-ice">UTC</span></div>
             </div>
             <div>
               <div class="flex justify-between mb-[8px]"><label for="wake" class="label-caps">Wake time (UTC)</label><span class="text-[9.5px] text-cabin-ice">{{ asleepText }}</span></div>
-              <div class="hud-field !h-[56px]"><input id="wake" v-model="wake" placeholder="05:54" inputmode="numeric" maxlength="5"><span class="text-[11px] font-bold text-cabin-ice">UTC</span></div>
+              <div class="hud-field !h-[clamp(44px,6dvh,58px)]"><input id="wake" v-model="wake" placeholder="05:54" inputmode="numeric" maxlength="5"><span class="text-[11px] font-bold text-cabin-ice">UTC</span></div>
             </div>
           </div>
-          <div class="mt-auto flex flex-col gap-[14px]">
+          <div class="mt-auto pt-[10px] flex flex-col gap-[clamp(8px,1.5dvh,14px)]">
             <UiSaveResult v-if="checkinMessage" v-bind="checkinMessage" />
             <button type="submit" class="hud-button relative" :disabled="checkinBusy">
               <Icon name="spacescan:moon" class="w-[17px] h-[17px] absolute left-[22px]" />
@@ -170,10 +171,10 @@ v-for="n in 5" :key="n" type="button" role="radio" :aria-checked="scales[scale.k
         </form>
       </ShellHudWindow>
 
-      <ShellHudWindow class="flex-1" title="Motor & Reaction Test Capture" icon="reticle" tag-text="2-MIN VIGILANCE" flush>
-        <div class="flex-1 flex flex-col px-[23px] pt-[18px] pb-[20px]">
+      <ShellHudWindow class="flex-1 min-w-0" title="Motor & Reaction Test Capture" icon="reticle" tag-text="2-MIN VIGILANCE" flush>
+        <div class="flex-1 min-h-0 flex flex-col px-[23px] pt-[clamp(10px,1.9dvh,18px)] pb-[clamp(12px,2.1dvh,20px)]">
           <div
-            class="tile-hi relative h-[304px] shrink-0 select-none focus-ring cursor-pointer"
+            class="tile-hi relative flex-[1.6] min-h-[200px] max-h-[380px] select-none focus-ring cursor-pointer"
             role="button"
             tabindex="0"
             :aria-label="arena.phase.value === 'target' ? 'Target on screen: tap now' : 'Reaction test area'"
@@ -201,22 +202,22 @@ class="w-[46px] h-[46px] rounded-full flex items-center justify-center text-[12p
               Last Stimulus Latency: {{ arena.lastLatencyMs.value === null ? '—' : `${arena.lastLatencyMs.value} ms` }} · False Starts: {{ arena.falseStarts.value }}
             </p>
           </div>
-          <div class="grid grid-cols-2 gap-[16px] mt-[18px] flex-1">
+          <div class="grid grid-cols-2 gap-[16px] mt-[clamp(10px,1.9dvh,18px)] flex-1 min-h-[96px]">
             <div class="tile relative px-[18px] flex flex-col justify-center">
               <span class="absolute top-0 left-0 right-0 h-[3px] bg-cabin-ok" />
-              <p class="label-caps">Mean reaction time</p>
-              <p class="text-[28px] font-bold mt-[14px]">{{ arena.summary.value.meanMs === null ? '—' : `${arena.summary.value.meanMs} ms` }}</p>
-              <p class="text-[11px] text-cabin-ice mt-[12px]">Optimal threshold &lt; 300 ms</p>
+              <p class="label-caps flex items-center gap-[6px]">Mean reaction time<UiParamHelp metric-key="reaction_time" /></p>
+              <p class="text-[28px] font-bold mt-[clamp(6px,1.5dvh,14px)]">{{ arena.summary.value.meanMs === null ? '—' : `${arena.summary.value.meanMs} ms` }}</p>
+              <p class="text-[11px] text-cabin-ice mt-[clamp(6px,1.3dvh,12px)]">Optimal threshold &lt; 300 ms</p>
             </div>
             <div class="tile relative px-[18px] flex flex-col justify-center">
               <span class="absolute top-0 left-0 right-0 h-[3px] bg-cabin-ok" />
-              <p class="label-caps">Motor hit precision</p>
-              <p class="text-[28px] font-bold mt-[14px]">{{ arena.summary.value.precisionPct === null ? '—' : `${arena.summary.value.precisionPct}%` }}</p>
-              <p class="text-[11px] text-cabin-ice mt-[12px]">{{ arena.summary.value.valid }} / {{ arena.summary.value.trials }} valid responses</p>
+              <p class="label-caps flex items-center gap-[6px]">Motor hit precision<UiParamHelp metric-key="motor_precision" /></p>
+              <p class="text-[28px] font-bold mt-[clamp(6px,1.5dvh,14px)]">{{ arena.summary.value.precisionPct === null ? '—' : `${arena.summary.value.precisionPct}%` }}</p>
+              <p class="text-[11px] text-cabin-ice mt-[clamp(6px,1.3dvh,12px)]">{{ arena.summary.value.valid }} / {{ arena.summary.value.trials }} valid responses</p>
             </div>
           </div>
           <UiSaveResult v-if="motorMessage" v-bind="motorMessage" class="mt-[14px]" />
-          <div class="grid grid-cols-2 gap-[16px] mt-[16px]">
+          <div class="grid grid-cols-2 gap-[16px] mt-[clamp(10px,1.7dvh,16px)]">
             <button type="button" class="hud-button relative" :disabled="arena.phase.value === 'waiting' || arena.phase.value === 'target'" @click="arena.start()">
               <Icon name="spacescan:reticle" class="w-[17px] h-[17px] absolute left-[20px]" />Start 2-Min Reaction Test
             </button>

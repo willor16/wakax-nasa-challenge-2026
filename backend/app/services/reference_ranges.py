@@ -69,33 +69,95 @@ def metric(metric_key: str) -> dict[str, Any] | None:
     return _metric_index().get(metric_key)
 
 
-def thresholds(metric_key: str) -> MetricThresholds | None:
+LIMIT_FIELDS = (
+    "nominal_min",
+    "nominal_max",
+    "warning_min",
+    "warning_max",
+    "critical_min",
+    "critical_threshold",
+)
+
+
+def limits_for_sex(metric_key: str, sex: str | None = None) -> dict[str, Any] | None:
+    """Reference limits for one metric, with the sex-specific override when one exists.
+
+    Haemoglobin and skeletal muscle mass have separate female and male ranges; every other
+    metric shares one range. ``sex`` is ``"F"`` or ``"M"``; anything else uses the shared range.
+    """
     entry = metric(metric_key)
     if entry is None:
         return None
-    return MetricThresholds(
-        nominal_min=entry["nominal_min"],
-        nominal_max=entry["nominal_max"],
-        warning_min=entry.get("warning_min"),
-        warning_max=entry.get("warning_max"),
-        critical_min=entry.get("critical_min"),
-        critical_threshold=entry.get("critical_threshold"),
-    )
+    limits = {field: entry.get(field) for field in LIMIT_FIELDS}
+    override = (entry.get("by_sex") or {}).get(sex or "")
+    if override:
+        limits.update({k: v for k, v in override.items() if k in LIMIT_FIELDS})
+    return limits
 
 
-def classify(metric_key: str, value: float | None) -> Severity | None:
+def thresholds_for_crew(
+    metric_key: str,
+    sex: str | None = None,
+    age: int | None = None,
+    weight_kg: float | None = None,
+    height_cm: float | None = None,
+) -> MetricThresholds | None:
+    """Alert limits calibrated to the crew member's physiology.
+
+    Fixed limits depend on sex only; age, body mass and height shape the daily habit
+    targets (water, energy), which the alert engine reads from ``personal_targets``.
+    """
+    del age, weight_kg, height_cm  # kept in the signature for the habit targets
+    limits = limits_for_sex(metric_key, sex)
+    if limits is None:
+        return None
+    return MetricThresholds(**limits)
+
+
+def thresholds(metric_key: str, sex: str | None = None) -> MetricThresholds | None:
+    return thresholds_for_crew(metric_key, sex)
+
+
+def classify(metric_key: str, value: float | None, sex: str | None = None) -> Severity | None:
     """Severity of a value against the reference limits (None = nominal or unknown)."""
     if value is None:
         return None
-    limits = thresholds(metric_key)
+    limits = thresholds(metric_key, sex)
     return classify_value(value, limits) if limits else None
 
 
-def status_label(metric_key: str, value: float | None) -> str:
+def status_label(metric_key: str, value: float | None, sex: str | None = None) -> str:
     """``NOMINAL`` / ``WATCH`` / ``WARNING`` / ``CRITICAL``, or ``NO_DATA``."""
     if value is None:
         return "NO_DATA"
-    return STATUS_BY_SEVERITY[classify(metric_key, value)]
+    return STATUS_BY_SEVERITY[classify(metric_key, value, sex)]
+
+
+def by_sex_nominal(entry: dict[str, Any]) -> dict[str, dict[str, float]] | None:
+    """``{"F": {"nominal_min", "nominal_max"}, "M": {...}}`` for metrics with sex ranges."""
+    overrides = entry.get("by_sex")
+    if not overrides:
+        return None
+    return {
+        sex: {k: v for k, v in values.items() if k in LIMIT_FIELDS}
+        for sex, values in overrides.items()
+    }
+
+
+def smi(
+    muscle_kg: float | None, height_cm: float | None, sex: str | None
+) -> dict[str, Any] | None:
+    """Skeletal muscle index (kg/m²) with the healthy minimum for the crew member's sex."""
+    if not muscle_kg or not height_cm:
+        return None
+    limits = load_reference()["smi"].get(sex or "", load_reference()["smi"]["M"])
+    value = round(muscle_kg / (height_cm / 100) ** 2, 2)
+    return {
+        "value": value,
+        "min": limits["bia_min"],
+        "dxa_min": limits["dxa_min"],
+        "status": "NOMINAL" if value >= limits["bia_min"] else "WARNING",
+    }
 
 
 def classify_relative(
@@ -118,6 +180,44 @@ def classify_relative(
     if "info_below_pct" in rule and pct < rule["info_below_pct"]:
         return Severity.INFO
     return None
+
+
+HELP_FIELDS = ("summary_en", "interpretation_en", "operational_impact_en")
+
+
+def help_entries() -> list[dict[str, Any]]:
+    """Plain-language explanation for every parameter shown on screen.
+
+    Catalog metrics carry their own help text and usual range; parameters that are not
+    single catalog readings (sleep stages, check-in scores, test results, solar activity)
+    come from ``help_topics``.
+    """
+    ref = load_reference()
+    entries = [
+        {
+            "key": m["metric_key"],
+            "label_en": m["display_name_en"],
+            "unit": m["unit"],
+            **{field: m[field] for field in HELP_FIELDS},
+            "nominal_min": m["nominal_min"],
+            "nominal_max": m["nominal_max"],
+            "by_sex": by_sex_nominal(m),
+        }
+        for m in ref["metrics"]
+    ]
+    entries.extend(
+        {
+            "key": t["key"],
+            "label_en": t["label_en"],
+            "unit": t["unit"],
+            **{field: t[field] for field in HELP_FIELDS},
+            "nominal_min": t.get("nominal_min"),
+            "nominal_max": t.get("nominal_max"),
+            "by_sex": None,
+        }
+        for t in ref.get("help_topics", [])
+    )
+    return entries
 
 
 def is_plausible(metric_key: str, value: float) -> bool:
