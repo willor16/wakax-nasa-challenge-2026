@@ -25,6 +25,17 @@ const failure = ref<string | null>(null)
 const pinInput = ref<HTMLInputElement | null>(null)
 
 const selected = computed(() => profiles.value?.find(p => p.id === selectedId.value) ?? null)
+const JUDGE_PINS: Record<string, string> = {
+  'ID-01': '1042',
+  'ID-02': '2084',
+  'ID-03': '3190',
+  'ID-04': '4275',
+}
+const judgeNotes = computed(() =>
+  (profiles.value ?? [])
+    .filter(p => JUDGE_PINS[p.id])
+    .map(p => ({ profile: p, pin: JUDGE_PINS[p.id]! })),
+)
 watch(profiles, (list) => {
   if (list?.length && !selectedId.value) selectedId.value = list[0]!.id
 })
@@ -150,10 +161,42 @@ type="submit" class="hud-button !w-[416px] !h-[52px] mt-[clamp(14px,3dvh,28px)] 
         </p>
       </form>
     </ShellHudWindow>
+
+    <aside
+      v-if="judgeNotes.length"
+      aria-label="Judge access note"
+      class="tile mt-[clamp(10px,1.8dvh,16px)] w-[clamp(500px,68vw,960px)] max-w-full px-[16px] py-[10px] shrink-0"
+    >
+      <div class="flex items-center justify-between gap-[10px] mb-[7px]">
+        <p class="label-caps flex items-center gap-[6px]">
+          <Icon name="spacescan:shield" class="w-[12px] h-[12px] text-cabin-ok shrink-0" />
+          Judge Note · Crew Access PINs
+        </p>
+        <span class="text-[10px] text-cabin-ice">Select a profile above and enter its 4-digit PIN</span>
+      </div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-[8px]">
+        <button
+          v-for="item in judgeNotes"
+          :key="item.profile.id"
+          type="button"
+          class="focus-ring px-[10px] py-[6px] rounded-[4px] border text-left flex items-center justify-between gap-[8px] cursor-pointer"
+          :class="item.profile.id === selectedId
+            ? 'menu-item-active border-cabin-edge text-cabin-text'
+            : 'bg-cabin-tile border-cabin-line text-cabin-ice hover:border-cabin-edge hover:text-cabin-text'"
+          @click="choose(item.profile)"
+        >
+          <span class="min-w-0 truncate text-[11px]">
+            <strong class="font-semibold text-cabin-text">{{ item.profile.full_name }}</strong>
+            <span class="text-cabin-ice"> · {{ item.profile.title_en }}</span>
+          </span>
+          <span class="mono text-[11.5px] font-bold text-cabin-ok shrink-0">{{ item.pin }}</span>
+        </button>
+      </div>
+    </aside>
     <!-- Mission Control on Earth: opens with the pre-flight link key, not a crew PIN. -->
     <NuxtLink
       :to="{ path: '/comms', query: { station: 'ground' } }"
-      class="focus-ring mt-[clamp(12px,2.8dvh,26px)] h-[34px] px-[22px] rounded-full flex items-center gap-[10px] text-[11px] font-semibold border-[1.3px] border-cabin-navy-edge/80 bg-cabin-tile"
+      class="focus-ring mt-[clamp(8px,1.4dvh,12px)] h-[34px] px-[22px] rounded-full flex items-center gap-[10px] text-[11px] font-semibold border-[1.3px] border-cabin-navy-edge/80 bg-cabin-tile"
     >
       <Icon name="spacescan:earth" class="w-[15px] h-[15px]" />Ground Station · Mission Control (link key)
     </NuxtLink>
