@@ -150,21 +150,5 @@ type="submit" class="hud-button !w-[416px] !h-[52px] mt-[clamp(14px,3dvh,28px)] 
         </p>
       </form>
     </ShellHudWindow>
-
-    <div class="w-[784px] max-w-full mt-[clamp(12px,2.8dvh,26px)] flex items-center gap-[56px]">
-      <span class="flex-1 h-px bg-cabin-text/20" />
-      <span class="label-caps">No sign-in required</span>
-      <span class="flex-1 h-px bg-cabin-text/20" />
-    </div>
-    <div class="w-[784px] max-w-full mt-[clamp(8px,1.5dvh,14px)] flex gap-[27px]">
-      <NuxtLink to="/crew-overview" class="hud-button !h-[54px] relative">
-        <Icon name="spacescan:vitruvian" class="w-[17px] h-[17px] absolute left-[18px]" />
-        Open Crew Overview
-      </NuxtLink>
-      <NuxtLink to="/crew-streaks" class="hud-button !h-[54px] relative">
-        <Icon name="spacescan:flame" class="w-[17px] h-[17px] absolute left-[18px]" />
-        Open Crew Streaks
-      </NuxtLink>
-    </div>
   </div>
 </template>

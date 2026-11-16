@@ -18,6 +18,7 @@ export default defineI18nLocale(() => ({
     missionClock: 'MISSION CLOCK',
     notifications: 'Notifications ({count})',
     notificationsLabel: 'Open notifications, {count} open',
+    notificationsClose: 'Close notifications and return to previous view',
   },
   nav: {
     publicLabel: 'Public crew views',

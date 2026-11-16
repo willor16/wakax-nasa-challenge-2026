@@ -15,7 +15,7 @@ const showDock = computed(() => isAuthenticated.value && !PUBLIC_PATHS.has(route
   <div class="cockpit-stage">
     <div class="cockpit-canvas">
       <ShellTopTelemetryBar :authenticated="showDock" />
-      <main class="flex-1 min-h-0 w-full px-[28px] pt-[10px] pb-[14px] flex flex-col gap-[14px] overflow-hidden">
+      <main class="flex-1 min-h-0 w-full px-[28px] pt-[16px] pb-[14px] flex flex-col gap-[14px] overflow-hidden">
         <slot />
       </main>
       <ShellBottomCockpitDock v-if="showDock" />
