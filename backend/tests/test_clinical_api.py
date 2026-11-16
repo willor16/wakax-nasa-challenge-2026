@@ -416,8 +416,8 @@ def test_crew_overview_matches_the_seeded_stories(client):
     assert overview["readiness"]["sleep_below_count"] == 2
     assert 0 < overview["readiness"]["hydration_pct"] <= 100
     assert overview["cabin"]["status"] == "NOMINAL"
-    # An eye advisory is urgent for one person; it does not put the whole cabin on alert.
-    assert overview["cabin_mode"] == "nominal"
+    # Any unacknowledged CRITICAL advisory (here Elena's eye) puts the cabin on alert.
+    assert overview["cabin_mode"] == "critical"
 
 
 def test_crew_streaks_follow_the_logged_habits(client, login):

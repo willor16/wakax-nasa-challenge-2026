@@ -41,14 +41,20 @@ def _apply_crew_order(conn: sqlite3.Connection, bundle: dict[str, Any], now_iso:
     action, crew_id = bundle.get("action"), bundle.get("crew_id")
     if action == "CREATE":
         conn.execute(
-            """INSERT OR IGNORE INTO crew_members (id, code, full_name, role, pin_hash, is_active,
-               created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?, ?, 1, ?, ?)""",
+            """INSERT OR IGNORE INTO crew_members (id, code, full_name, role, title_en, pin_hash,
+               age, sex, blood_type, height_cm, is_active, created_at_utc, updated_at_utc)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
             (
                 crew_id,
                 bundle["code"],
                 bundle["full_name"],
                 bundle["role"],
+                bundle.get("title_en"),
                 bundle["pin_hash"],
+                bundle.get("age"),
+                bundle.get("sex"),
+                bundle.get("blood_type"),
+                bundle.get("height_cm"),
                 now_iso,
                 now_iso,
             ),
@@ -59,8 +65,9 @@ def _apply_crew_order(conn: sqlite3.Connection, bundle: dict[str, Any], now_iso:
             (now_iso, crew_id),
         )
     elif action == "UPDATE":
-        for column in ("full_name", "role", "pin_hash"):
-            if bundle.get(column):
+        for column in ("full_name", "role", "title_en", "pin_hash", "age", "sex", "blood_type",
+                       "height_cm"):
+            if bundle.get(column) is not None:
                 conn.execute(
                     f"UPDATE crew_members SET {column} = ?, updated_at_utc = ? WHERE id = ?",
                     (bundle[column], now_iso, crew_id),

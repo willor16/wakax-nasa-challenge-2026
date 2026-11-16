@@ -193,5 +193,12 @@ type="submit" class="hud-button !w-[416px] !h-[52px] mt-[clamp(14px,3dvh,28px)] 
         </button>
       </div>
     </aside>
+    <!-- Mission Control on Earth: opens with the pre-flight link key, not a crew PIN. -->
+    <NuxtLink
+      :to="{ path: '/comms', query: { station: 'ground' } }"
+      class="focus-ring mt-[clamp(8px,1.4dvh,12px)] h-[34px] px-[22px] rounded-full flex items-center gap-[10px] text-[11px] font-semibold border-[1.3px] border-cabin-navy-edge/80 bg-cabin-tile"
+    >
+      <Icon name="spacescan:earth" class="w-[15px] h-[15px]" />Ground Station · Mission Control (link key)
+    </NuxtLink>
   </div>
 </template>

@@ -57,8 +57,8 @@ export interface CrewProfile {
 }
 
 export function useProfile(refreshMs = 30_000) {
-  const { crew } = useSession()
+  const { activePatientId } = useSession()
   const { api } = useApi()
-  return useResource(() => api<CrewProfile>(`/crew/${crew.value!.id}/profile`), refreshMs,
+  return useResource(() => api<CrewProfile>(`/crew/${activePatientId.value!}/profile`), refreshMs,
     ['vitals', 'vision', 'sleep', 'psych', 'auscultation', 'alerts', 'streaks'])
 }

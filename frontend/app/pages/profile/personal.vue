@@ -5,6 +5,8 @@ import type { MetricView } from '~/composables/useProfile'
 import { dayText, digitsFor, formatDuration, formatNumber, litres, scalePct, sexText, titleCase, toneOf } from '~/utils/format'
 
 const { data: profile, loading, error, refresh } = useProfile()
+const { isPhysician } = useSession()
+const recordOpen = ref(false)
 
 usePageHeader(() => ({
   title: 'Astronaut Profile · Personal Data',
@@ -134,7 +136,17 @@ figure="body-scan" :sex="profile.crew.sex" size="min(clamp(180px, 41dvh, 680px),
               <span>{{ profile.crew.code }} · {{ profile.crew.short_name }}</span>
             </p>
           </div>
-          <div class="mt-auto w-full grid grid-cols-2 gap-[12px]">
+          <div class="mt-auto w-full flex flex-col gap-[10px]">
+            <RolesPilotReadinessPanel v-if="profile.crew.role === 'PILOT'" :crew-id="profile.crew.id" variant="summary" />
+            <button
+              v-if="isPhysician" type="button" class="hud-button relative !h-[42px]"
+              :aria-label="`Open the clinical record of ${profile.crew.full_name}`" @click="recordOpen = true"
+            >
+              <Icon name="spacescan:wiki" class="w-[15px] h-[15px] absolute left-[18px]" />Clinical Record · {{ profile.crew.code }}
+            </button>
+          </div>
+          <RolesPhysicianPatientHistory v-if="recordOpen && isPhysician" :crew-id="profile.crew.id" @close="recordOpen = false" />
+          <div class="mt-[12px] w-full grid grid-cols-2 gap-[12px]">
             <div class="tile h-[clamp(60px,7.7dvh,84px)] px-[16px] flex flex-col justify-center">
               <p class="label-caps flex items-center gap-[6px]">Core temp<UiParamHelp metric-key="body_temp_c" /></p>
               <p class="text-[17px] font-bold mt-[8px]">

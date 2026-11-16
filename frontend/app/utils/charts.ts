@@ -170,6 +170,42 @@ export function moodTrendOption(points: { day_label: string, mood: number, calmn
   }
 }
 
+/** Pilot's flight readiness history: attention and focus (0–100) with reaction time (ms). */
+export function pilotHistoryOption(points: { label: string, attention: number, focus: number, reaction_ms: number }[],
+  pins: Record<string, PinMark[]> = {}): EChartsOption {
+  const c = palette()
+  return {
+    backgroundColor: 'transparent',
+    ...trendMotion(),
+    grid: baseGrid(40, 46, 30, GRID_BOTTOM_WITH_ZOOM),
+    dataZoom: dataZoomFor(),
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0, right: 8, textStyle: { color: c.text, fontSize: 10 }, itemWidth: 12, itemHeight: 6 },
+    xAxis: { type: 'category', data: points.map(p => p.label), boundaryGap: false, ...axisStyle() },
+    yAxis: [
+      { type: 'value', min: 0, max: 100, interval: 25, ...axisStyle(),
+        axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO } },
+      { type: 'value', ...axisStyle(), splitLine: { show: false },
+        axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO, formatter: (v: number) => `${v} ms` } },
+    ],
+    series: [
+      { name: 'Attention', type: 'line', data: points.map(p => p.attention), symbol: 'circle', symbolSize: 5,
+        lineStyle: { color: c.ok, width: 2.2, shadowBlur: 6, shadowColor: c.okGlow }, itemStyle: { color: c.ok },
+        tooltip: { valueFormatter: v => `${Number(v).toFixed(0)} / 100` },
+        markLine: { silent: true, symbol: 'none', lineStyle: { color: c.ok, type: 'dashed', width: 1, opacity: 0.6 },
+          label: { color: c.muted, fontSize: 9, formatter: 'Flight 85' }, data: [{ yAxis: 85 }] },
+        markPoint: markPointsFor('', 0, pins.Attention) },
+      { name: 'Focus', type: 'line', data: points.map(p => p.focus), symbol: 'circle', symbolSize: 4,
+        lineStyle: { color: c.rem, width: 1.8 }, itemStyle: { color: c.rem },
+        tooltip: { valueFormatter: v => `${Number(v).toFixed(0)} / 100` },
+        markPoint: markPointsFor('', 0, pins.Focus, false) },
+      { name: 'Reaction', type: 'line', yAxisIndex: 1, data: points.map(p => Math.round(p.reaction_ms)), symbol: 'none',
+        lineStyle: { color: c.text, width: 1.4, type: 'dashed', opacity: 0.75 }, itemStyle: { color: c.text },
+        tooltip: { valueFormatter: v => `${v} ms` } },
+    ],
+  }
+}
+
 export function cognitiveTrendOption(
   labels: string[],
   primaryName: string,
