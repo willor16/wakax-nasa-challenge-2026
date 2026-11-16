@@ -26,6 +26,9 @@ const stripLocalPaths = {
   },
 }
 
+const baseUrl = process.env.NUXT_APP_BASE_URL || '/'
+const faviconHref = `${baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`}favicon.svg`
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-11-01',
   ssr: false,
@@ -38,9 +41,11 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
+      title: 'SpaceScan',
       // The interface is English only: declare it, and stop browsers from auto-translating it.
       htmlAttrs: { lang: 'en', translate: 'no' },
       meta: [{ name: 'google', content: 'notranslate' }],
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: faviconHref }],
     },
   },
   css: ['~/assets/css/tokens.css'],
@@ -85,6 +90,7 @@ export default defineNuxtConfig({
   icon: {
     provider: 'none',
     fallbackToApi: false,
+    cssLayer: 'base',
     clientBundle: {
       scan: true,
     },
