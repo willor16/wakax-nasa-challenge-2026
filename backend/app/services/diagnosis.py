@@ -15,10 +15,9 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from app.services.anomaly import PATTERN_INFO, Models, detect
+from app.services.anomaly import PATTERN_INFO, Models, ModelsUnavailable, detect
 from app.services.guide import get_article, search_articles
 from app.services.llm import generate_guidance
-from app.services.wiki_seed import ensure_guide_schema
 
 TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 DECISIONS = ("APPROVED", "REJECTED", "PROMOTED_TO_GUIDE")
@@ -28,7 +27,7 @@ PATTERN_CATEGORY = {
     "ocular": "Vision & Pressure",
     "fatigue": "Sleep & Fatigue",
     "low_oxygen": "CO2 Exposure",
-    "dehydration": "Cardiorespiratory",
+    "dehydration": "Hydration & Nutrition",
     "decoupled": "Cardiorespiratory",
     "novel": "Cardiorespiratory",
 }
@@ -66,7 +65,6 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def get_diagnosis(conn: sqlite3.Connection, diagnosis_id: int) -> dict | None:
-    ensure_diagnosis_columns(conn)
     row = conn.execute(
         """
         SELECT d.*, c.full_name AS crew_name, c.role AS crew_role
@@ -91,12 +89,20 @@ def _grounding_articles(conn: sqlite3.Connection, pattern: str) -> list[dict]:
     return articles[:3]
 
 
-def scan_crew_member(conn: sqlite3.Connection, crew_id: str, *, models: Models | None = None,
-                     client: httpx.Client | None = None) -> dict:
+def scan_crew_member(
+    conn: sqlite3.Connection,
+    crew_id: str,
+    *,
+    models: Models | None = None,
+    client: httpx.Client | None = None,
+) -> dict:
     """Run the networks; store a PENDING_REVIEW finding when something stands out."""
-    ensure_diagnosis_columns(conn)
-    finding = detect(conn, crew_id, models=models)
-    result = {"finding": asdict(finding), "diagnosis": None, "repeated": False}
+    conn.commit()  # nothing stays locked while the assistant writes its answer
+    try:
+        finding = detect(conn, crew_id, models=models)
+    except ModelsUnavailable:
+        return {"finding": None, "diagnosis": None, "repeated": False, "available": False}
+    result = {"finding": asdict(finding), "diagnosis": None, "repeated": False, "available": True}
     if not finding.is_anomaly or finding.pattern is None:
         return result
 
@@ -129,11 +135,18 @@ def scan_crew_member(conn: sqlite3.Connection, crew_id: str, *, models: Models |
         ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            crew_id, _mission_stage(conn), finding.anomaly_score,
-            f"{finding.model_name} | {guidance.model}", guidance.summary_en,
-            json.dumps(guidance.steps), json.dumps(guidance.cited_article_ids),
-            _now().strftime(TS_FORMAT), finding.pattern, finding.pattern_label_en,
-            json.dumps(finding.top_metrics), guidance.source,
+            crew_id,
+            _mission_stage(conn),
+            finding.anomaly_score,
+            f"{finding.model_name} | {guidance.model}",
+            guidance.summary_en,
+            json.dumps(guidance.steps),
+            json.dumps(guidance.cited_article_ids),
+            _now().strftime(TS_FORMAT),
+            finding.pattern,
+            finding.pattern_label_en,
+            json.dumps(finding.top_metrics),
+            guidance.source,
         ),
     )
     result["diagnosis"] = get_diagnosis(conn, int(cursor.lastrowid))
@@ -141,14 +154,23 @@ def scan_crew_member(conn: sqlite3.Connection, crew_id: str, *, models: Models |
 
 
 def scan_all(conn: sqlite3.Connection, **kwargs) -> list[dict]:
+    """Scan every active crew member, saving after each one.
+
+    The assistant can take many seconds per finding; committing between crew
+    members keeps the database free for new readings in the meantime.
+    """
     crew = [r[0] for r in conn.execute("SELECT id FROM crew_members WHERE is_active = 1")]
-    return [scan_crew_member(conn, crew_id, **kwargs) for crew_id in crew]
+    results = []
+    for crew_id in crew:
+        results.append(scan_crew_member(conn, crew_id, **kwargs))
+        conn.commit()
+    return results
 
 
-def list_diagnoses(conn: sqlite3.Connection, *, viewer_id: str, viewer_role: str,
-                   status: str | None = None) -> list[dict]:
+def list_diagnoses(
+    conn: sqlite3.Connection, *, viewer_id: str, viewer_role: str, status: str | None = None
+) -> list[dict]:
     """Physician: every finding (optionally by status). Crew: their own reviewed ones."""
-    ensure_diagnosis_columns(conn)
     sql = """
         SELECT d.*, c.full_name AS crew_name, c.role AS crew_role
         FROM diagnoses AS d JOIN crew_members AS c ON c.id = d.crew_id
@@ -188,9 +210,7 @@ def _notify_crew(conn: sqlite3.Connection, diagnosis: dict, notes: str | None, s
     return int(cursor.lastrowid)
 
 
-def _promote_to_guide(conn: sqlite3.Connection, diagnosis: dict, notes: str | None,
-                      stamp: str) -> str:
-    ensure_guide_schema(conn)
+def _promote_to_guide(conn: sqlite3.Connection, diagnosis: dict, stamp: str) -> str:
     primary = get_article(conn, (diagnosis["cited_article_ids"] or [""])[0])
     article_id = f"wiki-case-{diagnosis['id']}"
     conn.execute(
@@ -206,7 +226,9 @@ def _promote_to_guide(conn: sqlite3.Connection, diagnosis: dict, notes: str | No
             f"Validated Case: {diagnosis['pattern_label_en']}",
             primary["drawer_code"] if primary else "DRAWER B2",
             json.dumps(diagnosis["preventive_steps"]),
-            notes or (primary["escalation_en"] if primary else "Call the crew physician."),
+            # The guide is open to everyone on board: physician notes about one
+            # crew member stay in the private advisory, never in the article.
+            primary["escalation_en"] if primary else "Call the crew physician.",
             diagnosis["id"],
             stamp,
             stamp,
@@ -220,8 +242,13 @@ class ReviewError(ValueError):
     """The finding cannot be reviewed (missing or already reviewed)."""
 
 
-def review_diagnosis(conn: sqlite3.Connection, diagnosis_id: int, physician_id: str,
-                     decision: str, notes: str | None = None) -> dict:
+def review_diagnosis(
+    conn: sqlite3.Connection,
+    diagnosis_id: int,
+    physician_id: str,
+    decision: str,
+    notes: str | None = None,
+) -> dict:
     if decision not in DECISIONS:
         raise ReviewError("Unknown decision.")
     diagnosis = get_diagnosis(conn, diagnosis_id)
@@ -229,6 +256,10 @@ def review_diagnosis(conn: sqlite3.Connection, diagnosis_id: int, physician_id: 
         raise ReviewError("Finding not found.")
     if diagnosis["validation_status"] != "PENDING_REVIEW":
         raise ReviewError("Finding already reviewed.")
+    if diagnosis["crew_id"] == physician_id:
+        raise ReviewError(
+            "Your own finding must be reviewed by the Mission Control flight surgeon."
+        )
     stamp = _now().strftime(TS_FORMAT)
     conn.execute(
         """
@@ -238,9 +269,14 @@ def review_diagnosis(conn: sqlite3.Connection, diagnosis_id: int, physician_id: 
         """,
         (decision, physician_id, stamp, notes, diagnosis_id),
     )
+    conn.execute(
+        """INSERT INTO review_decisions (diagnosis_id, decision, reviewer_id, notes_en,
+           decided_at_utc) VALUES (?, ?, ?, ?, ?)""",
+        (diagnosis_id, decision, physician_id, notes, stamp),
+    )
     outcome: dict = {"alert_id": None, "guide_article_id": None}
     if decision in ("APPROVED", "PROMOTED_TO_GUIDE"):
         outcome["alert_id"] = _notify_crew(conn, diagnosis, notes, stamp)
     if decision == "PROMOTED_TO_GUIDE":
-        outcome["guide_article_id"] = _promote_to_guide(conn, diagnosis, notes, stamp)
+        outcome["guide_article_id"] = _promote_to_guide(conn, diagnosis, stamp)
     return {**get_diagnosis(conn, diagnosis_id), **outcome}

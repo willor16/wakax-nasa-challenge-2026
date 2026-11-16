@@ -55,7 +55,7 @@ def test_topic_filter_and_empty_query(conn) -> None:
     trauma = search_articles(conn, "", "Trauma & Burns")
     assert {r["id"] for r in trauma} == {"wiki-trauma-01", "wiki-bleeding-01"}
     assert all(r["drawer_code"] == "DRAWER B1" for r in trauma)
-    assert len(search_articles(conn)) == 7
+    assert len(search_articles(conn)) == 9
     assert search_articles(conn, "cut", "Medications") == []
 
 
@@ -73,7 +73,7 @@ def test_article_kit_and_emergency_index(conn) -> None:
                               "status_en": "Charged 100%"}
 
     index = emergency_index(conn)
-    assert len(index) == 7 and all(i["escalation_en"] for i in index)
+    assert len(index) == 9 and all(i["escalation_en"] for i in index)
 
 
 def test_old_plain_steps_still_render() -> None:
@@ -95,5 +95,5 @@ def test_api_endpoints(temp_db_path: Path) -> None:
 
         assert client.get("/api/v1/wiki/articles/wiki-trauma-01").status_code == 200
         assert client.get("/api/v1/wiki/articles/nope").status_code == 404
-        assert len(client.get("/api/v1/wiki/emergency-index").json()["items"]) == 7
+        assert len(client.get("/api/v1/wiki/emergency-index").json()["items"]) == 9
         assert len(client.get("/api/v1/kit/drawers").json()["drawers"]) == 4

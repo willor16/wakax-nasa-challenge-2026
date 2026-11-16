@@ -1,98 +1,79 @@
 <script setup lang="ts">
-const { activeCrew, isAuthenticated, cabinMode, unreadAlerts } = useSession()
+import logoUrl from '~/assets/hologram/logo.svg'
+
+defineProps<{ authenticated: boolean }>()
+
+const header = usePageHeader()
+const { clockText, unread } = useMission()
 const route = useRoute()
-
-const utcClock = ref('')
-let clockTimer: ReturnType<typeof setInterval> | null = null
-
-function updateClock() {
-  const now = new Date()
-  utcClock.value = now.toISOString().slice(11, 19) + ' UTC'
-}
-
-onMounted(() => {
-  updateClock()
-  clockTimer = setInterval(updateClock, 1000)
-})
-
-onUnmounted(() => {
-  if (clockTimer) clearInterval(clockTimer)
-})
+const { t } = useI18n()
+const onNotifications = computed(() => route.path === '/notifications')
 </script>
 
 <template>
-  <header class="h-[56px] px-7 bg-cabin-bg/86 border-b border-cabin-card/55 flex items-center justify-between gap-4 shrink-0">
-    <div class="flex items-center gap-3">
-      <div class="w-7 h-7 rounded-[4px] bg-cabin-card/35 border border-cabin-card/80 flex items-center justify-center">
-        <Icon name="spacescan:rocket" class="w-4 h-4 text-cabin-text" />
-      </div>
-      <div class="flex items-baseline gap-2.5">
-        <span class="text-[14px] font-bold tracking-[0.06em] uppercase text-cabin-text">
-          {{ $t('brand.title') }}
-        </span>
-        <span class="font-mono text-[11px] font-semibold tracking-[0.08em] text-cabin-muted">
-          {{ $t('brand.mission') }}
-        </span>
-      </div>
+  <header
+    class="absolute top-0 left-0 right-0 h-[56px] flex items-center px-[18px] border-b border-cabin-edge/40 bg-[var(--color-header-bg)]"
+  >
+    <img :src="logoUrl" alt="" class="w-[34px] h-[36px] shrink-0">
+    <div class="ml-[8px] leading-tight w-[104px] shrink-0">
+      <p class="text-[15.5px] font-bold tracking-[0.01em]">{{ t('brand.name') }}</p>
+      <p class="text-[9.5px] font-semibold text-cabin-ice tracking-[0.04em]">{{ t('brand.mission') }}</p>
     </div>
 
-    <div class="flex items-center gap-4">
-      <div class="px-3.5 h-8 rounded-[4px] bg-cabin-inset border border-cabin-card/60 flex items-center gap-2.5">
-        <span class="text-[10px] font-semibold tracking-[0.06em] uppercase text-cabin-muted">
-          {{ $t('header.missionClock') }}
-        </span>
-        <span class="font-mono text-[12.5px] font-bold text-cabin-text">
-          {{ utcClock || '00:00:00 UTC' }}
-        </span>
+    <template v-if="header.title">
+      <span class="w-px h-[30px] bg-cabin-text/20 mx-[18px]" />
+      <div class="leading-tight min-w-0">
+        <h1 class="text-[15.5px] font-semibold truncate">{{ header.title }}</h1>
+        <p v-if="header.subtitle" class="text-[9.5px] font-semibold text-cabin-ice tracking-[0.04em] uppercase">
+          {{ header.subtitle }}
+        </p>
+      </div>
+    </template>
+
+    <div class="ml-auto flex items-center">
+      <div class="leading-tight" :class="header.status || authenticated ? 'pl-[16px] border-l border-cabin-text/20' : ''">
+        <p v-if="header.status || authenticated" class="text-[8.5px] font-semibold text-cabin-muted tracking-[0.06em]">
+          {{ t('header.missionClock') }}
+        </p>
+        <p class="mono text-[11.5px] font-medium tracking-[0.04em]" aria-live="off">{{ clockText }}</p>
       </div>
 
       <NuxtLink
-        v-if="isAuthenticated && activeCrew?.role === 'OPERATOR'"
-        to="/crew-management"
-        class="h-8 px-3 rounded-[4px] border flex items-center gap-1.5 text-[11px] font-semibold transition-colors"
-        :class="
-          route.path === '/crew-management'
-            ? 'menu-item-active text-cabin-text'
-            : 'bg-cabin-inset border-cabin-card/65 text-cabin-muted hover:text-cabin-text'
-        "
-      >
-        <Icon name="spacescan:profile" class="w-3.5 h-3.5" />
-        <span>Crew Admin</span>
-      </NuxtLink>
-
-      <NuxtLink
-        v-if="isAuthenticated"
+        v-if="authenticated"
         to="/notifications"
-        class="h-8 px-3.5 rounded-[4px] border flex items-center gap-2 text-[11.5px] font-semibold transition-colors"
-        :class="
-          route.path === '/notifications'
-            ? 'menu-item-active text-cabin-text'
-            : 'bg-cabin-inset border-cabin-card/65 text-cabin-text hover:bg-cabin-card/35'
-        "
+        class="focus-ring ml-[58px] h-[30px] w-[160px] rounded-full flex items-center justify-center gap-[10px] text-[11.5px] font-semibold border-[1.4px]"
+        :class="[
+          unread > 0 ? 'border-cabin-crit/85' : 'border-cabin-navy-edge/80',
+          onNotifications ? 'bg-cabin-navy/60' : 'bg-cabin-tile',
+        ]"
+        :aria-label="t('header.notificationsLabel', { count: unread })"
       >
-        <Icon name="spacescan:bell" class="w-3.5 h-3.5 text-cabin-text" />
-        <span>{{ $t('header.notifications') }}</span>
-        <span
-          class="font-mono text-[10.5px] font-bold px-1.5 py-0.5 rounded-full"
-          :class="unreadAlerts > 0 ? 'bg-cabin-crit/85 text-cabin-text' : 'bg-cabin-navy/55 text-cabin-text'"
-        >
-          {{ unreadAlerts }}
+        <span class="relative">
+          <Icon name="spacescan:bell" class="w-[15px] h-[15px]" />
+          <i v-if="unread > 0" class="absolute -top-[3px] -right-[3px] w-[6px] h-[6px] rounded-full bg-cabin-crit" />
         </span>
+        {{ t('header.notifications', { count: unread }) }}
       </NuxtLink>
 
       <div
-        class="h-8 px-3.5 rounded-full border flex items-center gap-2 text-[10.8px] font-bold tracking-[0.05em] uppercase"
-        :class="
-          cabinMode === 'critical'
-            ? 'bg-cabin-crit/25 border-cabin-crit text-cabin-text'
-            : 'bg-cabin-navy/42 border-cabin-navy-edge/80 text-cabin-text'
-        "
+        v-if="header.status"
+        class="ml-[14px] h-[30px] w-[200px] rounded-full flex items-center px-[12px] text-[10.5px] font-bold tracking-[0.03em] border-[1.4px]"
+        :class="{
+          'bg-cabin-ok/15 border-cabin-ok/80': header.status.tone === 'ok',
+          'bg-cabin-crit/30 border-cabin-crit/85': header.status.tone === 'critical',
+          'bg-cabin-navy/50 border-cabin-navy-edge/80': header.status.tone === 'neutral',
+        }"
+        role="status"
       >
-        <span
-          class="w-2 h-2 rounded-full"
-          :class="cabinMode === 'critical' ? 'bg-cabin-crit' : 'bg-cabin-ok'"
+        <i
+          class="w-[7px] h-[7px] rounded-full shrink-0"
+          :class="{
+            'bg-cabin-ok': header.status.tone === 'ok',
+            'bg-cabin-crit': header.status.tone === 'critical',
+            'bg-cabin-navy-edge': header.status.tone === 'neutral',
+          }"
         />
-        <span>{{ cabinMode === 'critical' ? $t('header.cabinCritical') : $t('header.cabinNominal') }}</span>
+        <span class="flex-1 text-center truncate uppercase">{{ header.status.text }}</span>
       </div>
     </div>
   </header>

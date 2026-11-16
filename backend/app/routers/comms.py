@@ -1,147 +1,199 @@
-"""Delayed ground communications queue and solar weather endpoints (D1-07)."""
+"""Mission Control link (screen 15): delayed messages, transmission log and solar weather."""
 
 import json
-from datetime import UTC, datetime
-from typing import Literal
+from datetime import timedelta
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from app.auth_utils import CurrentCrew
 from app.db import open_connection
-from app.services.comms_service import enqueue_daily_summary, process_ground_outbox
+from app.routers.crew import verify_ground_signature
+from app.services.comms_service import (
+    PACKET_TITLES,
+    earth_latency_min,
+    enqueue_packet,
+    process_ground_outbox,
+)
+from app.services.environment import cabin_snapshot
+from app.services.mission_clock import parse_iso, to_iso, utc_now
 
 router = APIRouter(prefix="/api/v1", tags=["comms"])
 
+ARCHIVE_AFTER = timedelta(hours=24)
+
 
 class QueuePacketIn(BaseModel):
-    crew_id: str | None = Field(default="ID-01")
     packet_type: Literal["DAILY_SUMMARY", "CLINICAL_REPORT"] = "DAILY_SUMMARY"
     note_en: str | None = Field(default=None, max_length=280)
 
 
 class InboundDirectiveIn(BaseModel):
-    crew_id: str | None = Field(default=None)
+    crew_id: str | None = Field(default=None, max_length=32)
+    sender_en: str = Field(default="Flight Surgeon", min_length=2, max_length=60)
     title_en: str = Field(..., min_length=2, max_length=120)
     guidance_en: str = Field(..., min_length=4, max_length=500)
 
 
-def _format_packet(row: dict) -> dict:
+def _bundle(row) -> dict:
     try:
-        parsed = json.loads(row["bundle_json"])
+        return json.loads(row["bundle_json"])
     except json.JSONDecodeError:
-        parsed = {}
+        return {}
 
-    summary = (
-        parsed.get("crew_summary")
-        or parsed.get("guidance_en")
-        or parsed.get("title_en")
-        or "Clinical telemetry packet"
-    )
+
+def _message(row, now) -> dict:
+    data = _bundle(row)
+    arrived = row["delivered_at_utc"] or row["deliver_after_utc"]
+    if row["status"] == "ACKNOWLEDGED":
+        state = "ARCHIVED" if now - parse_iso(arrived) > ARCHIVE_AFTER else "CONFIRMED"
+    else:
+        state = "NEW"
     return {
         "id": row["id"],
-        "packet_type": row["packet_type"],
-        "direction": row["direction"],
+        "sender_en": data.get("sender_en") or "Mission Control",
+        "title_en": data.get("title_en") or "Message from Mission Control",
+        "guidance_en": data.get("guidance_en") or "",
         "crew_id": row["crew_id"],
-        "status": row["status"],
-        "created_at_utc": row["created_at_utc"],
+        "received_at_utc": arrived,
+        "state": state,
+    }
+
+
+def _log_entry(row) -> dict:
+    data = _bundle(row)
+    inbound = row["direction"] == "INBOUND"
+    if inbound:
+        state = "RECEIVED" if row["status"] in ("DELIVERED", "ACKNOWLEDGED") else "INCOMING"
+        title = data.get("title_en") or ("Crew Roster Update" if row["packet_type"] == "CREW_UPDATE"
+                                         else "Message from Mission Control")
+        at = row["delivered_at_utc"] or row["deliver_after_utc"]
+    else:
+        state = {"QUEUED": "QUEUED", "IN_TRANSIT": "IN TRANSIT", "DELIVERED": "DELIVERED",
+                 "ACKNOWLEDGED": "DELIVERED"}[row["status"]]
+        title = data.get("title_en") or PACKET_TITLES.get(row["packet_type"], "Health Packet")
+        at = row["created_at_utc"]
+    return {
+        "id": row["id"],
+        "direction": row["direction"],
+        "title_en": title,
+        "state": state,
+        "confirmed": row["status"] == "ACKNOWLEDGED",
+        "at_utc": at,
         "deliver_after_utc": row["deliver_after_utc"],
-        "delivered_at_utc": row["delivered_at_utc"],
-        "summary": summary,
-        "title_en": parsed.get("title_en"),
-        "guidance_en": parsed.get("guidance_en"),
+    }
+
+
+def _solar(cabin: dict | None) -> dict | None:
+    if cabin is None:
+        return None
+    kp = cabin["kp_index"]
+    if cabin["solar_event"] or (kp is not None and kp >= 5):
+        label, forecast, state = "Storm conditions", \
+            "Solar particle event in progress · Use the shielded shelter", "ALERT"
+    elif kp is not None and kp >= 4:
+        label, forecast, state = "Unsettled conditions", \
+            "Elevated solar activity · Exterior work under review", "WATCH"
+    else:
+        label, forecast, state = "Quiet conditions", \
+            "No solar particle events expected · Cabin radiation levels nominal", "QUIET"
+    return {
+        "kp_index": kp,
+        "kp_label": label,
+        "forecast_en": forecast,
+        "state": state,
+        "radiation_msv_day": cabin["radiation_msv_day"],
+        "radiation_status": cabin["statuses"]["radiation_msv"],
+        "radiation_mission_msv": cabin["radiation_mission_msv"],
+        "radiation_yearly_limit_msv": cabin["radiation_yearly_limit_msv"],
+        "recorded_at_utc": cabin["recorded_at_utc"],
     }
 
 
 @router.get("/comms")
-def get_comms_status() -> dict:
-    """Return ground transmission queue, flight surgeon directives, and solar telemetry."""
+def get_comms_status(_claims: CurrentCrew) -> dict:
+    """Messages from Mission Control, the transmission log and solar weather."""
+    now = utc_now()
     with open_connection() as conn:
-        mission_row = conn.execute(
-            "SELECT mission_code, earth_latency_min FROM mission WHERE id = 1"
-        ).fetchone()
-        outbox_rows = conn.execute(
-            """
-            SELECT *
-            FROM ground_outbox
-            WHERE direction = 'OUTBOUND'
-            ORDER BY id DESC
-            LIMIT 20
-            """
+        process_ground_outbox(conn)
+        inbound = conn.execute(
+            """SELECT * FROM ground_outbox WHERE direction = 'INBOUND'
+               AND packet_type = 'GROUND_DIRECTIVE' AND status IN ('DELIVERED', 'ACKNOWLEDGED')
+               ORDER BY COALESCE(delivered_at_utc, deliver_after_utc) DESC LIMIT 12"""
         ).fetchall()
-        directive_rows = conn.execute(
-            """
-            SELECT *
-            FROM ground_outbox
-            WHERE direction = 'INBOUND'
-            ORDER BY id DESC
-            LIMIT 10
-            """
+        log_rows = conn.execute(
+            """SELECT * FROM ground_outbox
+               ORDER BY COALESCE(delivered_at_utc, created_at_utc) DESC, id DESC LIMIT 12"""
         ).fetchall()
-        solar_rows = conn.execute(
-            """
-            SELECT radiation_msv, solar_event_flag, co2_ppm, recorded_at_utc
-            FROM environment_readings
-            ORDER BY id DESC
-            LIMIT 6
-            """
-        ).fetchall()
-
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM ground_outbox WHERE status IN ('QUEUED', 'IN_TRANSIT')"
+        ).fetchone()[0]
+        latency = earth_latency_min(conn)
+        cabin = cabin_snapshot(conn)
     return {
-        "mission_code": mission_row["mission_code"] if mission_row else "ARES VII",
-        "earth_latency_min": int(mission_row["earth_latency_min"]) if mission_row else 12,
-        "outbound_packets": [_format_packet(dict(r)) for r in outbox_rows],
-        "inbound_directives": [_format_packet(dict(r)) for r in directive_rows],
-        "solar_weather": [dict(r) for r in solar_rows],
+        "earth_latency_min": latency,
+        "pending_packets": int(pending),
+        "synchronized": int(pending) == 0,
+        "messages": [_message(r, now) for r in inbound],
+        "transmission_log": [_log_entry(r) for r in log_rows],
+        "solar_weather": _solar(cabin),
     }
 
 
 @router.post("/comms/packets", status_code=status.HTTP_201_CREATED)
-def queue_outbound_packet(body: QueuePacketIn) -> dict:
-    """Enqueue an outbound clinical summary packet with simulated Earth latency."""
+def queue_outbound_packet(body: QueuePacketIn, claims: CurrentCrew) -> dict:
+    """Queue a crew health summary for delayed delivery to Mission Control."""
     with open_connection() as conn:
-        packet = enqueue_daily_summary(
-            conn,
-            crew_id=body.crew_id,
-            packet_type=body.packet_type,
-            note_en=body.note_en,
-        )
-        conn.commit()
-    return packet
+        return enqueue_packet(conn, crew_id=claims["sub"], packet_type=body.packet_type,
+                              note_en=body.note_en)
 
 
-@router.post("/comms/directives", status_code=status.HTTP_201_CREATED)
-def receive_ground_directive(body: InboundDirectiveIn) -> dict:
-    """Record an inbound remote flight surgeon directive in ground_outbox."""
-    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    bundle = {
-        "title_en": body.title_en.strip(),
-        "guidance_en": body.guidance_en.strip(),
-        "received_at_utc": now_iso,
-    }
+@router.post("/comms/messages/{message_id}/confirm")
+def confirm_message(message_id: int, claims: CurrentCrew) -> dict:
+    """Confirm that a message from Mission Control was read."""
     with open_connection() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO ground_outbox (
-                packet_type, direction, crew_id, bundle_json,
-                created_at_utc, deliver_after_utc, delivered_at_utc, status
-            ) VALUES ('GROUND_DIRECTIVE', 'INBOUND', ?, ?, ?, ?, ?, 'DELIVERED')
-            """,
-            (body.crew_id, json.dumps(bundle), now_iso, now_iso, now_iso),
+        row = conn.execute(
+            """SELECT id, status FROM ground_outbox WHERE id = ? AND direction = 'INBOUND'
+               AND packet_type = 'GROUND_DIRECTIVE'""",
+            (message_id,),
+        ).fetchone()
+        if row is None or row["status"] not in ("DELIVERED", "ACKNOWLEDGED"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found.")
+        conn.execute("UPDATE ground_outbox SET status = 'ACKNOWLEDGED' WHERE id = ?", (message_id,))
+    return {"id": message_id, "state": "CONFIRMED", "confirmed_by": claims["sub"]}
+
+
+@router.post("/comms/directives", status_code=status.HTTP_202_ACCEPTED)
+async def receive_ground_directive(
+    request: Request,
+    x_ground_signature: Annotated[str | None, Header()] = None,
+) -> dict:
+    """Signed medical guidance from Mission Control; visible on board after the signal delay."""
+    raw = await request.body()
+    verify_ground_signature(raw, x_ground_signature)
+    try:
+        body = InboundDirectiveIn.model_validate_json(raw)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "The message is incomplete or malformed.") from exc
+    now = utc_now()
+    with open_connection() as conn:
+        latency = earth_latency_min(conn)
+        bundle = {"title_en": body.title_en.strip(), "guidance_en": body.guidance_en.strip(),
+                  "sender_en": body.sender_en.strip(), "sent_at_utc": to_iso(now)}
+        cursor = conn.execute(
+            """INSERT INTO ground_outbox (packet_type, direction, crew_id, bundle_json,
+               created_at_utc, deliver_after_utc, status)
+               VALUES ('GROUND_DIRECTIVE', 'INBOUND', ?, ?, ?, ?, 'IN_TRANSIT')""",
+            (body.crew_id, json.dumps(bundle), to_iso(now),
+             to_iso(now + timedelta(minutes=latency))),
         )
-        conn.commit()
-    return {
-        "id": int(cur.lastrowid),
-        "packet_type": "GROUND_DIRECTIVE",
-        "direction": "INBOUND",
-        "status": "DELIVERED",
-        **bundle,
-    }
+    return {"id": int(cursor.lastrowid), "status": "IN_TRANSIT", "arrives_after_min": latency}
 
 
 @router.post("/comms/flush")
-def flush_outbound_queue() -> dict[str, int]:
-    """Advance due outbound packets immediately (used by scheduler and verification)."""
+def flush_outbound_queue(_claims: CurrentCrew) -> dict[str, int]:
+    """Advance the link right now instead of waiting for the next scheduled pass."""
     with open_connection() as conn:
-        result = process_ground_outbox(conn)
-        conn.commit()
-    return result
+        return process_ground_outbox(conn)

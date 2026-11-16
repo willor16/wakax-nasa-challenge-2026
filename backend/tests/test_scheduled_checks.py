@@ -62,50 +62,70 @@ def _open_checks(conn, crew_id: str) -> dict[str, str]:
     return {r["check_type"]: r["due_at_utc"] for r in rows}
 
 
-def test_refresh_keeps_one_open_check_per_type_and_is_idempotent(conn) -> None:
-    first = refresh_scheduled_checks(conn, NOW)
-    open_checks = _open_checks(conn, "ID-01")
-    assert set(open_checks) == {plan.check_type for plan in CHECK_PLANS}
-    # The seeded eye exam stays the open one instead of being duplicated.
-    assert open_checks["OCULAR_EXAM"] == "2026-11-14T20:00:00Z"
-    assert first["created"] == 4 * (len(CHECK_PLANS) - 1)
+CREW = "ID-09"
+# Noon of a fixed future day: after every seeded reading and outside Quiet Hours.
+LATER = datetime(2027, 3, 1, 12, 0, tzinfo=UTC)
 
-    second = refresh_scheduled_checks(conn, NOW)
+
+def _fresh_crew(conn) -> None:
+    """A crew member without readings; earlier checks are cleared for a clean slate."""
+    conn.execute("DELETE FROM scheduled_checks")
+    conn.execute(
+        """INSERT INTO crew_members (id, code, full_name, role, pin_hash, is_active,
+           created_at_utc, updated_at_utc)
+           VALUES (?, 'ID·09', 'Test Crew', 'ASTRONAUT', 'x', 1, '2027-01-01T00:00:00Z',
+                   '2027-01-01T00:00:00Z')""",
+        (CREW,),
+    )
+
+
+def _reading(conn, metric_key: str, value: float, when: datetime) -> None:
+    conn.execute(
+        """INSERT INTO measurements (crew_id, metric_key, mission_stage, recorded_at_utc,
+           value_num) VALUES (?, ?, 'MISSION', ?, ?)""",
+        (CREW, metric_key, when.strftime("%Y-%m-%dT%H:%M:%SZ"), value),
+    )
+
+
+def test_refresh_keeps_one_open_check_per_type_and_is_idempotent(conn) -> None:
+    _fresh_crew(conn)
+    first = refresh_scheduled_checks(conn, LATER)
+    open_checks = _open_checks(conn, CREW)
+    assert set(open_checks) == {plan.check_type for plan in CHECK_PLANS}
+    # Nothing was ever measured, so every check is due right now.
+    assert set(open_checks.values()) == {"2027-03-01T12:00:00Z"}
+    assert first["created"] == 5 * len(CHECK_PLANS)   # four seeded crew members plus this one
+
+    second = refresh_scheduled_checks(conn, LATER)
     assert second == {"created": 0, "completed": 0, "missed": 0}
 
 
 def test_new_reading_completes_the_check_and_schedules_the_next(conn) -> None:
-    refresh_scheduled_checks(conn, NOW)
-    conn.execute(
-        """
-        INSERT INTO measurements (crew_id, metric_key, mission_stage, recorded_at_utc, value_num)
-        VALUES ('ID-01', 'blood_glucose_mg_dl', 'MISSION', '2026-11-14T17:00:00Z', 92)
-        """
-    )
-    result = refresh_scheduled_checks(conn, NOW + timedelta(hours=2))
+    _fresh_crew(conn)
+    refresh_scheduled_checks(conn, LATER)
+    _reading(conn, "blood_glucose_mg_dl", 92, LATER + timedelta(hours=1))
+    result = refresh_scheduled_checks(conn, LATER + timedelta(hours=2))
     assert result["completed"] == 1 and result["created"] == 1
     done = conn.execute(
         "SELECT completed_at_utc FROM scheduled_checks"
-        " WHERE crew_id = 'ID-01' AND check_type = 'GLUCOSE_STRIP' AND status = 'COMPLETED'"
+        " WHERE crew_id = ? AND check_type = 'GLUCOSE_STRIP' AND status = 'COMPLETED'", (CREW,)
     ).fetchone()
-    assert done["completed_at_utc"] == "2026-11-14T17:00:00Z"
-    # Glucose every 72 h after the reading: 17 Nov 17:00 (daytime, unchanged).
-    assert _open_checks(conn, "ID-01")["GLUCOSE_STRIP"] == "2026-11-17T17:00:00Z"
+    assert done["completed_at_utc"] == "2027-03-01T13:00:00Z"
+    # Lab strips repeat every 72 h after the last lab reading.
+    assert _open_checks(conn, CREW)["GLUCOSE_STRIP"] == "2027-03-04T13:00:00Z"
 
 
 def test_long_overdue_check_is_missed_and_replaced(conn) -> None:
-    refresh_scheduled_checks(conn, NOW)
-    later = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
-    result = refresh_scheduled_checks(conn, later)
-    # The seeded eye exam was due 14 Nov 20:00 -> more than 12 h late.
-    assert result["missed"] >= 4
+    _fresh_crew(conn)
+    refresh_scheduled_checks(conn, LATER)
+    result = refresh_scheduled_checks(conn, LATER + timedelta(hours=13))
+    assert result["missed"] == 5 * len(CHECK_PLANS)
     missed = conn.execute(
-        "SELECT COUNT(*) FROM scheduled_checks WHERE check_type = 'OCULAR_EXAM'"
-        " AND status = 'MISSED'"
+        "SELECT COUNT(*) FROM scheduled_checks WHERE crew_id = ? AND status = 'MISSED'", (CREW,)
     ).fetchone()[0]
-    assert missed == 4
-    # Next eye scan: one week after the last eye reading (14 Nov 14:00).
-    assert _open_checks(conn, "ID-01")["OCULAR_EXAM"] == "2026-11-21T14:00:00Z"
+    assert missed == len(CHECK_PLANS)
+    # 01:00 UTC is inside Quiet Hours: the replacement waits for the morning.
+    assert set(_open_checks(conn, CREW).values()) == {"2027-03-02T07:30:00Z"}
 
 
 def test_check_texts_are_plain_english() -> None:

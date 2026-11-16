@@ -1,9 +1,11 @@
 import json
 import sqlite3
+from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.auth_utils import CurrentCrew, ensure_crew_access
 from app.deps import get_db_conn
 from app.schemas.measurements import (
     MeasurementBatchIn,
@@ -15,7 +17,9 @@ from app.schemas.measurements import (
     StreakUpdateSummary,
     normalize_utc_timestamp,
 )
+from app.services import reference_ranges
 from app.services.contracts import evaluate_alerts, update_streaks
+from app.services.mission_clock import current_stage, parse_iso, utc_now
 
 router = APIRouter(prefix="/api/v1", tags=["measurements"])
 
@@ -33,7 +37,12 @@ def _fetch_catalog(conn: sqlite3.Connection, category: str | None) -> list[Metri
         rows = conn.execute(
             "SELECT * FROM metric_catalog ORDER BY category ASC, metric_key ASC"
         ).fetchall()
-    return [MetricCatalogItem(**dict(r)) for r in rows]
+    items = []
+    for r in rows:
+        entry = reference_ranges.metric(r["metric_key"]) or {}
+        items.append(MetricCatalogItem(**dict(r), plausible_min=entry.get("plausible_min"),
+                                       plausible_max=entry.get("plausible_max")))
+    return items
 
 
 @router.get("/metrics/catalog", response_model=list[MetricCatalogItem])
@@ -55,7 +64,8 @@ def list_metrics(
 @router.get("/measurements", response_model=list[MeasurementRowOut])
 def list_measurements(
     conn: DbConn,
-    crew_id: Annotated[str, Query(min_length=1)],
+    claims: CurrentCrew,
+    crew_id: Annotated[str | None, Query()] = None,
     metric_key: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
     mission_stage: Annotated[MissionStage | None, Query()] = None,
@@ -65,8 +75,10 @@ def list_measurements(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[MeasurementRowOut]:
+    target = (crew_id or "").strip() or claims["sub"]
+    ensure_crew_access(claims, target)
     clauses = ["m.crew_id = ?"]
-    params: list[Any] = [crew_id.strip()]
+    params: list[Any] = [target]
 
     if metric_key:
         clauses.append("m.metric_key = ?")
@@ -87,7 +99,7 @@ def list_measurements(
         except ValueError as exc:
             raise HTTPException(
                 status_code=HTTP_422_UNPROCESSABLE,
-                detail=f"Invalid from_utc timestamp: {from_utc}",
+                detail="The start date is not a valid date and time.",
             ) from exc
     if to_utc:
         try:
@@ -96,7 +108,7 @@ def list_measurements(
         except ValueError as exc:
             raise HTTPException(
                 status_code=HTTP_422_UNPROCESSABLE,
-                detail=f"Invalid to_utc timestamp: {to_utc}",
+                detail="The end date is not a valid date and time.",
             ) from exc
 
     params.extend([limit, offset])
@@ -113,33 +125,53 @@ def list_measurements(
     return [MeasurementRowOut(**dict(r)) for r in rows]
 
 
-def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection) -> MeasurementIngestOut:
+def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection,
+                  claims: dict[str, Any]) -> MeasurementIngestOut:
+    crew_id = body.crew_id or claims["sub"]
+    ensure_crew_access(claims, crew_id)
     recorded_at = body.recorded_at_utc or normalize_utc_timestamp(None)
+    if parse_iso(recorded_at) > utc_now() + timedelta(minutes=5):
+        raise HTTPException(HTTP_422_UNPROCESSABLE, "The reading time cannot be in the future.")
     day_utc = recorded_at[:10]
 
     crew_exists = conn.execute(
-        "SELECT id FROM crew_members WHERE id = ? AND is_active = 1",
-        (body.crew_id,),
+        "SELECT id FROM crew_members WHERE id = ? AND is_active = 1", (crew_id,)
     ).fetchone()
     if crew_exists is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
+
+    # The mission decides the stage; a client can no longer rewrite pre-flight baselines.
+    stage = current_stage(conn)
+    if body.mission_stage is not None and body.mission_stage != stage:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active crew member not found.",
+            HTTP_422_UNPROCESSABLE,
+            f"The mission is in the {stage.title()} stage; readings are filed under it.",
         )
 
     keys = [item.metric_key for item in body.items]
     placeholders = ",".join("?" for _ in keys)
     catalog_rows = conn.execute(
-        f"SELECT metric_key FROM metric_catalog WHERE metric_key IN ({placeholders})",
+        f"SELECT metric_key, display_name_en, unit FROM metric_catalog "
+        f"WHERE metric_key IN ({placeholders})",
         tuple(keys),
     ).fetchall()
-    valid_keys = {r["metric_key"] for r in catalog_rows}
-    unknown_keys = [k for k in keys if k not in valid_keys]
+    catalog = {r["metric_key"]: r for r in catalog_rows}
+    unknown_keys = [k for k in keys if k not in catalog]
     if unknown_keys:
         raise HTTPException(
-            status_code=HTTP_422_UNPROCESSABLE,
-            detail=f"Unknown metric keys: {', '.join(unknown_keys)}",
+            HTTP_422_UNPROCESSABLE,
+            f"These readings are not part of the health catalog: {', '.join(unknown_keys)}",
         )
+    for item in body.items:
+        if not reference_ranges.is_plausible(item.metric_key, item.value_num):
+            entry = reference_ranges.metric(item.metric_key) or {}
+            name = catalog[item.metric_key]["display_name_en"]
+            raise HTTPException(
+                HTTP_422_UNPROCESSABLE,
+                f"{name} of {item.value_num:g} {catalog[item.metric_key]['unit']} is not possible. "
+                f"Enter a value between {entry.get('plausible_min'):g} and "
+                f"{entry.get('plausible_max'):g}.",
+            )
 
     inserted_ids: list[int] = []
     alerts_created: list[int] = []
@@ -150,7 +182,7 @@ def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection) -> Measure
         except ValueError as exc:
             raise HTTPException(
                 status_code=HTTP_422_UNPROCESSABLE,
-                detail="Measurement payload_json must not contain NaN or Infinity values.",
+                detail="Extra details may only contain ordinary numbers and text.",
             ) from exc
 
         cursor = conn.execute(
@@ -161,9 +193,9 @@ def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection) -> Measure
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                body.crew_id,
+                crew_id,
                 item.metric_key,
-                body.mission_stage,
+                stage,
                 body.source_type,
                 recorded_at,
                 item.value_num,
@@ -174,10 +206,11 @@ def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection) -> Measure
         inserted_ids.append(measurement_id)
         alerts_created.extend(evaluate_alerts(conn, measurement_id))
 
-    streak = update_streaks(conn, body.crew_id, day_utc)
+    streak = update_streaks(conn, crew_id, day_utc)
     return MeasurementIngestOut(
         inserted_ids=inserted_ids,
         alerts_created=alerts_created,
+        mission_stage=stage,
         streak=StreakUpdateSummary(**streak),
         recorded_at_utc=recorded_at,
     )
@@ -191,8 +224,9 @@ def _ingest_batch(body: MeasurementBatchIn, conn: sqlite3.Connection) -> Measure
 def ingest_measurements(
     body: MeasurementBatchIn,
     conn: DbConn,
+    claims: CurrentCrew,
 ) -> MeasurementIngestOut:
-    return _ingest_batch(body, conn)
+    return _ingest_batch(body, conn, claims)
 
 
 @router.post(
@@ -203,5 +237,6 @@ def ingest_measurements(
 def ingest_measurements_batch_alias(
     body: MeasurementBatchIn,
     conn: DbConn,
+    claims: CurrentCrew,
 ) -> MeasurementIngestOut:
-    return _ingest_batch(body, conn)
+    return _ingest_batch(body, conn, claims)

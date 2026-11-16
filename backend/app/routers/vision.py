@@ -1,64 +1,44 @@
+"""Vision & ocular exam results and physician review."""
+
 import sqlite3
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
-from app.auth_utils import get_current_crew
+from app.auth_utils import CurrentCrew, PhysicianCrew, ensure_crew_access
 from app.deps import get_db_conn
-from app.schemas.vision import (
-    VisionExamOut,
-    VisionReviewCreatedOut,
-    VisionReviewCreateIn,
-    VisionStageFilter,
-)
 from app.services.vision_service import build_vision_exam, record_vision_review
 
 router = APIRouter(prefix="/api/v1", tags=["vision"])
 
 DbConn = Annotated[sqlite3.Connection, Depends(get_db_conn)]
-CurrentCrew = Annotated[dict, Depends(get_current_crew)]
 
 
-@router.get("/vision/{crew_id}", response_model=VisionExamOut)
-def get_vision_exam_endpoint(
-    crew_id: str,
-    conn: DbConn,
-    stage: Annotated[VisionStageFilter, Query()] = "ALL",
-) -> VisionExamOut:
-    exam = build_vision_exam(conn, crew_id=crew_id, stage=stage)
+class VisionReviewIn(BaseModel):
+    decision: Literal["APPROVED", "REJECTED"] = "APPROVED"
+    notes_en: str | None = Field(default=None, max_length=500)
+
+
+@router.get("/vision/{crew_id}")
+def get_vision_exam(crew_id: str, conn: DbConn, claims: CurrentCrew) -> dict:
+    ensure_crew_access(claims, crew_id)
+    exam = build_vision_exam(conn, crew_id)
     if exam is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Crew member '{crew_id}' was not found.",
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
     return exam
 
 
-@router.post(
-    "/vision/{crew_id}/review",
-    response_model=VisionReviewCreatedOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_vision_review_endpoint(
-    crew_id: str,
-    payload: VisionReviewCreateIn,
-    claims: CurrentCrew,
-    conn: DbConn,
-) -> VisionReviewCreatedOut:
-    if claims.get("role") != "PHYSICIAN":
+@router.post("/vision/{crew_id}/review", status_code=status.HTTP_201_CREATED)
+def create_vision_review(crew_id: str, body: VisionReviewIn, claims: PhysicianCrew,
+                         conn: DbConn) -> dict:
+    if claims["sub"] == crew_id:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the crew physician may validate ocular findings.",
+            status.HTTP_403_FORBIDDEN,
+            "Your own exam must be reviewed by the Mission Control flight surgeon.",
         )
     try:
-        return record_vision_review(
-            conn=conn,
-            crew_id=crew_id,
-            physician_id=str(claims["sub"]),
-            payload=payload,
-        )
+        return record_vision_review(conn, crew_id, str(claims["sub"]), body.decision,
+                                    body.notes_en)
     except LookupError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc

@@ -1,5 +1,141 @@
 [
   {
+    "id": "wiki-co2-01",
+    "category_en": "CO2 Exposure",
+    "title_en": "Headache from Elevated Cabin CO2",
+    "drawer_code": "DRAWER B2",
+    "steps_json": [
+      {
+        "title_en": "Check Local Airflow",
+        "detail_en": "Measure CO2 near the breathing zone with the handheld capnograph. Values above 3.5 mmHg point to stagnant air pockets in weightlessness."
+      },
+      {
+        "title_en": "Relocate to Fresh Air Vent",
+        "detail_en": "Move the crew member to the main Habitat A air duct and set the fan speed to 100%. If dizziness occurs or CO2 exceeds 4.5 mmHg, give mask oxygen at 4 L/min."
+      },
+      {
+        "title_en": "Hydrate & Reassess",
+        "detail_en": "Drink 400 mL of water with electrolytes. If the headache persists after 30 minutes in clean air (below 2.8 mmHg), use the approved relief items in Drawer B2."
+      }
+    ],
+    "escalation_en": "Blurred vision, confusion, shortness of breath at rest, or cabin CO2 above 5.0 mmHg.",
+    "source_en": "Habitable Atmosphere technical brief; Natural and Induced Environments Vol. 2 (cabin air quality)."
+  },
+  {
+    "id": "wiki-vision-01",
+    "category_en": "Vision & Pressure",
+    "title_en": "Neuro-Ocular Sheath Elevation & Visual Shift Management",
+    "drawer_code": "DRAWER B2",
+    "steps_json": [
+      {
+        "title_en": "Repeat the Eye Scan",
+        "detail_en": "Repeat bilateral optic nerve sheath ultrasound measurement with 3.0 mm axial guide."
+      },
+      {
+        "title_en": "Record Eye Pressure & Acuity",
+        "detail_en": "Record intraocular pressure and visual acuity chart score for both eyes."
+      },
+      {
+        "title_en": "Lower-Body Negative Pressure",
+        "detail_en": "Schedule lower-body negative pressure countermeasure session per protocol."
+      },
+      {
+        "title_en": "Send Results for Review",
+        "detail_en": "Queue bilateral ocular telemetry bundle for flight surgeon review."
+      }
+    ],
+    "escalation_en": "Escalate to onboard physician if either optic sheath exceeds 5.5 mm or acute visual distortion occurs.",
+    "source_en": "Spaceflight Associated Neuro-ocular Syndrome clinical brief (exams at pre-flight, day 30, day 90, 30 days before return and post-flight)."
+  },
+  {
+    "id": "wiki-sleep-01",
+    "category_en": "Sleep & Fatigue",
+    "title_en": "Circadian Desynchronization & Sleep Debt Recovery",
+    "drawer_code": "DRAWER B2",
+    "steps_json": [
+      {
+        "title_en": "Protect the Rest Period",
+        "detail_en": "Verify quiet hours enforcement (22:00-06:00 UTC) and cabin lighting spectrum."
+      },
+      {
+        "title_en": "Lighten the Workload",
+        "detail_en": "Reduce non-essential EVA workload for 24 hours if sleep efficiency drops below 78%."
+      },
+      {
+        "title_en": "Check Reaction Before Duty",
+        "detail_en": "Run 2-minute cognitive reaction baseline prior to pilot duty rotation."
+      }
+    ],
+    "escalation_en": "Escalate to onboard physician if deep sleep stays below 45 minutes for 3 consecutive nights.",
+    "source_en": "NCBI Bookshelf NBK526132 Physiology, Sleep Stages; National Sleep Foundation - What is Sleep Quality."
+  },
+  {
+    "id": "wiki-cardio-01",
+    "category_en": "Cardiorespiratory",
+    "title_en": "Post-EVA Orthostatic & Auscultation Follow-Up",
+    "drawer_code": "DRAWER A2",
+    "steps_json": [
+      {
+        "title_en": "Quiet the Cabin",
+        "detail_en": "Confirm cabin ambient noise is below 55 dBA before acoustic capture."
+      },
+      {
+        "title_en": "Listen to the Heart",
+        "detail_en": "Record 30-second cardiac auscultation across mitral and aortic sites."
+      },
+      {
+        "title_en": "Rehydrate & Monitor",
+        "detail_en": "Administer electrolyte hydration pack and monitor recovery heart rate for 10 minutes."
+      }
+    ],
+    "escalation_en": "Escalate to onboard physician if resting heart rate remains above 110 bpm or abnormal murmur persists.",
+    "source_en": "MedlinePlus - Pulse; Reduced Cardiorespiratory and Musculoskeletal Fitness risk report."
+  },
+  {
+    "id": "wiki-hydration-01",
+    "category_en": "Hydration & Nutrition",
+    "title_en": "Low Fluid Intake & Dehydration Check",
+    "drawer_code": "DRAWER B2",
+    "steps_json": [
+      {
+        "title_en": "Drink 400 mL Now",
+        "detail_en": "Drink 400 mL of water with electrolytes, then spread the rest of the daily goal (30-35 mL per kg of body mass) across the shift."
+      },
+      {
+        "title_en": "Check Urine Color",
+        "detail_en": "Compare with the color strip in Pouch B2-11: levels 1-3 are well hydrated, 4-6 need more fluid, 7 or darker means dehydration."
+      },
+      {
+        "title_en": "Recheck in Two Hours",
+        "detail_en": "Log every drink and repeat the color check. Avoid hard exercise until the color returns to level 3 or lighter."
+      }
+    ],
+    "escalation_en": "Urine color at level 7 or darker after drinking, dizziness when standing, confusion or no urine for 8 hours.",
+    "source_en": "HPRC - How to assess hydration status using urine color charts; GSSI - Urine markers for hydration monitoring."
+  },
+  {
+    "id": "wiki-radiation-01",
+    "category_en": "Cabin Environment",
+    "title_en": "Solar Particle Event & Radiation Shelter",
+    "drawer_code": "DRAWER A1",
+    "steps_json": [
+      {
+        "title_en": "Move to the Shielded Shelter",
+        "detail_en": "Gather the crew in the storm shelter with the water-wall shielding until the daily dose falls back under 0.6 mSv."
+      },
+      {
+        "title_en": "Postpone Exterior Work",
+        "detail_en": "Reschedule any spacewalk and keep the personal dosimeter on during the whole shift."
+      },
+      {
+        "title_en": "Log the Dose",
+        "detail_en": "Record the dose for each crew member. The yearly working limit is 20 mSv; Earth background is 2.4-3.0 mSv per year."
+      }
+    ],
+    "escalation_en": "Nausea, vomiting or skin redness after exposure, or a daily dose above 10 mSv.",
+    "source_en": "Radiation Protection technical brief; The Human Body in Space."
+  },
+  {
     "id": "wiki-trauma-01",
     "category_en": "Trauma & Burns",
     "title_en": "Head or Limb Impact Check",

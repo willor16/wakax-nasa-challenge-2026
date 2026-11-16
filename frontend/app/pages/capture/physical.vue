@@ -1,574 +1,236 @@
 <script setup lang="ts">
-import type { MeasurementIngestOut, MissionStage } from '~/composables/useMeasurements'
-import {
-  buildClinicalLabsItems,
-  buildDailyVitalsItems,
-  extractErrorMessage,
-} from '~/composables/useMeasurements'
-import { clinicalLabsSchema, dailyVitalsHabitsSchema } from '~/schemas/capture'
+// 11 · Data Capture · Physical & Clinical Labs.
+import { apiErrorMessage } from '~/composables/useApi'
+import { toNumber } from '~/composables/useCatalog'
 
-const { activeCrew } = useSession()
-const { ingestMeasurements } = useMeasurements()
+usePageHeader({ title: 'Data Capture · Physical & Clinical Labs', status: { text: 'Ready to log', tone: 'ok' } })
+const { api } = useApi()
+const { load, numberRule, baselineHint, usualRange, catalog } = useCatalog()
+const loadError = ref<string | null>(null)
+const todayHydration = ref<{ value: number | null, target: number } | null>(null)
+const workLocation = ref('')
 
-const missionStage = ref<MissionStage>('MISSION')
-const baseHydrationMl = ref(2400)
-
-const vitalsForm = reactive({
-  bodyWeightKg: 63.8,
-  bpSystolicMmhg: 118,
-  bpDiastolicMmhg: 76,
-  restingHrBpm: 64,
-  bodyTempC: 36.8,
-  hydrationAddMl: 400,
-  caloriesKcal: 2420,
-  exerciseMin: 85,
-  workShiftText: '5h 20m',
-  workShiftMode: 'IVA' as 'IVA' | 'EVA',
+onMounted(async () => {
+  try {
+    await load()
+    const { crew } = useSession()
+    const profile = await api<{ daily: { metric_key: string, value: number | null, target?: number }[], work: { interior_location_en: string | null } }>(
+      `/crew/${crew.value!.id}/profile`)
+    const row = profile.daily.find(r => r.metric_key === 'hydration_ml')
+    if (row?.target) todayHydration.value = { value: row.value, target: row.target }
+    workLocation.value = profile.work.interior_location_en ?? ''
+  }
+  catch (error) {
+    loadError.value = apiErrorMessage(error)
+  }
 })
 
-const labsForm = reactive({
-  bloodGlucoseMgDl: 89,
-  hemoglobinGDl: 13.8,
-  urineSpecificGravity: 1.018,
-  spo2Pct: 98,
-})
+const vitals = reactive({ weight: '', bp: '', hr: '', temp: '', water: '', kcal: '', exercise: '', shift: '', shiftMode: 'IVA' as 'IVA' | 'EVA' })
+const labs = reactive({ glucose: '', hemoglobin: '', sg: '', spo2: '' })
+const vitalErrors = ref<Record<string, string>>({})
+const labErrors = ref<Record<string, string>>({})
+const vitalResult = ref<{ tone: 'ok' | 'critical', title: string, text: string } | null>(null)
+const labResult = ref<{ tone: 'ok' | 'critical', title: string, text: string } | null>(null)
+const busy = ref<'vitals' | 'labs' | null>(null)
 
-const vitalsErrors = ref<Record<string, string>>({})
-const isSavingVitals = ref(false)
-const vitalsResult = ref<MeasurementIngestOut | null>(null)
-const vitalsSubmitError = ref('')
-
-const labsErrors = ref<Record<string, string>>({})
-const isSavingLabs = ref(false)
-const labsResult = ref<MeasurementIngestOut | null>(null)
-const labsSubmitError = ref('')
-
-const projectedHydrationLiters = computed(() => {
-  const addMl = Number.isFinite(vitalsForm.hydrationAddMl) ? Math.max(0, vitalsForm.hydrationAddMl) : 0
-  return ((baseHydrationMl.value + addMl) / 1000).toFixed(1)
-})
-
-const baselineHydrationLiters = computed(() => (baseHydrationMl.value / 1000).toFixed(1))
-
-const workStationLabel = computed(() =>
-  vitalsForm.workShiftMode === 'EVA' ? 'Airlock Exterior' : 'Command Bridge',
-)
-
-const labsWithinNominalBounds = computed(() => {
-  return (
-    labsForm.bloodGlucoseMgDl >= 70 &&
-    labsForm.bloodGlucoseMgDl <= 99 &&
-    labsForm.hemoglobinGDl >= 12.5 &&
-    labsForm.hemoglobinGDl <= 16.0 &&
-    labsForm.urineSpecificGravity >= 1.005 &&
-    labsForm.urineSpecificGravity <= 1.02 &&
-    labsForm.spo2Pct >= 96 &&
-    labsForm.spo2Pct <= 100
-  )
-})
-
-function toggleWorkShiftMode() {
-  vitalsForm.workShiftMode = vitalsForm.workShiftMode === 'IVA' ? 'EVA' : 'IVA'
+function parseShift(text: string): number | undefined {
+  const cleaned = text.trim().toLowerCase()
+  if (!cleaned) return undefined
+  const match = cleaned.match(/^(?:(\d{1,2})\s*h)?\s*(?:(\d{1,2})\s*m?)?$/)
+  if (!match || (!match[1] && !match[2])) return Number.NaN
+  return Number(match[1] ?? 0) * 60 + Number(match[2] ?? 0)
+}
+function parsePressure(text: string): [number | undefined, number | undefined] {
+  if (!text.trim()) return [undefined, undefined]
+  const parts = text.split(/[/\s]+/).filter(Boolean)
+  return [toNumber(parts[0]), parts[1] === undefined ? Number.NaN : toNumber(parts[1])]
 }
 
-async function handleSaveVitals() {
-  vitalsErrors.value = {}
-  vitalsResult.value = null
-  vitalsSubmitError.value = ''
+type Item = { metric_key: string, value_num: number, payload_json?: Record<string, unknown> }
 
-  const parsed = dailyVitalsHabitsSchema.safeParse({
-    missionStage: missionStage.value,
-    ...vitalsForm,
-  })
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? 'form')
-      vitalsErrors.value[key] = issue.message
+function collect(fields: [string, string, string, string][], errors: Ref<Record<string, string>>): Item[] | null {
+  const found: Record<string, string> = {}
+  const items: Item[] = []
+  for (const [field, metricKey, label, text] of fields) {
+    if (!text.trim()) continue
+    const parsed = numberRule(metricKey, label).safeParse(toNumber(text))
+    if (parsed.success) items.push({ metric_key: metricKey, value_num: parsed.data })
+    else found[field] = parsed.error.issues[0]!.message
+  }
+  errors.value = found
+  return Object.keys(found).length ? null : items
+}
+
+const { unread, load: reloadMission } = useMission()
+
+function summarise(result: { inserted_ids: number[], alerts_created: number[], streak: { daily_compliant: boolean } }, what: string) {
+  const advisories = result.alerts_created.length
+  if (advisories) {
+    unread.value += advisories
+    void reloadMission()
+  }
+  return advisories
+    ? { tone: 'critical' as const, title: `Saved · ${advisories} advisor${advisories === 1 ? 'y' : 'ies'} raised`,
+        text: 'Open Notifications for the recommended care steps.' }
+    : { tone: 'ok' as const, title: `Saved · ${result.inserted_ids.length} ${what}`,
+        text: result.streak.daily_compliant ? 'Profile and crew streak updated. Today counts toward your streak.' : 'Profile updated. Results appear in Profile → Physical.' }
+}
+
+async function saveVitals() {
+  vitalResult.value = null
+  const items = collect([
+    ['weight', 'body_weight_kg', 'Body weight', vitals.weight],
+    ['hr', 'resting_hr_bpm', 'Resting heart rate', vitals.hr],
+    ['temp', 'body_temp_c', 'Core body temp', vitals.temp],
+    ['water', 'hydration_ml', 'Hydration intake', vitals.water.replace('+', '')],
+    ['kcal', 'calories_kcal', 'Caloric intake', vitals.kcal],
+    ['exercise', 'exercise_min', 'Daily exercise', vitals.exercise],
+  ], vitalErrors)
+  if (!items) return
+  const [systolic, diastolic] = parsePressure(vitals.bp)
+  if (systolic !== undefined || diastolic !== undefined) {
+    const s = numberRule('bp_systolic_mmhg', 'Systolic').safeParse(systolic)
+    const d = numberRule('bp_diastolic_mmhg', 'Diastolic').safeParse(diastolic)
+    if (!s.success || !d.success) {
+      vitalErrors.value = { ...vitalErrors.value, bp: 'Blood pressure: enter as 118 / 76' }
+      return
     }
+    items.push({ metric_key: 'bp_systolic_mmhg', value_num: s.data }, { metric_key: 'bp_diastolic_mmhg', value_num: d.data })
+  }
+  const minutes = parseShift(vitals.shift)
+  if (minutes !== undefined) {
+    if (Number.isNaN(minutes) || minutes > 1440) {
+      vitalErrors.value = { ...vitalErrors.value, shift: 'Work shift: enter as 5h 20m' }
+      return
+    }
+    const payload = { mode: vitals.shiftMode, location_en: vitals.shiftMode === 'EVA' ? 'Exterior Truss' : (workLocation.value || 'Habitat A') }
+    items.push({ metric_key: 'work_shift_min', value_num: minutes, payload_json: payload })
+    if (vitals.shiftMode === 'EVA') items.push({ metric_key: 'eva_shift_min', value_num: minutes, payload_json: payload })
+  }
+  if (!items.length) {
+    vitalErrors.value = { form: 'Enter at least one reading.' }
     return
   }
-
-  isSavingVitals.value = true
+  busy.value = 'vitals'
   try {
-    const crewId = activeCrew.value?.id ?? 'ID-01'
-    const res = await ingestMeasurements({
-      crew_id: crewId,
-      mission_stage: parsed.data.missionStage,
-      source_type: 'MANUAL',
-      items: buildDailyVitalsItems(parsed.data, baseHydrationMl.value),
-    })
-    vitalsResult.value = res
-    baseHydrationMl.value += parsed.data.hydrationAddMl
+    const result = await api<Parameters<typeof summarise>[0]>('/measurements', { method: 'POST', body: { items } })
+    vitalResult.value = summarise(result, 'readings')
+    Object.assign(vitals, { weight: '', bp: '', hr: '', temp: '', water: '', kcal: '', exercise: '', shift: '' })
   }
-  catch (err: unknown) {
-    vitalsSubmitError.value = extractErrorMessage(err, 'Unable to save daily vitals and habits.')
+  catch (error) {
+    vitalErrors.value = { form: apiErrorMessage(error) }
   }
   finally {
-    isSavingVitals.value = false
+    busy.value = null
   }
 }
 
-async function handleSaveLabs() {
-  labsErrors.value = {}
-  labsResult.value = null
-  labsSubmitError.value = ''
-
-  const parsed = clinicalLabsSchema.safeParse({
-    missionStage: missionStage.value,
-    ...labsForm,
-  })
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? 'form')
-      labsErrors.value[key] = issue.message
-    }
+async function saveLabs() {
+  labResult.value = null
+  const items = collect([
+    ['glucose', 'blood_glucose_mg_dl', 'Fasting blood glucose', labs.glucose],
+    ['hemoglobin', 'hemoglobin_g_dl', 'Hemoglobin', labs.hemoglobin],
+    ['sg', 'urine_specific_gravity', 'Urine specific gravity', labs.sg],
+    ['spo2', 'spo2_pct', 'Oxygen saturation', labs.spo2],
+  ], labErrors)
+  if (!items) return
+  if (!items.length) {
+    labErrors.value = { form: 'Enter at least one result.' }
     return
   }
-
-  isSavingLabs.value = true
+  busy.value = 'labs'
   try {
-    const crewId = activeCrew.value?.id ?? 'ID-01'
-    const res = await ingestMeasurements({
-      crew_id: crewId,
-      mission_stage: parsed.data.missionStage,
-      source_type: 'MANUAL',
-      items: buildClinicalLabsItems(parsed.data),
-    })
-    labsResult.value = res
+    const result = await api<Parameters<typeof summarise>[0]>('/measurements', { method: 'POST', body: { items } })
+    labResult.value = summarise(result, 'results')
+    Object.assign(labs, { glucose: '', hemoglobin: '', sg: '', spo2: '' })
   }
-  catch (err: unknown) {
-    labsSubmitError.value = extractErrorMessage(err, 'Unable to save clinical lab results.')
+  catch (error) {
+    labErrors.value = { form: apiErrorMessage(error) }
   }
   finally {
-    isSavingLabs.value = false
+    busy.value = null
   }
 }
+
+const hydrationHint = computed(() => {
+  const h = todayHydration.value
+  if (!h) return 'Adds to today\'s total'
+  return `Today ${((h.value ?? 0) / 1000).toFixed(1)} → ${(h.target / 1000).toFixed(1)} L`
+})
+const vitalNote = computed(() => {
+  const h = todayHydration.value
+  const added = toNumber(vitals.water.replace('+', ''))
+  if (h && added && !Number.isNaN(added)) {
+    const total = (h.value ?? 0) + added
+    return total >= h.target
+      ? `Saving +${added} mL completes today's ${(h.target / 1000).toFixed(1)} L hydration goal and updates Crew Streaks.`
+      : `Saving +${added} mL brings today to ${(total / 1000).toFixed(1)} L of ${(h.target / 1000).toFixed(1)} L.`
+  }
+  return 'Every saved reading updates your Profile, advisories and Crew Streaks straight away.'
+})
+const glucoseHint = computed(() => `Biweekly check · ${usualRange('blood_glucose_mg_dl')}`)
 </script>
 
 <template>
-  <div class="flex flex-col gap-[18px] flex-1">
-    <CaptureSubnavBar v-model:mission-stage="missionStage" show-stage-selector />
-
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-[18px] flex-1">
-      <ShellHudWindow
-        class="lg:col-span-7"
-        title="DAILY VITALS, BIOMETRICS & HABITS ENTRY"
-        icon="vitruvian"
-        tag-text="FEEDS PROFILE"
-      >
-        <form class="h-full flex flex-col justify-between gap-5" @submit.prevent="handleSaveVitals">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  BODY WEIGHT
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Baseline: 64.5 kg
-                </span>
+  <div class="page">
+    <ShellCaptureTabs />
+    <UiStateNote v-if="loadError" :error="loadError" @retry="() => reloadNuxtApp()" />
+    <div v-else class="flex-1 min-h-0 flex gap-[18px]">
+      <ShellHudWindow class="w-[858px]" title="Daily Vitals, Biometrics & Habits Entry" icon="heart" tag-text="FEEDS PROFILE" flush>
+        <form class="flex-1 flex flex-col px-[23px] pt-[24px] pb-[20px]" novalidate @submit.prevent="saveVitals">
+          <div class="grid grid-cols-2 gap-x-[19px] gap-y-[26px]">
+            <UiNumberField id="weight" v-model="vitals.weight" label="Body Weight" :hint="baselineHint('body_weight_kg')" unit="kg" placeholder="e.g. 63.8" :error="vitalErrors.weight" />
+            <UiNumberField id="bp" v-model="vitals.bp" label="Blood Pressure" hint="Systolic / Diastolic" unit="mmHg" placeholder="118 / 76" inputmode="text" :error="vitalErrors.bp" />
+            <UiNumberField id="hr" v-model="vitals.hr" label="Resting Heart Rate" :hint="baselineHint('resting_hr_bpm', 0, true)" unit="bpm" placeholder="e.g. 64" inputmode="numeric" :error="vitalErrors.hr" />
+            <UiNumberField id="temp" v-model="vitals.temp" label="Core Body Temp" :hint="`${catalog.body_temp_c?.nominal_min ?? ''}–${catalog.body_temp_c?.nominal_max ?? ''} °C`" unit="°C" placeholder="e.g. 36.8" :error="vitalErrors.temp" />
+            <UiNumberField id="water" v-model="vitals.water" label="Hydration Intake" :hint="hydrationHint" unit="mL" placeholder="+ 400" inputmode="numeric" :error="vitalErrors.water" />
+            <UiNumberField id="kcal" v-model="vitals.kcal" label="Caloric Intake" hint="Today's meals" unit="kcal" placeholder="e.g. 2,420" inputmode="numeric" :error="vitalErrors.kcal" />
+            <UiNumberField id="exercise" v-model="vitals.exercise" label="Daily Exercise" hint="Target: 30 min session" unit="min" placeholder="e.g. 45" inputmode="numeric" :error="vitalErrors.exercise" />
+            <div>
+              <div class="flex items-baseline justify-between mb-[8px]">
+                <label for="shift" class="label-caps">Work Shift (IVA / EVA)</label>
+                <span class="text-[9.5px] text-cabin-ice">{{ vitals.shiftMode === 'EVA' ? 'Exterior work' : workLocation || 'Interior work' }}</span>
               </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-text/55 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="vitalsForm.bodyWeightKg"
-                  type="number"
-                  step="0.1"
-                  aria-label="Body weight in kilograms"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">kg</span>
-              </div>
-              <span v-if="vitalsErrors.bodyWeightKg" class="text-[10px] text-cabin-crit">
-                {{ vitalsErrors.bodyWeightKg }}
-              </span>
-            </label>
-
-            <div class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  BLOOD PRESSURE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Systolic / Diastolic
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                  <input
-                    v-model.number="vitalsForm.bpSystolicMmhg"
-                    type="number"
-                    step="1"
-                    aria-label="Systolic blood pressure in mmHg"
-                    class="w-16 bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                  >
-                  <span class="font-mono text-[15px] font-bold text-cabin-muted">/</span>
-                  <input
-                    v-model.number="vitalsForm.bpDiastolicMmhg"
-                    type="number"
-                    step="1"
-                    aria-label="Diastolic blood pressure in mmHg"
-                    class="w-16 bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                  >
+              <div class="hud-field" :data-invalid="vitalErrors.shift ? 'true' : undefined">
+                <input id="shift" v-model="vitals.shift" placeholder="5h 20m" autocomplete="off">
+                <div class="flex gap-[4px]" role="radiogroup" aria-label="Work type">
+                  <button
+v-for="mode in (['IVA', 'EVA'] as const)" :key="mode" type="button" role="radio" :aria-checked="vitals.shiftMode === mode"
+                          class="focus-ring h-[28px] px-[10px] rounded-[3px] text-[10.5px] font-bold border"
+                          :class="vitals.shiftMode === mode ? 'menu-item-active' : 'border-cabin-line text-cabin-ice'"
+                          @click="vitals.shiftMode = mode">{{ mode }}</button>
                 </div>
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">mmHg</span>
               </div>
-              <span
-                v-if="vitalsErrors.bpSystolicMmhg || vitalsErrors.bpDiastolicMmhg"
-                class="text-[10px] text-cabin-crit"
-              >
-                {{ vitalsErrors.bpSystolicMmhg || vitalsErrors.bpDiastolicMmhg }}
-              </span>
-            </div>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  RESTING HEART RATE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  58–72 bpm baseline
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="vitalsForm.restingHrBpm"
-                  type="number"
-                  step="1"
-                  aria-label="Resting heart rate in bpm"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">bpm</span>
-              </div>
-              <span v-if="vitalsErrors.restingHrBpm" class="text-[10px] text-cabin-crit">
-                {{ vitalsErrors.restingHrBpm }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  CORE BODY TEMP
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  36.4–37.2 °C
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="vitalsForm.bodyTempC"
-                  type="number"
-                  step="0.1"
-                  aria-label="Core body temperature in Celsius"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">°C</span>
-              </div>
-              <span v-if="vitalsErrors.bodyTempC" class="text-[10px] text-cabin-crit">
-                {{ vitalsErrors.bodyTempC }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  HYDRATION INTAKE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Updates {{ baselineHydrationLiters }} -> {{ projectedHydrationLiters }} L
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <div class="flex items-center gap-1 flex-1 min-w-0">
-                  <span class="font-mono text-[16px] font-bold text-cabin-ok">+</span>
-                  <input
-                    v-model.number="vitalsForm.hydrationAddMl"
-                    type="number"
-                    step="50"
-                    aria-label="Added hydration intake in milliliters"
-                    class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                  >
-                </div>
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">mL</span>
-              </div>
-              <span v-if="vitalsErrors.hydrationAddMl" class="text-[10px] text-cabin-crit">
-                {{ vitalsErrors.hydrationAddMl }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  CALORIC INTAKE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Target: 2,500 kcal
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="vitalsForm.caloriesKcal"
-                  type="number"
-                  step="50"
-                  aria-label="Daily caloric intake in kilocalories"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">kcal</span>
-              </div>
-              <span v-if="vitalsErrors.caloriesKcal" class="text-[10px] text-cabin-crit">
-                {{ vitalsErrors.caloriesKcal }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  DAILY EXERCISE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Target: 90 min
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="vitalsForm.exerciseMin"
-                  type="number"
-                  step="5"
-                  aria-label="Daily exercise load in minutes"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">min</span>
-              </div>
-              <span v-if="vitalsErrors.exerciseMin" class="text-[10px] text-cabin-crit">
-                {{ vitalsErrors.exerciseMin }}
-              </span>
-            </label>
-
-            <div class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  WORK SHIFT (IVA / EVA)
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  {{ workStationLabel }}
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model="vitalsForm.workShiftText"
-                  type="text"
-                  placeholder="5h 20m"
-                  aria-label="Operational work shift duration"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <button
-                  type="button"
-                  class="px-2.5 h-7 rounded-[3px] menu-item-active font-mono text-[11px] font-bold text-cabin-text shrink-0 cursor-pointer"
-                  title="Switch between interior and exterior duty"
-                  @click="toggleWorkShiftMode"
-                >
-                  {{ vitalsForm.workShiftMode }}
-                </button>
-              </div>
-              <span v-if="vitalsErrors.workShiftText" class="text-[10px] text-cabin-crit">
-                {{ vitalsErrors.workShiftText }}
-              </span>
+              <p v-if="vitalErrors.shift" class="text-[10px] mt-[4px]" role="alert">{{ vitalErrors.shift }}</p>
             </div>
           </div>
-
-          <div class="flex flex-col gap-3.5">
-            <div
-              v-if="vitalsSubmitError"
-              class="px-4 py-3 rounded-[4px] bg-cabin-crit/18 border border-cabin-crit flex flex-col gap-1"
-            >
-              <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-text">
-                SUBMISSION ALERT
-              </span>
-              <span class="text-[12px] text-cabin-ice">
-                {{ vitalsSubmitError }}
-              </span>
-            </div>
-
-            <div
-              v-else
-              class="px-4 py-3 rounded-[4px] bg-cabin-inset border border-cabin-card/75 flex flex-col gap-1"
-            >
-              <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-ok">
-                AUTOMATIC SYNC TO PERSONAL PROFILE & CREW STREAKS
-              </span>
-              <span v-if="vitalsResult" class="text-[12px] text-cabin-ice">
-                Saved {{ vitalsResult.inserted_ids.length }} daily metrics. Alerts triggered:
-                {{ vitalsResult.alerts_created.length }}. Daily logs completed:
-                {{ vitalsResult.streak.logs_completed }} ({{ vitalsResult.streak.daily_compliant ? '4 / 4 Goal Met' : 'In Progress' }}).
-              </span>
-              <span v-else class="text-[12px] text-cabin-ice">
-                Saving +{{ vitalsForm.hydrationAddMl }} mL completes today's {{ projectedHydrationLiters }} L hydration goal and updates Crew Streaks to 4 / 4.
-              </span>
-            </div>
-
-            <button
-              type="submit"
-              :disabled="isSavingVitals"
-              class="h-[52px] w-full px-5 rounded-[5px] bg-cabin-card hover:bg-cabin-card/85 border border-cabin-text/45 flex items-center justify-center gap-2.5 text-[13px] font-bold tracking-[0.03em] text-cabin-text cursor-pointer disabled:opacity-45 transition-colors"
-            >
-              <Icon name="spacescan:capture" class="w-4 h-4 text-cabin-text" />
-              <span>{{ isSavingVitals ? 'Saving Daily Vitals & Habits...' : 'Save Daily Vitals & Habits' }}</span>
+          <div class="mt-auto flex flex-col gap-[16px]">
+            <UiSaveResult v-if="vitalResult" :tone="vitalResult.tone" :title="vitalResult.title" :text="vitalResult.text" />
+            <UiSaveResult v-else-if="vitalErrors.form" tone="critical" title="Not saved" :text="vitalErrors.form" />
+            <UiSaveResult v-else tone="ok" title="Automatic sync to personal profile & crew streaks" :text="vitalNote" />
+            <button type="submit" class="hud-button relative" :disabled="busy !== null">
+              <Icon name="spacescan:heart" class="w-[17px] h-[17px] absolute left-[22px]" />
+              {{ busy === 'vitals' ? 'Saving…' : 'Save Daily Vitals & Habits' }}
             </button>
           </div>
         </form>
       </ShellHudWindow>
 
-      <ShellHudWindow
-        class="lg:col-span-5"
-        title="PERIODIC CLINICAL LABS ENTRY"
-        icon="kit"
-        tag-text="LAB STRIPS"
-      >
-        <form class="h-full flex flex-col justify-between gap-5" @submit.prevent="handleSaveLabs">
-          <div class="flex flex-col gap-4">
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  FASTING BLOOD GLUCOSE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Biweekly check · Normal 70–99 mg/dL
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="labsForm.bloodGlucoseMgDl"
-                  type="number"
-                  step="1"
-                  aria-label="Fasting blood glucose in mg per dL"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">mg/dL</span>
-              </div>
-              <span v-if="labsErrors.bloodGlucoseMgDl" class="text-[10px] text-cabin-crit">
-                {{ labsErrors.bloodGlucoseMgDl }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  HEMOGLOBIN (BLOOD PANEL)
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Monthly check · Normal 12.5–16.0 g/dL
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="labsForm.hemoglobinGDl"
-                  type="number"
-                  step="0.1"
-                  aria-label="Blood hemoglobin in g per dL"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">g/dL</span>
-              </div>
-              <span v-if="labsErrors.hemoglobinGDl" class="text-[10px] text-cabin-crit">
-                {{ labsErrors.hemoglobinGDl }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  URINE SPECIFIC GRAVITY
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Weekly strip · Target 1.005–1.020
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-text/55 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="labsForm.urineSpecificGravity"
-                  type="number"
-                  step="0.001"
-                  aria-label="Urine specific gravity"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">SG</span>
-              </div>
-              <span v-if="labsErrors.urineSpecificGravity" class="text-[10px] text-cabin-crit">
-                {{ labsErrors.urineSpecificGravity }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  OXYGEN SATURATION (SPO₂)
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Spot oximetry · Nominal 96–100%
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="labsForm.spo2Pct"
-                  type="number"
-                  step="0.5"
-                  aria-label="Blood oxygen saturation percentage"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">%</span>
-              </div>
-              <span v-if="labsErrors.spo2Pct" class="text-[10px] text-cabin-crit">
-                {{ labsErrors.spo2Pct }}
-              </span>
-            </label>
+      <ShellHudWindow class="flex-1" title="Periodic Clinical Labs Entry" icon="kit" tag-text="LAB STRIPS" flush>
+        <form class="flex-1 flex flex-col px-[23px] pt-[24px] pb-[20px]" novalidate @submit.prevent="saveLabs">
+          <div class="flex flex-col gap-[26px]">
+            <UiNumberField id="glucose" v-model="labs.glucose" label="Fasting Blood Glucose" :hint="glucoseHint" unit="mg/dL" placeholder="e.g. 89" inputmode="numeric" :error="labErrors.glucose" />
+            <UiNumberField id="hemoglobin" v-model="labs.hemoglobin" label="Hemoglobin (Blood Panel)" :hint="`Monthly check · ${usualRange('hemoglobin_g_dl')}`" unit="g/dL" placeholder="e.g. 13.8" :error="labErrors.hemoglobin" />
+            <UiNumberField id="sg" v-model="labs.sg" label="Urine Specific Gravity" :hint="`Weekly strip · Target ${catalog.urine_specific_gravity?.nominal_min ?? ''}–${catalog.urine_specific_gravity?.nominal_max ?? ''}`" unit="SG" placeholder="e.g. 1.018" :error="labErrors.sg" />
+            <UiNumberField id="spo2" v-model="labs.spo2" label="Oxygen Saturation (SpO₂)" :hint="`Spot oximetry · ${usualRange('spo2_pct')}`" unit="%" placeholder="e.g. 98" inputmode="numeric" :error="labErrors.spo2" />
           </div>
-
-          <div class="flex flex-col gap-3.5">
-            <div
-              v-if="labsSubmitError"
-              class="px-4 py-3 rounded-[4px] bg-cabin-crit/18 border border-cabin-crit flex flex-col gap-1"
-            >
-              <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-text">
-                LAB ENTRY ERROR
-              </span>
-              <span class="text-[12px] text-cabin-ice">
-                {{ labsSubmitError }}
-              </span>
-            </div>
-
-            <div
-              v-else
-              class="px-4 py-3 rounded-[4px] border flex flex-col gap-1"
-              :class="
-                labsWithinNominalBounds
-                  ? 'bg-cabin-inset border-cabin-card/75'
-                  : 'bg-cabin-navy/45 border-cabin-navy-edge/90'
-              "
-            >
-              <span
-                class="text-[10px] font-bold tracking-[0.05em] uppercase"
-                :class="labsWithinNominalBounds ? 'text-cabin-ok' : 'text-cabin-text'"
-              >
-                {{
-                  labsWithinNominalBounds
-                    ? 'RANGE VALIDATION · ALL ENTRIES WITHIN BOUNDS'
-                    : 'RANGE VALIDATION · DEVIATION FROM NOMINAL STRIP TARGET'
-                }}
-              </span>
-              <span v-if="labsResult" class="text-[12px] text-cabin-ice">
-                Saved {{ labsResult.inserted_ids.length }} lab strips. Alerts triggered:
-                {{ labsResult.alerts_created.length }}. Results updated in Profile -> Physical.
-              </span>
-              <span v-else class="text-[12px] text-cabin-ice">
-                Results appear immediately in Profile -> Physical.
-              </span>
-            </div>
-
-            <button
-              type="submit"
-              :disabled="isSavingLabs"
-              class="h-[52px] w-full px-5 rounded-[5px] bg-cabin-inset hover:bg-cabin-card/45 border border-cabin-text/75 flex items-center justify-center gap-2.5 text-[13px] font-bold tracking-[0.03em] text-cabin-text cursor-pointer disabled:opacity-45 transition-colors"
-            >
-              <Icon name="spacescan:kit" class="w-4 h-4 text-cabin-text" />
-              <span>{{ isSavingLabs ? 'Saving Clinical Lab Results...' : 'Save Clinical Lab Results' }}</span>
+          <div class="mt-auto flex flex-col gap-[16px]">
+            <UiSaveResult v-if="labResult" :tone="labResult.tone" :title="labResult.title" :text="labResult.text" />
+            <UiSaveResult v-else-if="labErrors.form" tone="critical" title="Not saved" :text="labErrors.form" />
+            <UiSaveResult v-else tone="ok" title="Range validation before saving" text="Results appear immediately in Profile → Physical." />
+            <button type="submit" class="hud-button relative" :disabled="busy !== null">
+              <Icon name="spacescan:kit" class="w-[17px] h-[17px] absolute left-[22px]" />
+              {{ busy === 'labs' ? 'Saving…' : 'Save Clinical Lab Results' }}
             </button>
           </div>
         </form>

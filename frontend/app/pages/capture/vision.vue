@@ -1,471 +1,139 @@
 <script setup lang="ts">
-import type { MeasurementIngestOut, MissionStage } from '~/composables/useMeasurements'
-import { buildOcularExamItems, extractErrorMessage } from '~/composables/useMeasurements'
-import { ocularCaptureSchema } from '~/schemas/capture'
+// 12 · Data Capture · Vision & Ocular Exam.
+import brainUrl from '~/assets/hologram/brain.svg'
+import { apiErrorMessage } from '~/composables/useApi'
+import { toNumber } from '~/composables/useCatalog'
 
-const { activeCrew } = useSession()
-const { ingestMeasurements } = useMeasurements()
+usePageHeader({ title: 'Data Capture · Vision & Ocular Exam', status: { text: 'Ultrasound ready', tone: 'ok' } })
+const { api } = useApi()
+const { unread } = useMission()
+const { load, numberRule, baselineHint, catalog, baselines } = useCatalog()
+const loadError = ref<string | null>(null)
+onMounted(() => load().catch((error) => { loadError.value = apiErrorMessage(error) }))
 
-const LEFT_BASELINE_MM = 4.6
-const RIGHT_BASELINE_MM = 4.7
-const ALERT_THRESHOLD_MM = 5.8
+const form = reactive({ leftSheath: '', rightSheath: '', leftIop: '', rightIop: '', retina: '', acuity: '' })
+const errors = ref<Record<string, string>>({})
+const result = ref<{ tone: 'ok' | 'critical', title: string, text: string } | null>(null)
+const busy = ref(false)
 
-const form = reactive({
-  missionStage: 'MISSION' as MissionStage,
-  leftOpticSheathMm: 5.5,
-  rightOpticSheathMm: 5.9,
-  leftIopMmhg: 15.8,
-  rightIopMmhg: 16.2,
-  retinalThicknessUm: 104,
-  visualAcuity: '20 / 20',
+const alertMm = computed(() => catalog.value.optic_sheath_right_mm?.critical_threshold ?? null)
+const watchMm = computed(() => catalog.value.optic_sheath_right_mm?.nominal_max ?? null)
+
+/** Live check of the sheath values typed so far against the alert threshold and baseline. */
+const detection = computed(() => {
+  const entries = (['left', 'right'] as const).map((side) => {
+    const value = toNumber(side === 'left' ? form.leftSheath : form.rightSheath)
+    const base = baselines.value[`optic_sheath_${side}_mm`]?.mean_val
+    return { side, value: value !== undefined && !Number.isNaN(value) ? value : null, base }
+  }).filter(entry => entry.value !== null)
+  if (!entries.length || alertMm.value === null) return null
+  const worst = entries.reduce((a, b) => (b.value! > a.value! ? b : a))
+  const delta = worst.base !== undefined ? worst.value! - worst.base : null
+  const deltaText = delta === null ? '' : ` (${delta >= 0 ? '+' : ''}${delta.toFixed(1)} mm against baseline)`
+  if (worst.value! >= alertMm.value) {
+    return { tone: 'critical' as const, title: `Threshold detection · ${worst.side} optic sheath ${worst.value!.toFixed(1)} mm`,
+      text: `Exceeds the ${alertMm.value} mm alert threshold${deltaText}. Saving flags a Preventive Care advisory.` }
+  }
+  if (watchMm.value !== null && worst.value! > watchMm.value) {
+    return { tone: 'critical' as const, title: `Above usual range · ${worst.side} optic sheath ${worst.value!.toFixed(1)} mm`,
+      text: `Over the ${watchMm.value} mm usual limit${deltaText}. Saving adds it to the Vision trend.` }
+  }
+  return { tone: 'ok' as const, title: 'Threshold detection · Within usual range',
+    text: `Both values stay under ${watchMm.value} mm${deltaText}. Saving updates the Vision trend.` }
 })
 
-const validationErrors = ref<Record<string, string>>({})
-const isSubmitting = ref(false)
-const submitResult = ref<MeasurementIngestOut | null>(null)
-const submitError = ref('')
-
-const leftExceeded = computed(() => form.leftOpticSheathMm >= ALERT_THRESHOLD_MM)
-const rightExceeded = computed(() => form.rightOpticSheathMm >= ALERT_THRESHOLD_MM)
-const thresholdExceeded = computed(() => leftExceeded.value || rightExceeded.value)
-
-const thresholdHeadline = computed(() => {
-  if (leftExceeded.value && rightExceeded.value) {
-    const peak = Math.max(form.leftOpticSheathMm, form.rightOpticSheathMm).toFixed(1)
-    return `THRESHOLD DETECTION · BILATERAL OPTIC SHEATH ${peak} MM`
+async function save() {
+  result.value = null
+  const found: Record<string, string> = {}
+  const items: { metric_key: string, value_num: number }[] = []
+  const fields: [keyof typeof form, string, string][] = [
+    ['leftSheath', 'optic_sheath_left_mm', 'Left optic nerve sheath'],
+    ['rightSheath', 'optic_sheath_right_mm', 'Right optic nerve sheath'],
+    ['leftIop', 'iop_left_mmhg', 'Left intraocular pressure'],
+    ['rightIop', 'iop_right_mmhg', 'Right intraocular pressure'],
+    ['retina', 'retinal_thickness_um', 'Retinal layer thickness'],
+  ]
+  for (const [field, key, label] of fields) {
+    const parsed = numberRule(key, label).safeParse(toNumber(form[field]))
+    if (parsed.success) items.push({ metric_key: key, value_num: parsed.data })
+    else found[field] = parsed.error.issues[0]!.message
   }
-  if (rightExceeded.value) {
-    return `THRESHOLD DETECTION · RIGHT OPTIC SHEATH ${form.rightOpticSheathMm.toFixed(1)} MM`
+  if (form.acuity.trim()) {
+    const match = form.acuity.replace(/\s/g, '').match(/^20\/(\d{1,3})$/)
+    if (match) items.push({ metric_key: 'visual_acuity_snellen', value_num: Number(match[1]) })
+    else found.acuity = 'Visual acuity: use the 20/20 format'
   }
-  if (leftExceeded.value) {
-    return `THRESHOLD DETECTION · LEFT OPTIC SHEATH ${form.leftOpticSheathMm.toFixed(1)} MM`
-  }
-  return 'THRESHOLD DETECTION · BILATERAL SHEATH WITHIN NOMINAL BOUNDS'
-})
-
-const thresholdDeltaText = computed(() => {
-  if (rightExceeded.value && (!leftExceeded.value || form.rightOpticSheathMm >= form.leftOpticSheathMm)) {
-    const delta = (form.rightOpticSheathMm - RIGHT_BASELINE_MM).toFixed(1)
-    return `Entered value exceeds 5.8 mm alert threshold (+${delta} mm above baseline).`
-  }
-  if (leftExceeded.value) {
-    const delta = (form.leftOpticSheathMm - LEFT_BASELINE_MM).toFixed(1)
-    return `Entered value exceeds 5.8 mm alert threshold (+${delta} mm above baseline).`
-  }
-  return 'Both Left and Right optic nerve sheath widths remain below the 5.8 mm alert threshold.'
-})
-
-const guideSteps = [
-  {
-    code: '01 · GEL COUPLING',
-    detail: 'Apply sterile gel over closed eyelid with zero globe pressure.',
-    tone: 'ok',
-  },
-  {
-    code: '02 · 3.0 MM DEPTH MARKER',
-    detail: 'Set axial caliper 3.0 mm posterior to the retina before freezing frame.',
-    tone: 'ok',
-  },
-  {
-    code: '03 · BILATERAL VERIFICATION',
-    detail: 'Record both Left and Right eyes in supine microgravity posture.',
-    tone: 'ice',
-  },
-] as const
-
-async function handleSubmit() {
-  validationErrors.value = {}
-  submitResult.value = null
-  submitError.value = ''
-
-  const parsed = ocularCaptureSchema.safeParse(form)
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? 'form')
-      validationErrors.value[key] = issue.message
-    }
-    return
-  }
-
-  isSubmitting.value = true
+  errors.value = found
+  if (Object.keys(found).length) return
+  busy.value = true
   try {
-    const crewId = activeCrew.value?.id ?? 'ID-01'
-    const res = await ingestMeasurements({
-      crew_id: crewId,
-      mission_stage: parsed.data.missionStage,
-      source_type: 'MANUAL',
-      items: buildOcularExamItems(parsed.data),
-    })
-    submitResult.value = res
+    const saved = await api<{ alerts_created: number[] }>('/measurements', { method: 'POST', body: { items } })
+    unread.value += saved.alerts_created.length
+    result.value = saved.alerts_created.length
+      ? { tone: 'critical', title: `Exam saved · ${saved.alerts_created.length} advisory raised`, text: 'The physician will review it. See Vision for the updated trend.' }
+      : { tone: 'ok', title: 'Exam saved · Both eyes recorded', text: 'The Vision screen now shows this exam.' }
+    Object.assign(form, { leftSheath: '', rightSheath: '', leftIop: '', rightIop: '', retina: '', acuity: '' })
   }
-  catch (err: unknown) {
-    submitError.value = extractErrorMessage(err, 'Unable to save vision and ocular exam.')
+  catch (error) {
+    errors.value = { form: apiErrorMessage(error) }
   }
   finally {
-    isSubmitting.value = false
+    busy.value = false
   }
 }
+
+const steps = [
+  { title: 'Gel Coupling', text: 'Apply sterile gel over the closed eyelid with zero pressure on the globe.' },
+  { title: '3.0 mm Depth Marker', text: 'Set the axial caliper 3.0 mm behind the retina before freezing the frame.' },
+  { title: 'Bilateral Verification', text: 'Record both left and right eyes in the same resting posture.' },
+]
 </script>
 
 <template>
-  <div class="flex flex-col gap-[18px] flex-1">
-    <CaptureSubnavBar v-model:mission-stage="form.missionStage" show-stage-selector />
-
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-[18px] flex-1">
-      <ShellHudWindow
-        class="lg:col-span-7"
-        title="OCULAR ULTRASOUND & TONOMETRY ENTRY"
-        icon="sans"
-        tag-text="FEEDS VISION"
-      >
-        <form class="h-full flex flex-col justify-between gap-5" @submit.prevent="handleSubmit">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-5">
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  LEFT OPTIC NERVE SHEATH
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Personal baseline: 4.6 mm
-                </span>
-              </div>
-              <div
-                class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border flex items-center justify-between gap-2"
-                :class="
-                  leftExceeded
-                    ? 'border-cabin-crit/85 focus-within:border-cabin-crit'
-                    : 'border-cabin-card/75 focus-within:border-cabin-text'
-                "
-              >
-                <input
-                  v-model.number="form.leftOpticSheathMm"
-                  type="number"
-                  step="0.1"
-                  aria-label="Left optic nerve sheath diameter in millimeters"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">mm</span>
-              </div>
-              <span v-if="validationErrors.leftOpticSheathMm" class="text-[10px] text-cabin-crit">
-                {{ validationErrors.leftOpticSheathMm }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  RIGHT OPTIC NERVE SHEATH
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Alert threshold ≥ 5.8 mm
-                </span>
-              </div>
-              <div
-                class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border flex items-center justify-between gap-2"
-                :class="
-                  rightExceeded
-                    ? 'border-cabin-text/75 focus-within:border-cabin-crit'
-                    : 'border-cabin-card/75 focus-within:border-cabin-text'
-                "
-              >
-                <input
-                  v-model.number="form.rightOpticSheathMm"
-                  type="number"
-                  step="0.1"
-                  aria-label="Right optic nerve sheath diameter in millimeters"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">mm</span>
-              </div>
-              <span v-if="validationErrors.rightOpticSheathMm" class="text-[10px] text-cabin-crit">
-                {{ validationErrors.rightOpticSheathMm }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  LEFT INTRAOCULAR PRESSURE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Baseline: 13.0–17.0 mmHg
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="form.leftIopMmhg"
-                  type="number"
-                  step="0.1"
-                  aria-label="Left intraocular pressure in mmHg"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">mmHg</span>
-              </div>
-              <span v-if="validationErrors.leftIopMmhg" class="text-[10px] text-cabin-crit">
-                {{ validationErrors.leftIopMmhg }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  RIGHT INTRAOCULAR PRESSURE
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Baseline: 13.0–17.0 mmHg
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="form.rightIopMmhg"
-                  type="number"
-                  step="0.1"
-                  aria-label="Right intraocular pressure in mmHg"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">mmHg</span>
-              </div>
-              <span v-if="validationErrors.rightIopMmhg" class="text-[10px] text-cabin-crit">
-                {{ validationErrors.rightIopMmhg }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  RETINAL LAYER THICKNESS
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  Baseline: 98–106 µm
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model.number="form.retinalThicknessUm"
-                  type="number"
-                  step="1"
-                  aria-label="Retinal layer thickness in micrometers"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">µm</span>
-              </div>
-              <span v-if="validationErrors.retinalThicknessUm" class="text-[10px] text-cabin-crit">
-                {{ validationErrors.retinalThicknessUm }}
-              </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-muted">
-                  VISUAL ACUITY (BOTH EYES)
-                </span>
-                <span class="text-[10px] font-mono text-cabin-ice/80">
-                  4-meter cabin chart
-                </span>
-              </div>
-              <div class="h-12 px-3.5 rounded-[4px] bg-cabin-inset border border-cabin-card/75 focus-within:border-cabin-text flex items-center justify-between gap-2">
-                <input
-                  v-model="form.visualAcuity"
-                  type="text"
-                  placeholder="20 / 20"
-                  aria-label="Visual acuity Snellen score"
-                  class="w-full bg-transparent outline-none font-mono text-[16px] font-bold text-cabin-text"
-                >
-                <span class="font-mono text-[11.5px] text-cabin-muted shrink-0">Snellen</span>
-              </div>
-              <span v-if="validationErrors.visualAcuity" class="text-[10px] text-cabin-crit">
-                {{ validationErrors.visualAcuity }}
-              </span>
-            </label>
+  <div class="page">
+    <ShellCaptureTabs />
+    <UiStateNote v-if="loadError" :error="loadError" @retry="() => reloadNuxtApp()" />
+    <div v-else class="flex-1 min-h-0 flex gap-[18px]">
+      <ShellHudWindow class="w-[826px]" title="Ocular Ultrasound & Tonometry Entry" icon="sans" tag-text="FEEDS VISION" flush>
+        <form class="flex-1 flex flex-col px-[23px] pt-[28px] pb-[20px]" novalidate @submit.prevent="save">
+          <div class="grid grid-cols-2 gap-x-[19px] gap-y-[38px]">
+            <UiNumberField id="left-sheath" v-model="form.leftSheath" label="Left Optic Nerve Sheath" :hint="baselineHint('optic_sheath_left_mm').replace('Baseline', 'Personal baseline')" unit="mm" placeholder="e.g. 5.5" :error="errors.leftSheath" />
+            <UiNumberField id="right-sheath" v-model="form.rightSheath" label="Right Optic Nerve Sheath" :hint="alertMm ? `Alert threshold ≥ ${alertMm} mm` : ''" unit="mm" placeholder="e.g. 5.9" :error="errors.rightSheath" />
+            <UiNumberField id="left-iop" v-model="form.leftIop" label="Left Intraocular Pressure" :hint="baselineHint('iop_left_mmhg', 1, true)" unit="mmHg" placeholder="e.g. 15.8" :error="errors.leftIop" />
+            <UiNumberField id="right-iop" v-model="form.rightIop" label="Right Intraocular Pressure" :hint="baselineHint('iop_right_mmhg', 1, true)" unit="mmHg" placeholder="e.g. 16.2" :error="errors.rightIop" />
+            <UiNumberField id="retina" v-model="form.retina" label="Retinal Layer Thickness" :hint="baselineHint('retinal_thickness_um', 0, true)" unit="µm" placeholder="e.g. 104" inputmode="numeric" :error="errors.retina" />
+            <UiNumberField id="acuity" v-model="form.acuity" label="Visual Acuity (Both Eyes)" hint="4-meter cabin chart" unit="Snellen" placeholder="20 / 20" inputmode="text" :error="errors.acuity" />
           </div>
-
-          <div class="flex flex-col gap-3.5">
-            <div
-              v-if="submitError"
-              class="relative pl-5 pr-4 py-3.5 rounded-[4px] bg-cabin-crit/20 border border-cabin-crit flex flex-col gap-1 overflow-hidden"
-            >
-              <span class="absolute left-0 inset-y-2 w-1 bg-cabin-crit rounded-r" />
-              <span class="text-[10.5px] font-bold tracking-[0.05em] uppercase text-cabin-text">
-                EXAM SUBMISSION ERROR
-              </span>
-              <span class="text-[12px] text-cabin-ice">
-                {{ submitError }}
-              </span>
-            </div>
-
-            <div
-              v-else
-              class="relative pl-5 pr-4 py-3.5 rounded-[4px] border flex flex-col gap-1 overflow-hidden"
-              :class="
-                thresholdExceeded
-                  ? 'bg-cabin-crit/16 border-cabin-crit/85'
-                  : 'bg-cabin-inset border-cabin-card/75'
-              "
-            >
-              <span
-                class="absolute left-0 inset-y-2.5 w-1 rounded-r"
-                :class="thresholdExceeded ? 'bg-cabin-crit' : 'bg-cabin-ok'"
-              />
-              <span
-                class="text-[10.5px] font-bold tracking-[0.05em] uppercase"
-                :class="thresholdExceeded ? 'text-cabin-text' : 'text-cabin-ok'"
-              >
-                {{ thresholdHeadline }}
-              </span>
-              <span class="text-[12.5px] font-semibold text-cabin-text">
-                {{ thresholdDeltaText }}
-              </span>
-              <span v-if="submitResult" class="text-[11.5px] text-cabin-ok">
-                Saved {{ submitResult.inserted_ids.length }} ocular metrics. Alerts triggered:
-                {{ submitResult.alerts_created.length }}. Daily logs: {{ submitResult.streak.logs_completed }}.
-              </span>
-              <span v-else class="text-[11.5px] text-cabin-ice">
-                Saving updates the Vision module trend and flags a Preventive Care advisory.
-              </span>
-            </div>
-
-            <button
-              type="submit"
-              :disabled="isSubmitting"
-              class="h-[52px] w-full px-5 rounded-[5px] bg-cabin-card hover:bg-cabin-card/85 border border-cabin-text/45 flex items-center justify-center gap-2.5 text-[13px] font-bold tracking-[0.03em] text-cabin-text cursor-pointer disabled:opacity-45 transition-colors"
-            >
-              <Icon name="spacescan:sans" class="w-4 h-4 text-cabin-text" />
-              <span>{{ isSubmitting ? 'Saving Vision & Ocular Exam...' : 'Save Vision & Ocular Exam' }}</span>
+          <div class="mt-auto flex flex-col gap-[16px]">
+            <UiSaveResult v-if="result" :tone="result.tone" :title="result.title" :text="result.text" />
+            <UiSaveResult v-else-if="errors.form" tone="critical" title="Not saved" :text="errors.form" />
+            <UiSaveResult v-else-if="detection" :tone="detection.tone" :title="detection.title" :text="detection.text" />
+            <UiSaveResult v-else tone="info" title="Threshold detection" text="Enter both optic nerve sheath values to compare them with your baseline." />
+            <button type="submit" class="hud-button relative" :disabled="busy">
+              <Icon name="spacescan:sans" class="w-[18px] h-[18px] absolute left-[22px]" />
+              {{ busy ? 'Saving…' : 'Save Vision & Ocular Exam' }}
             </button>
           </div>
         </form>
       </ShellHudWindow>
 
-      <ShellHudWindow
-        class="lg:col-span-5"
-        title="PROBE ALIGNMENT & MEASUREMENT GUIDE"
-        icon="reticle"
-        tag-text="3.0 MM AXIAL"
-      >
-        <div class="h-full flex flex-col justify-between gap-4">
-          <div class="p-4 rounded-[5px] bg-cabin-inset border border-cabin-card/75 flex flex-col justify-between gap-2">
-            <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-ok">
-              AXIAL CALIPER TARGET · 3.0 MM BEHIND GLOBE
-            </span>
-
-            <div class="h-44 flex items-center justify-center">
-              <svg viewBox="0 0 420 180" class="w-full h-40 max-w-[420px] text-cabin-text">
-                <circle
-                  cx="210"
-                  cy="90"
-                  r="72"
-                  fill="none"
-                  stroke="var(--color-status-ok)"
-                  stroke-opacity="0.45"
-                  stroke-width="1.2"
-                  stroke-dasharray="5 4"
-                />
-                <circle
-                  cx="210"
-                  cy="90"
-                  r="46"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-opacity="0.32"
-                  stroke-width="1.2"
-                />
-                <line
-                  x1="110"
-                  y1="90"
-                  x2="310"
-                  y2="90"
-                  stroke="var(--color-navy-edge)"
-                  stroke-opacity="0.65"
-                  stroke-width="1.2"
-                />
-                <line
-                  x1="210"
-                  y1="10"
-                  x2="210"
-                  y2="170"
-                  stroke="var(--color-navy-edge)"
-                  stroke-opacity="0.65"
-                  stroke-width="1.2"
-                />
-                <path
-                  d="M164 90 C178 60, 242 60, 256 90 C242 120, 178 120, 164 90 Z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-opacity="0.85"
-                  stroke-width="1.6"
-                />
-                <circle
-                  cx="210"
-                  cy="90"
-                  r="14"
-                  fill="none"
-                  stroke="var(--color-status-ok)"
-                  stroke-width="1.8"
-                />
-                <line
-                  x1="256"
-                  y1="56"
-                  x2="256"
-                  y2="124"
-                  stroke="currentColor"
-                  stroke-opacity="0.55"
-                  stroke-dasharray="3 3"
-                  stroke-width="1.2"
-                />
-                <line
-                  x1="292"
-                  y1="52"
-                  x2="292"
-                  y2="128"
-                  stroke="var(--color-status-ok)"
-                  stroke-width="2"
-                />
-                <line
-                  x1="256"
-                  y1="62"
-                  x2="292"
-                  y2="62"
-                  stroke="var(--color-status-ok)"
-                  stroke-dasharray="3 2"
-                  stroke-width="1.3"
-                />
-                <text
-                  x="258"
-                  y="54"
-                  fill="var(--color-status-ok)"
-                  font-size="9.5"
-                  font-family="JetBrains Mono, monospace"
-                >
-                  3.0 mm
-                </text>
-              </svg>
+      <ShellHudWindow class="flex-1" title="Probe Alignment & Measurement Guide" icon="reticle" tag-text="3.0 MM AXIAL" flush>
+        <div class="flex-1 flex flex-col px-[19px] pt-[18px] pb-[20px] gap-[18px]">
+          <div class="tile-hi relative h-[202px] shrink-0">
+            <p class="absolute top-[18px] left-[16px] text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok">Axial caliper target · 3.0 mm behind globe</p>
+            <div class="absolute left-1/2 top-[30px] -translate-x-1/2 w-[160px] h-[160px]">
+              <span class="absolute inset-0 rounded-full border-[1.3px] border-dashed border-cabin-ok/60" />
+              <span class="absolute left-1/2 top-[-10px] bottom-[-10px] w-px bg-cabin-navy-edge" />
+              <span class="absolute top-1/2 left-[-40px] right-[-40px] h-px bg-cabin-navy-edge" />
+              <span class="absolute inset-[30px] rounded-full border border-cabin-text/30" />
+              <img :src="brainUrl" alt="" class="absolute inset-[32px] w-[96px] h-[96px]">
             </div>
-
-            <p class="text-[11px] text-center text-cabin-ice">
-              Align linear probe perpendicular to closed eyelid with neutral gaze
-            </p>
+            <p class="absolute bottom-[14px] left-0 right-0 text-center text-[11.5px]">Align linear probe perpendicular to closed eyelid with neutral gaze</p>
           </div>
-
-          <div class="flex flex-col gap-3">
-            <div
-              v-for="step in guideSteps"
-              :key="step.code"
-              class="relative pl-5 pr-4 py-3.5 rounded-[5px] bg-cabin-inset border border-cabin-card/70 flex flex-col gap-1.5 overflow-hidden"
-            >
-              <span
-                class="absolute left-0 inset-y-2.5 w-1 rounded-r"
-                :class="step.tone === 'ok' ? 'bg-cabin-ok' : 'bg-cabin-ice'"
-              />
-              <span
-                class="text-[10.5px] font-bold tracking-[0.05em] uppercase"
-                :class="step.tone === 'ok' ? 'text-cabin-ok' : 'text-cabin-ice'"
-              >
-                {{ step.code }}
-              </span>
-              <p class="text-[12.5px] text-cabin-text">
-                {{ step.detail }}
-              </p>
-            </div>
+          <div v-for="(step, index) in steps" :key="step.title" class="tile relative flex-1 pl-[22px] pr-[18px] flex flex-col justify-center">
+            <span class="absolute left-0 top-[12px] bottom-[12px] w-[3px] rounded-full" :class="index < 2 ? 'bg-cabin-ok' : 'bg-cabin-navy-edge'" />
+            <p class="text-[10.5px] font-bold tracking-[0.03em] uppercase" :class="index < 2 ? 'text-cabin-ok' : ''">0{{ index + 1 }} · {{ step.title }}</p>
+            <p class="text-[12.5px] mt-[14px]">{{ step.text }}</p>
           </div>
         </div>
       </ShellHudWindow>

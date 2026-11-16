@@ -1,41 +1,23 @@
-import os
+"""Per-request database dependency for FastAPI routers."""
+
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
-from app.config import BACKEND_DIR, SCHEMA_PATH
-from app.services.clinical_catalog import ensure_clinical_metrics
+from app.db import open_connection, resolve_db_path
 
-
-def resolve_db_path() -> Path:
-    env_override = os.environ.get("SPACESCAN_DB_PATH")
-    if env_override:
-        return Path(env_override)
-    return BACKEND_DIR / "db" / "spacescan.db"
+_initialized_paths: set[Path] = set()
 
 
 def open_request_connection(db_path: Path | None = None) -> sqlite3.Connection:
-    target_path = db_path or resolve_db_path()
-    target_path.parent.mkdir(parents=True, exist_ok=True)
+    """Open a request connection, applying schema and catalog once per database file."""
+    target_path = resolve_db_path(db_path)
+    if target_path not in _initialized_paths or not target_path.exists():
+        from app.db import init_db
 
-    conn = sqlite3.connect(target_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute("PRAGMA busy_timeout = 5000;")
-
-    table_check = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'metric_catalog'"
-    ).fetchone()
-    if table_check is None:
-        schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
-        conn.executescript(schema_sql)
-
-    if ensure_clinical_metrics(conn) > 0:
-        conn.commit()
-
-    return conn
+        init_db(target_path)
+        _initialized_paths.add(target_path)
+    return open_connection(target_path)
 
 
 def get_db_conn() -> Iterator[sqlite3.Connection]:

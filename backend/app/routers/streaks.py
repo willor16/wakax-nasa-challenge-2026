@@ -1,136 +1,123 @@
-"""Public read-only Crew Streaks endpoints (D1-06)."""
+"""Public read-only Crew Streaks (screen 03): individual and team consistency."""
 
-from datetime import UTC, datetime, timedelta
+import json
+from datetime import date, timedelta
 
 from fastapi import APIRouter
 
 from app.db import open_connection
+from app.services import habits
+from app.services.crew_names import display_title
+from app.services.mission_clock import day_label, mission_day
 
 router = APIRouter(prefix="/api/v1", tags=["streaks"])
 
-
-def _compute_streak_metrics(day_map: dict[str, dict], window_dates: list[str]) -> dict:
-    last_7 = []
-    for day in window_dates:
-        rec = day_map.get(day)
-        last_7.append(
-            {
-                "date_utc": day,
-                "compliant": bool(rec and int(rec["daily_compliant"]) == 1),
-                "logs_completed": int(rec["logs_completed"]) if rec else 0,
-                "habits_met": bool(rec and int(rec["habits_met"]) == 1),
-            }
-        )
-
-    all_compliant_days = sorted(
-        day for day, rec in day_map.items() if int(rec["daily_compliant"]) == 1
-    )
-
-    best_streak = 0
-    current_run = 0
-    prev_dt: datetime | None = None
-    for day_str in all_compliant_days:
-        dt = datetime.strptime(day_str, "%Y-%m-%d").replace(tzinfo=UTC)
-        if prev_dt is not None and (dt - prev_dt).days == 1:
-            current_run += 1
-        else:
-            current_run = 1
-        best_streak = max(best_streak, current_run)
-        prev_dt = dt
-
-    active_streak = 0
-    if all_compliant_days:
-        cursor_dt = datetime.strptime(all_compliant_days[-1], "%Y-%m-%d").replace(tzinfo=UTC)
-        compliant_set = set(all_compliant_days)
-        while cursor_dt.strftime("%Y-%m-%d") in compliant_set:
-            active_streak += 1
-            cursor_dt -= timedelta(days=1)
-
-    return {
-        "active_streak_days": active_streak,
-        "best_streak_days": best_streak,
-        "last_7_days": last_7,
-    }
+WINDOW_DAYS = 7
+CONSISTENCY_DAYS = 30
 
 
 @router.get("/crew-streaks")
 def get_crew_streaks() -> dict:
-    """Return read-only individual and team compliance streaks for the last 7 UTC days."""
+    """Streaks, last seven days and today's four habits for each crew member, plus the team."""
     with open_connection() as conn:
         members = conn.execute(
-            """
-            SELECT id, code, full_name, role
-            FROM crew_members
-            WHERE is_active = 1
-            ORDER BY code ASC
-            """
+            "SELECT id, code, full_name, role, title_en FROM crew_members "
+            "WHERE is_active = 1 ORDER BY code ASC"
         ).fetchall()
+        habits_day = habits.current_day(conn)
+        anchor = date.fromisoformat(habits_day)
+        window = [anchor - timedelta(days=offset) for offset in range(WINDOW_DAYS - 1, -1, -1)]
 
-        latest_row = conn.execute(
-            "SELECT MAX(streak_date_utc) AS latest_date FROM streak_days"
-        ).fetchone()
-        anchor_str = (
-            latest_row["latest_date"]
-            if latest_row and latest_row["latest_date"]
-            else datetime.now(UTC).strftime("%Y-%m-%d")
-        )
-        anchor_dt = datetime.strptime(anchor_str, "%Y-%m-%d").replace(tzinfo=UTC)
-        window_dates = [
-            (anchor_dt - timedelta(days=offset)).strftime("%Y-%m-%d")
-            for offset in range(6, -1, -1)
-        ]
-
-        crew_list: list[dict] = []
-        compliant_days_per_member: list[set[str]] = []
-
+        crew: list[dict] = []
+        day_sets: list[set[str]] = []
+        todays: list[dict] = []
         for m in members:
             rows = conn.execute(
-                """
-                SELECT streak_date_utc, logs_completed, habits_met, daily_compliant
-                FROM streak_days
-                WHERE crew_id = ?
-                ORDER BY streak_date_utc ASC
-                """,
+                """SELECT streak_date_utc, daily_compliant, habits_done, habits_json
+                   FROM streak_days WHERE crew_id = ?""",
                 (m["id"],),
             ).fetchall()
-            day_map = {r["streak_date_utc"]: dict(r) for r in rows}
-            metrics = _compute_streak_metrics(day_map, window_dates)
-            compliant_days_per_member.append(
-                {day for day, rec in day_map.items() if int(rec["daily_compliant"]) == 1}
-            )
-            crew_list.append(
+            by_day = {r["streak_date_utc"]: r for r in rows}
+            compliant = {d for d, r in by_day.items() if r["daily_compliant"]}
+            day_sets.append(compliant)
+            summary = habits.day_habits(conn, m["id"], habits_day)
+            todays.append(summary)
+            last_7 = []
+            for day in window:
+                rec = by_day.get(day.isoformat())
+                flags = json.loads(rec["habits_json"]) if rec else {}
+                last_7.append(
+                    {
+                        "date_utc": day.isoformat(),
+                        "day_label": day_label(mission_day(conn, day)),
+                        "logged": rec is not None,
+                        "compliant": bool(rec and rec["daily_compliant"]),
+                        "habits_done": int(rec["habits_done"]) if rec else 0,
+                        "shield": bool(flags.get("shield")),
+                    }
+                )
+            active = habits.active_streak(compliant, anchor)
+            crew.append(
                 {
                     "id": m["id"],
                     "code": m["code"],
                     "full_name": m["full_name"],
-                    "role": m["role"],
-                    **metrics,
+                    "title_en": display_title(m),
+                    "active_streak_days": active,
+                    "best_streak_days": max(habits.best_streak(compliant), active),
+                    "today_compliant": anchor.isoformat() in compliant,
+                    "today_shield": last_7[-1]["shield"],
+                    "habits_done_today": summary["habits_done"],
+                    "last_7_days": last_7,
+                    "habits": [
+                        {"key": key, "label": h["label"], "pct": h["pct"]}
+                        for key, h in summary["habits"].items()
+                    ],
                 }
             )
 
-        team_streak = 0
-        if compliant_days_per_member:
-            shared_days = sorted(set.intersection(*compliant_days_per_member))
-            if shared_days:
-                cursor_dt = datetime.strptime(shared_days[-1], "%Y-%m-%d").replace(tzinfo=UTC)
-                shared_set = set(shared_days)
-                while cursor_dt.strftime("%Y-%m-%d") in shared_set:
-                    team_streak += 1
-                    cursor_dt -= timedelta(days=1)
+        shared = set.intersection(*day_sets) if day_sets else set()
+        team_streak = habits.active_streak(shared, anchor)
+        count = len(crew)
 
-        total_slots = len(crew_list) * len(window_dates)
-        compliant_slots = sum(
-            1
-            for member in crew_list
-            for day_entry in member["last_7_days"]
-            if day_entry["compliant"]
+        def average(key: str) -> int | None:
+            return round(sum(t["habits"][key]["pct"] for t in todays) / count) if count else None
+
+        def met(key: str) -> int:
+            return sum(1 for t in todays if t["habits"][key]["pct"] >= 100)
+
+        since = (anchor - timedelta(days=CONSISTENCY_DAYS - 1)).isoformat()
+        totals = conn.execute(
+            """SELECT SUM(habits_done) AS done, COUNT(*) AS days FROM streak_days
+               WHERE streak_date_utc >= ? AND streak_date_utc <= ?""",
+            (since, anchor.isoformat()),
+        ).fetchone()
+        consistency = round(totals["done"] / (totals["days"] * 4) * 100) if totals["days"] else None
+        eva_rest = sum(1 for t in todays if t["after_eva"])
+        completed = (
+            round(sum(t["habits_done"] for t in todays) / (count * 4) * 100) if count else None
         )
-        team_compliance_pct = round((compliant_slots / total_slots) * 100) if total_slots else 0
 
-    return {
-        "window_dates": window_dates,
-        "team_streak_days": team_streak,
-        "team_compliance_pct": team_compliance_pct,
-        "eva_shield_ready": team_compliance_pct >= 80,
-        "crew": crew_list,
-    }
+        return {
+            "habits_date_utc": habits_day,
+            "today_label": day_label(mission_day(conn, anchor)),
+            "window": [
+                {"date_utc": d.isoformat(), "day_label": day_label(mission_day(conn, d))}
+                for d in window
+            ],
+            "team_streak_days": team_streak,
+            "team_completed_pct": completed,
+            "team": {
+                "hydration_pct": average("hydration"),
+                "hydration_on_pace": met("hydration"),
+                "nutrition_pct": average("nutrition"),
+                "nutrition_met": met("nutrition"),
+                "exercise_pct": average("exercise"),
+                "exercise_met": met("exercise") - eva_rest,
+                "post_eva_rest": eva_rest,
+                "consistency_30d_pct": consistency,
+                "active_streaks": sum(1 for c in crew if c["active_streak_days"] > 0),
+                "crew_count": count,
+            },
+            "crew": crew,
+        }

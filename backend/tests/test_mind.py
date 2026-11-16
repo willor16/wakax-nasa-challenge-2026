@@ -51,7 +51,8 @@ def test_reaction_scoring_follows_vigilance_task_rules() -> None:
     assert result.false_starts == 1
     assert result.reaction_ms == pytest.approx((250 * 16 + 300 + 620) / 18, abs=0.1)
     assert result.accuracy_pct == pytest.approx(100 * 17 / 19, abs=0.1)
-    assert result.attention_score == pytest.approx(100 * (1 - 2 / 18), abs=0.1)
+    # Errors over valid stimuli plus false starts (Basner & Dinges 2011).
+    assert result.attention_score == pytest.approx(100 * (1 - 2 / 19), abs=0.1)
 
 
 def test_misses_and_too_early_answers() -> None:
@@ -78,6 +79,18 @@ def conn(temp_db_path: Path):
         yield connection
 
 
+def _fresh_crew(conn, crew_id: str) -> str:
+    """A crew member with no check-ins (health records are append-only, never deleted)."""
+    conn.execute(
+        """INSERT INTO crew_members (id, code, full_name, role, pin_hash, is_active,
+           created_at_utc, updated_at_utc)
+           VALUES (?, ?, 'Test Crew', 'ASTRONAUT', 'x', 1, '2026-01-01T00:00:00Z',
+                   '2026-01-01T00:00:00Z')""",
+        (crew_id, crew_id.replace("-", "·")),
+    )
+    return crew_id
+
+
 def test_old_databases_get_the_new_columns() -> None:
     old = sqlite3.connect(":memory:")
     old.row_factory = sqlite3.Row
@@ -92,22 +105,23 @@ def test_old_databases_get_the_new_columns() -> None:
 
 
 def test_profile_builds_trend_scales_and_reaction(conn) -> None:
+    _fresh_crew(conn, "ID-09")
     for day, (mood, stress) in enumerate([(4, 2), (5, 1), (3, 3)], start=12):
-        save_checkin(conn, "ID-01", mood_state="CALM", mood=mood, stress=stress, isolation=1,
+        save_checkin(conn, "ID-09", mood_state="CALM", mood=mood, stress=stress, isolation=1,
                      motivation=5, recorded_at_utc=f"2026-11-{day}T08:00:00Z")
-    save_checkin(conn, "ID-01", mood_state="FOCUSED", mood=5, stress=2, isolation=2,
+    save_checkin(conn, "ID-09", mood_state="FOCUSED", mood=5, stress=2, isolation=2,
                  motivation=4, sleep_onset_utc="22:18", wake_utc="05:54",
                  recorded_at_utc="2026-11-15T07:45:00Z")
-    save_reaction_session(conn, "ID-01", [250.0] * 17 + [None], false_starts=0,
+    save_reaction_session(conn, "ID-09", [250.0] * 17 + [None], false_starts=0,
                           recorded_at_utc="2026-11-15T08:00:00Z")
 
-    profile = psych_profile(conn, "ID-01", now=datetime(2026, 11, 15, 12, 0, tzinfo=UTC))
+    profile = psych_profile(conn, "ID-09", now=datetime(2026, 11, 15, 12, 0, tzinfo=UTC))
     assert profile["latest_state"]["mood_state"] == "FOCUSED"
     days = [t["day"] for t in profile["trend"]]
     assert days == ["2026-11-12", "2026-11-13", "2026-11-14", "2026-11-15"]
-    # 14 Nov has the seed check-in (mood 4, stress 2) and ours (3, 3) -> averages.
     nov14 = profile["trend"][2]
-    assert nov14 == {"day": "2026-11-14", "mood": 3.5, "calmness": 3.5}
+    assert (nov14["day"], nov14["mood"], nov14["calmness"]) == ("2026-11-14", 3.0, 3.0)
+    assert nov14["day_label"]
     assert profile["scales"]["mood"]["value"] == 5.0
     assert profile["scales"]["stress_index"]["value"] == 25
     assert profile["scales"]["isolation"]["label"] == "Low"
@@ -117,10 +131,47 @@ def test_profile_builds_trend_scales_and_reaction(conn) -> None:
     assert reaction["lapses"] == 1 and reaction["trials_total"] == 18
 
 
+def test_scale_labels_compare_today_with_earlier_days(conn) -> None:
+    _fresh_crew(conn, "ID-10")
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=UTC)
+
+    def log(day: int, mood: int, motivation: int, stage: str | None = None) -> None:
+        if stage:  # a pre-flight check-in, stored with its own stage
+            conn.execute(
+                """INSERT INTO psych_tests (crew_id, mission_stage, mood_score, stress_score,
+                   loneliness_score, motivation_score, wellbeing_index, recorded_at_utc)
+                   VALUES ('ID-10', ?, ?, 2, 1, ?, 80, ?)""",
+                (stage, mood, motivation, f"2026-11-{day}T08:00:00Z"),
+            )
+            return
+        save_checkin(conn, "ID-10", mood_state=None, mood=mood, stress=2, isolation=1,
+                     motivation=motivation, recorded_at_utc=f"2026-11-{day}T08:00:00Z")
+
+    # A first check-in has nothing earlier: it is read against the optimal zone.
+    log(12, 3, 4)
+    first = psych_profile(conn, "ID-10", now=now)["scales"]
+    assert first["mood"]["range_source"] == "OPTIMAL_ZONE"
+    assert first["mood"]["label"] == "Low" and first["motivation"]["label"] == "Positive"
+
+    # Later days are read against the days before them, never against themselves.
+    log(13, 4, 4)
+    log(15, 2, 5)
+    recent = psych_profile(conn, "ID-10", now=now)["scales"]
+    assert recent["mood"]["range"] == (3.0, 4.0) and recent["mood"]["range_source"] == "RECENT"
+    assert recent["mood"]["label"] == "Low"
+    assert recent["motivation"]["label"] == "High"
+
+    # Pre-flight check-ins, when they exist, are the personal baseline.
+    log(10, 2, 5, stage="LAUNCH")
+    baseline = psych_profile(conn, "ID-10", now=now)["scales"]
+    assert baseline["mood"]["range"] == (2.0, 2.0)
+    assert baseline["mood"]["range_source"] == "BASELINE"
+    assert baseline["mood"]["label"] == "Positive"
+
+
 def test_profile_without_data_is_empty_not_an_error(conn) -> None:
-    conn.execute("DELETE FROM psych_tests WHERE crew_id = 'ID-02'")
-    conn.execute("DELETE FROM cognitive_tests WHERE crew_id = 'ID-02'")
-    profile = psych_profile(conn, "ID-02")
+    _fresh_crew(conn, "ID-11")
+    profile = psych_profile(conn, "ID-11")
     assert profile["scales"] is None and profile["reaction"] is None
     assert profile["trend"] == [] and profile["stability_pct"] == 0
 

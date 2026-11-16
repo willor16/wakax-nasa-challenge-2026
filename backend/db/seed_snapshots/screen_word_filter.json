@@ -1,0 +1,8 @@
+{
+  "note": "Hex-encoded words the onboard assistant must never show on screen.",
+  "hex": [
+    "6e617361",
+    "6368696e61",
+    "6368696e657365"
+  ]
+}

@@ -1,10 +1,11 @@
 """Shared Day-1 cross-module contracts for alerts and crew streaks."""
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 
 from app.config import QUIET_HOURS_END_UTC, QUIET_HOURS_START_UTC
 from app.services.alert_engine import evaluate_measurement
+from app.services.habits import recompute_day
 
 
 def is_within_quiet_hours(timestamp_utc: str) -> bool:
@@ -26,44 +27,12 @@ def evaluate_alerts(conn: sqlite3.Connection, measurement_id: int) -> list[int]:
 
 
 def update_streaks(conn: sqlite3.Connection, crew_id: str, date_utc: str) -> dict:
-    """Increment daily log compliance in streak_days for crew_id on date_utc (YYYY-MM-DD)."""
-    day_key = date_utc[:10]
-    now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    existing = conn.execute(
-        "SELECT logs_completed, habits_met FROM streak_days WHERE crew_id = ? AND streak_date_utc = ?",
-        (crew_id, day_key),
-    ).fetchone()
-
-    if existing is None:
-        logs_completed = 1
-        habits_met = 0
-        daily_compliant = 1
-        conn.execute(
-            """
-            INSERT INTO streak_days (
-                crew_id, streak_date_utc, logs_completed, habits_met, daily_compliant, updated_at_utc
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (crew_id, day_key, logs_completed, habits_met, daily_compliant, now_utc),
-        )
-    else:
-        logs_completed = int(existing["logs_completed"]) + 1
-        habits_met = int(existing["habits_met"])
-        daily_compliant = 1 if logs_completed >= 1 else 0
-        conn.execute(
-            """
-            UPDATE streak_days
-            SET logs_completed = ?, daily_compliant = ?, updated_at_utc = ?
-            WHERE crew_id = ? AND streak_date_utc = ?
-            """,
-            (logs_completed, daily_compliant, now_utc, crew_id, day_key),
-        )
-
+    """Recompute the day's habits and streak entry for ``crew_id`` (``YYYY-MM-DD``)."""
+    summary = recompute_day(conn, crew_id, date_utc[:10])
     return {
         "crew_id": crew_id,
-        "streak_date_utc": day_key,
-        "logs_completed": logs_completed,
-        "habits_met": bool(habits_met),
-        "daily_compliant": bool(daily_compliant),
+        "streak_date_utc": summary["date_utc"],
+        "logs_completed": summary["logs_completed"],
+        "habits_met": summary["habits_done"] == 4,
+        "daily_compliant": summary["daily_compliant"],
     }

@@ -1,108 +1,72 @@
-import sqlite3
-from typing import Annotated
+"""Heart and lung recordings: capture upload, playback and results."""
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    File,
-    Form,
-    HTTPException,
-    Query,
-    UploadFile,
-    status,
-)
+import sqlite3
+from typing import Annotated, Literal
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
+from app.auth_utils import CurrentCrew, ensure_crew_access
 from app.deps import get_db_conn
-from app.schemas.auscultation import (
-    AnatomicalSite,
-    AuscultationResultsOut,
-    AuscultationSampleCreatedOut,
-    AuscultationStageFilter,
-    MissionStageLiteral,
-    OrganType,
-)
 from app.services.auscultation_service import (
+    MAX_AUDIO_BYTES,
     build_auscultation_results,
-    resolve_sample_audio_path,
+    resolve_sample_audio,
     save_auscultation_sample,
+    session_progress,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["auscultation"])
 
 DbConn = Annotated[sqlite3.Connection, Depends(get_db_conn)]
+OrganType = Literal["CARDIAC", "PULMONARY"]
+AnatomicalSite = Literal["aortic", "pulmonic", "tricuspid", "mitral",
+                         "upper_left", "upper_right", "lower_left", "lower_right"]
 
 
-@router.post(
-    "/auscultation/samples",
-    response_model=AuscultationSampleCreatedOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_auscultation_sample_endpoint(
+@router.post("/auscultation/samples", status_code=status.HTTP_201_CREATED)
+def create_auscultation_sample(
     conn: DbConn,
-    crew_id: Annotated[str, Form(min_length=2, max_length=32)],
+    claims: CurrentCrew,
     organ_type: Annotated[OrganType, Form()],
     anatomical_site: Annotated[AnatomicalSite, Form()],
-    duration_sec: Annotated[int, Form()],
-    cabin_noise_dba: Annotated[float, Form()],
+    cabin_noise_dba: Annotated[float, Form(ge=0, le=140)],
     sha256_hex: Annotated[str, Form(min_length=64, max_length=64)],
     audio_file: Annotated[UploadFile, File()],
-    mission_stage: Annotated[MissionStageLiteral, Form()] = "MISSION",
-) -> AuscultationSampleCreatedOut:
-    audio_bytes = audio_file.file.read()
+) -> dict:
+    """Store one 30-second recording of the signed-in crew member."""
+    audio_bytes = audio_file.file.read(MAX_AUDIO_BYTES + 1)
     try:
         return save_auscultation_sample(
-            conn=conn,
-            crew_id=crew_id,
-            mission_stage=mission_stage,
-            organ_type=organ_type,
-            anatomical_site=anatomical_site,
-            duration_sec=duration_sec,
-            cabin_noise_dba=cabin_noise_dba,
-            sha256_hex=sha256_hex,
-            audio_bytes=audio_bytes,
+            conn, crew_id=claims["sub"], organ_type=organ_type, anatomical_site=anatomical_site,
+            cabin_noise_dba=cabin_noise_dba, sha256_hex=sha256_hex, audio_bytes=audio_bytes,
         )
     except LookupError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
+@router.get("/auscultation/progress")
+def get_capture_progress(conn: DbConn, claims: CurrentCrew) -> dict:
+    """Listening spots already saved today by the signed-in crew member."""
+    return session_progress(conn, claims["sub"])
 
 
 @router.get("/auscultation/samples/{sample_id}/audio")
-def stream_auscultation_sample_audio_endpoint(
-    sample_id: int,
-    conn: DbConn,
-) -> FileResponse:
+def get_sample_audio(sample_id: int, conn: DbConn, claims: CurrentCrew) -> FileResponse:
     try:
-        audio_path = resolve_sample_audio_path(conn, sample_id=sample_id)
+        path, owner = resolve_sample_audio(conn, sample_id)
     except LookupError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-    return FileResponse(
-        path=audio_path,
-        media_type="audio/webm",
-        filename=audio_path.name,
-    )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    ensure_crew_access(claims, owner)
+    return FileResponse(path=path, media_type="audio/wav", filename=path.name)
 
 
-@router.get("/auscultation/{crew_id}", response_model=AuscultationResultsOut)
-def get_auscultation_results_endpoint(
-    crew_id: str,
-    conn: DbConn,
-    stage: Annotated[AuscultationStageFilter, Query()] = "ALL",
-) -> AuscultationResultsOut:
-    results = build_auscultation_results(conn, crew_id=crew_id, stage=stage)
+@router.get("/auscultation/{crew_id}")
+def get_auscultation_results(crew_id: str, conn: DbConn, claims: CurrentCrew) -> dict:
+    ensure_crew_access(claims, crew_id)
+    results = build_auscultation_results(conn, crew_id)
     if results is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Crew member '{crew_id}' was not found.",
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Crew member not found.")
     return results

@@ -1,484 +1,205 @@
 <script setup lang="ts">
+// 10 · Data Capture · Auscultation Audio: 30-second heart and lung recordings.
 import VChart from 'vue-echarts'
-import type { CardiacSiteKey, PulmonarySiteKey } from '~/composables/useAuscultationRecorder'
-import {
-  buildPhonocardiogramOption,
-  buildPulmonaryEnvelopeOption,
-} from '~/utils/auscultationCharts'
+import { apiErrorMessage } from '~/composables/useApi'
+import { envelopeOption } from '~/utils/charts'
+import { RECORD_SECONDS } from '~/utils/audio'
 
-const {
-  results,
-  missionStage,
-  selectedCardiacSite,
-  selectedPulmonarySite,
-  cabinDba,
-  isNoiseSafe,
-  isCardiacRecording,
-  isPulmonaryRecording,
-  cardiacSeconds,
-  pulmonarySeconds,
-  cardiacLiveWave,
-  pulmonaryLiveWave,
-  cardiacCaptured,
-  pulmonaryCaptured,
-  cardiacSaving,
-  pulmonarySaving,
-  statusBanner,
-  errorBanner,
-  loadAuscultationResults,
-  startRecording,
-  saveRecording,
-} = useAuscultationRecorder()
+const { api } = useApi()
+const { cabin } = useMission()
+const noise = computed(() => cabin.value?.noise_dba ?? null)
+const noiseLimit = computed(() => cabin.value?.limits.noise_dba_max ?? 55)
+const tooLoud = computed(() => noise.value !== null && noise.value >= noiseLimit.value)
 
-const cardiacSites: Array<{
-  key: CardiacSiteKey
-  label: string
-  placementTitle: string
-}> = [
-  {
-    key: 'aortic',
-    label: 'Aortic · 2nd R',
-    placementTitle: 'DIGITAL STETHOSCOPE · AORTIC AREA (2ND R ICS)',
-  },
-  {
-    key: 'pulmonic',
-    label: 'Pulmonic · 2nd L',
-    placementTitle: 'DIGITAL STETHOSCOPE · PULMONIC AREA (2ND L ICS)',
-  },
-  {
-    key: 'tricuspid',
-    label: 'Tricuspid · 4th L',
-    placementTitle: 'DIGITAL STETHOSCOPE · TRICUSPID AREA (4TH L ICS)',
-  },
-  {
-    key: 'mitral',
-    label: 'Mitral Apex',
-    placementTitle: 'DIGITAL STETHOSCOPE · MITRAL APEX (5TH ICS)',
-  },
-]
+usePageHeader(() => ({
+  title: 'Data Capture · Auscultation Audio',
+  status: noise.value === null
+    ? { text: 'Cabin noise unknown', tone: 'neutral' }
+    : { text: `${tooLoud.value ? 'Cabin too loud' : 'Cabin quiet'} · ${Math.round(noise.value)} dBA`, tone: tooLoud.value ? 'critical' : 'ok' },
+}))
 
-const pulmonarySites: Array<{
-  key: PulmonarySiteKey
-  label: string
-  placementTitle: string
-}> = [
-  {
-    key: 'upper_left',
-    label: 'Upper Left',
-    placementTitle: 'PULMONARY PICKUP · UPPER LEFT ANTERIOR ZONE',
-  },
-  {
-    key: 'upper_right',
-    label: 'Upper Right',
-    placementTitle: 'PULMONARY PICKUP · UPPER RIGHT ANTERIOR ZONE',
-  },
-  {
-    key: 'lower_left',
-    label: 'Lower Left',
-    placementTitle: 'PULMONARY PICKUP · LOWER LEFT BASAL ZONE',
-  },
-  {
-    key: 'lower_right',
-    label: 'Lower Right',
-    placementTitle: 'PULMONARY PICKUP · LOWER RIGHT BASAL ZONE',
-  },
-]
+const CARDIAC = [
+  { id: 'aortic', label: 'Aortic · 2nd R', pickup: 'Aortic (2nd right intercostal space)' },
+  { id: 'pulmonic', label: 'Pulmonic · 2nd L', pickup: 'Pulmonic (2nd left intercostal space)' },
+  { id: 'tricuspid', label: 'Tricuspid · 4th L', pickup: 'Tricuspid (4th left intercostal space)' },
+  { id: 'mitral', label: 'Mitral Apex', pickup: 'Mitral apex (5th intercostal space)' },
+] as const
+const PULMONARY = [
+  { id: 'upper_left', label: 'Upper Left', pickup: 'Upper left anterior zone' },
+  { id: 'upper_right', label: 'Upper Right', pickup: 'Upper right anterior zone' },
+  { id: 'lower_left', label: 'Lower Left', pickup: 'Lower left posterior zone' },
+  { id: 'lower_right', label: 'Lower Right', pickup: 'Lower right posterior zone' },
+] as const
 
-const activeCardiacPlacementTitle = computed(
-  () =>
-    cardiacSites.find(item => item.key === selectedCardiacSite.value)?.placementTitle
-    ?? 'DIGITAL STETHOSCOPE · MITRAL APEX (5TH ICS)',
-)
+const progress = ref<{ CARDIAC: string[], PULMONARY: string[] }>({ CARDIAC: [], PULMONARY: [] })
+async function loadProgress() {
+  try {
+    progress.value = await api('/auscultation/progress')
+  }
+  catch {
+    // Progress is informative only; recording still works without it.
+  }
+}
+onMounted(loadProgress)
 
-const activePulmonaryPlacementTitle = computed(
-  () =>
-    pulmonarySites.find(item => item.key === selectedPulmonarySite.value)?.placementTitle
-    ?? 'PULMONARY PICKUP · UPPER RIGHT ANTERIOR ZONE',
-)
+interface Panel {
+  organ: 'CARDIAC' | 'PULMONARY'
+  sites: typeof CARDIAC | typeof PULMONARY
+  site: Ref<string>
+  recorder: ReturnType<typeof useAuscultationRecorder>
+  result: Ref<null | { rate_per_min: number | null, rhythm_label: string, signal_quality_pct: number, regularity_pct: number }>
+  error: Ref<string | null>
+}
+function panel(organ: 'CARDIAC' | 'PULMONARY', sites: typeof CARDIAC | typeof PULMONARY): Panel {
+  return { organ, sites, site: ref(sites[3]!.id), recorder: useAuscultationRecorder(organ), result: ref(null), error: ref(null) }
+}
+const panels = [panel('CARDIAC', CARDIAC), panel('PULMONARY', PULMONARY)]
 
-function formatClock(sec: number): string {
-  const clamped = Math.max(0, Math.min(30, Math.round(sec)))
-  return `00:${String(clamped).padStart(2, '0')} / 00:30 SEC`
+function pickSite(p: Panel, id: string) {
+  if (p.recorder.state.value === 'recording' || p.recorder.state.value === 'starting') return
+  p.site.value = id
+  p.result.value = null
+  p.error.value = null
+}
+async function toggle(p: Panel) {
+  p.error.value = null
+  p.result.value = null
+  if (p.recorder.state.value === 'recording' || p.recorder.state.value === 'starting') await p.recorder.stop()
+  else await p.recorder.start()
+}
+async function save(p: Panel) {
+  const take = p.recorder.captured.value
+  if (!take || noise.value === null) return
+  p.recorder.state.value = 'saving'
+  p.error.value = null
+  const form = new FormData()
+  form.append('organ_type', p.organ)
+  form.append('anatomical_site', p.site.value)
+  form.append('cabin_noise_dba', String(noise.value))
+  form.append('sha256_hex', take.sha256)
+  form.append('audio_file', new Blob([take.wav], { type: 'audio/wav' }), `${p.organ.toLowerCase()}-${p.site.value}.wav`)
+  try {
+    p.result.value = await api('/auscultation/samples', { method: 'POST', body: form })
+    p.recorder.state.value = 'saved'
+    p.recorder.captured.value = null
+    await loadProgress()
+  }
+  catch (error) {
+    p.recorder.state.value = 'captured'
+    p.error.value = apiErrorMessage(error, 'The recording could not be saved.')
+  }
 }
 
-const cardiacHeaderLabel = computed(() => {
-  if (isCardiacRecording.value) {
-    return `RECORDING CARDIAC AUDIO · ${formatClock(cardiacSeconds.value)}`
-  }
-  if (cardiacCaptured.value) {
-    return `SAMPLE CAPTURED · ${formatClock(cardiacCaptured.value.durationSec)}`
-  }
-  return `READY FOR CAPTURE · ${formatClock(cardiacSeconds.value)}`
-})
-
-const pulmonaryHeaderLabel = computed(() => {
-  if (isPulmonaryRecording.value) {
-    return `RECORDING PULMONARY AUDIO · ${formatClock(pulmonarySeconds.value)}`
-  }
-  if (pulmonaryCaptured.value) {
-    return `SAMPLE CAPTURED · ${formatClock(pulmonaryCaptured.value.durationSec)}`
-  }
-  return `SAMPLE CAPTURED · ${formatClock(pulmonarySeconds.value)}`
-})
-
-const cardiacProgressPct = computed(
-  () => `${Math.max(4, Math.min(100, (cardiacSeconds.value / 30) * 100))}%`,
-)
-
-const pulmonaryProgressPct = computed(
-  () => `${Math.max(4, Math.min(100, (pulmonarySeconds.value / 30) * 100))}%`,
-)
-
-const cardiacLiveOption = computed(() =>
-  buildPhonocardiogramOption(
-    cardiacLiveWave.value,
-    isNoiseSafe.value ? 'reference' : 'critical',
-  ),
-)
-
-const pulmonaryLiveOption = computed(() =>
-  buildPulmonaryEnvelopeOption(
-    pulmonaryLiveWave.value,
-    isNoiseSafe.value ? 'reference' : 'critical',
-  ),
-)
-
-onMounted(() => {
-  void loadAuscultationResults()
-})
+function statusLine(p: Panel): string {
+  const s = p.recorder.state.value
+  const time = `00:${String(p.recorder.seconds.value).padStart(2, '0')} / 00:${RECORD_SECONDS} SEC`
+  if (s === 'recording') return `● RECORDING ${p.organ} AUDIO · ${time}`
+  if (s === 'starting') return 'STARTING STETHOSCOPE…'
+  if (s === 'captured') return `● SAMPLE CAPTURED · 00:${RECORD_SECONDS} / 00:${RECORD_SECONDS} SEC`
+  if (s === 'saving') return 'SAVING SAMPLE…'
+  if (s === 'saved') return '● SAMPLE SAVED'
+  return `READY · 00:00 / 00:${RECORD_SECONDS} SEC`
+}
+function progressLine(p: Panel): string {
+  const done = progress.value[p.organ]
+  return p.sites.map((site) => {
+    const name = site.label.split(' · ')[0]!.replace(' Apex', '')
+    if (p.recorder.state.value === 'recording' && p.site.value === site.id) return `${name}: ${p.recorder.seconds.value}s / ${RECORD_SECONDS}s`
+    return `${name}: ${done.includes(site.id) ? `Saved (${RECORD_SECONDS}s)` : p.site.value === site.id ? 'Ready' : 'Queued'}`
+  }).join(' · ')
+}
+const liveChart = (p: Panel) => (p.recorder.envelope.value.length > 4
+  ? envelopeOption(p.recorder.envelope.value, p.organ === 'CARDIAC' ? 'cardiac' : 'pulmonary') : null)
 </script>
 
 <template>
-  <div class="flex flex-col gap-[18px] flex-1">
-    <CaptureSubnavBar
-      v-model:mission-stage="missionStage"
-      :show-stage-selector="true"
-    />
-
-    <div
-      v-if="errorBanner"
-      class="rounded-[5px] bg-cabin-crit/20 border border-cabin-crit/80 px-4 py-2.5 text-[11.5px] font-medium text-cabin-text"
-    >
-      {{ errorBanner }}
-    </div>
-
-    <div
-      v-else-if="statusBanner"
-      class="rounded-[5px] bg-cabin-inset border border-cabin-ok/65 px-4 py-2.5 text-[11.5px] font-medium text-cabin-text flex items-center justify-between gap-3"
-    >
-      <span>{{ statusBanner }}</span>
-      <NuxtLink
-        to="/auscultation"
-        class="font-mono text-[10.5px] font-bold uppercase tracking-[0.05em] text-cabin-ok hover:underline"
-      >
-        Open Read-Only Results →
-      </NuxtLink>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-[18px] flex-1">
+  <div class="page">
+    <ShellCaptureTabs />
+    <div class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-        title="Cardiac Audio Recording"
-        subtitle="Place digital stethoscope on valve site · Record 30-second sample"
-        icon="stethoscope"
-        tag-text="HEART · 30S"
-        :tag-tone="isNoiseSafe ? 'reference' : 'critical'"
-      >
-        <div class="flex flex-col justify-between gap-3.5 h-full">
-          <div class="flex flex-col gap-1.5">
-            <span class="text-[10px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-              Select Cardiac Valve Placement
-            </span>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button
-                v-for="site in cardiacSites"
-                :key="site.key"
-                type="button"
-                class="h-8 px-2.5 rounded-[4px] text-[10.8px] border transition-colors cursor-pointer truncate"
-                :class="
-                  selectedCardiacSite === site.key
-                    ? 'menu-item-active font-bold text-cabin-text'
-                    : 'bg-cabin-inset border-cabin-card/60 text-cabin-muted hover:text-cabin-text font-semibold'
-                "
-                @click="selectedCardiacSite = site.key"
-              >
-                {{ site.label }}
-              </button>
-            </div>
-          </div>
-
-          <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3.5 flex items-center gap-3.5">
-            <div
-              class="w-[92px] h-[102px] shrink-0 rounded-[4px] bg-cabin-bg/80 border border-cabin-card/60 flex items-center justify-center relative overflow-hidden hologram-scanline"
-            >
-              <svg
-                viewBox="0 0 84 90"
-                class="w-[68px] h-[74px] hologram-shell select-none"
-                role="img"
-                aria-label="Cardiac valve stethoscope placement"
-              >
-                <circle cx="42" cy="48" r="31" fill="none" stroke="rgba(255, 236, 209, 0.15)" stroke-width="1" />
-                <path
-                  d="M36 15 L36 28 M46 13 L46 27 M27 22 L34 30"
-                  fill="none"
-                  stroke="var(--color-status-ok)"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M42 33 C35 24, 21 28, 22 41 C23 54, 40 66, 42 70 C44 66, 61 54, 62 41 C63 28, 49 24, 42 33 Z"
-                  fill="rgba(42, 239, 75, 0.18)"
-                  stroke="var(--color-status-ok)"
-                  stroke-width="1.8"
-                />
-                <circle cx="48" cy="54" r="4.5" fill="var(--color-status-ok)" />
-              </svg>
-            </div>
-
-            <div class="flex-1 min-w-0 flex flex-col gap-1.5">
-              <div class="text-[11px] font-bold tracking-[0.04em] uppercase text-cabin-text truncate">
-                {{ activeCardiacPlacementTitle }}
-              </div>
-              <div class="text-[11px] font-semibold text-cabin-ok">
-                Sensor Seal: {{ results?.signal_quality_pct ?? 99 }}% Optimal · Heart Rate: {{ Math.round(results?.heart_rate_bpm ?? 64) }} bpm
-              </div>
-              <div
-                class="text-[10.5px]"
-                :class="isNoiseSafe ? 'text-cabin-muted' : 'text-cabin-crit font-semibold'"
-              >
-                Cabin Noise: {{ cabinDba.toFixed(1) }} dBA ({{ isNoiseSafe ? 'Below 55 dBA acoustic limit' : 'Exceeds 55 dBA limit' }})
-              </div>
-              <div class="pt-0.5 flex items-center gap-2.5">
-                <span class="font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] text-cabin-muted">
-                  Input Gain
-                </span>
-                <div class="flex-1 h-1.5 rounded-full bg-cabin-navy/65 overflow-hidden">
-                  <div class="h-full w-[76%] rounded-full bg-cabin-ok" />
-                </div>
-                <span class="font-mono text-[10px] font-bold text-cabin-text">
-                  -12 dB
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3 flex flex-col gap-2">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <span class="font-mono text-[10px] font-bold uppercase tracking-[0.04em] text-cabin-text">
-                {{ cardiacHeaderLabel }}
-              </span>
-              <span class="font-mono text-[10px] font-bold uppercase text-cabin-ok">
-                S1 / S2 LOCKED
-              </span>
-            </div>
-
-            <div class="h-[112px] w-full">
-              <ClientOnly>
-                <VChart
-                  class="w-full h-full"
-                  :option="cardiacLiveOption"
-                  theme="spacescan-hud"
-                  autoresize
-                />
-              </ClientOnly>
-            </div>
-
-            <div class="h-1.5 rounded-full bg-cabin-navy/65 overflow-hidden">
-              <div
-                class="h-full rounded-full bg-cabin-ok transition-all"
-                :style="{ width: cardiacProgressPct }"
-              />
-            </div>
-          </div>
-
-          <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/60 px-3.5 py-2.5 flex flex-col gap-1">
-            <span class="text-[9.8px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-              Cardiac Recording Progress
-            </span>
-            <span class="font-mono text-[10.8px] text-cabin-ice">
-              {{ results?.cardiac_progress_summary ?? 'Aortic: Ready (30s) · Pulmonic: Ready (30s) · Tricuspid: Ready (30s) · Mitral: Ready (30s)' }}
-            </span>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
+v-for="p in panels" :key="p.organ" class="flex-1" flush
+                      :title="p.organ === 'CARDIAC' ? 'Cardiac Audio Recording' : 'Pulmonary Audio Recording'"
+                      :icon="p.organ === 'CARDIAC' ? 'heart' : 'stethoscope'"
+                      :tag-text="p.organ === 'CARDIAC' ? 'HEART · 30S' : 'LUNGS · 30S'">
+        <div class="flex-1 flex flex-col px-[19px] pt-[16px] pb-[20px]">
+          <p class="label-caps">{{ p.organ === 'CARDIAC' ? 'Select cardiac valve placement' : 'Select bilateral lung zone' }}</p>
+          <div class="grid grid-cols-4 gap-[9px] mt-[10px]" role="radiogroup" :aria-label="p.organ === 'CARDIAC' ? 'Valve placement' : 'Lung zone'">
             <button
-              type="button"
-              class="h-10 px-4 rounded-[5px] border text-[11.5px] font-bold tracking-[0.02em] transition-colors cursor-pointer"
-              :class="
-                isCardiacRecording
-                  ? 'bg-cabin-crit/28 border-cabin-crit text-cabin-text'
-                  : 'bg-cabin-inset border-cabin-card/80 text-cabin-text hover:border-cabin-ice/70'
-              "
-              @click="startRecording('CARDIAC')"
-            >
-              {{ isCardiacRecording ? 'Stop Heart Audio' : 'Record Heart Audio' }}
+v-for="site in p.sites" :key="site.id" type="button" role="radio" :aria-checked="p.site.value === site.id"
+                    class="focus-ring h-[38px] rounded-[4px] text-[11.5px] border-[1.3px]"
+                    :class="p.site.value === site.id ? 'menu-item-active font-bold' : 'bg-cabin-tile border-cabin-line text-cabin-ice'"
+                    @click="pickSite(p, site.id)">{{ site.label }}</button>
+          </div>
+
+          <div class="tile-hi h-[162px] shrink-0 mt-[16px] flex items-center px-[24px] gap-[26px]">
+            <UiHoloFigure :figure="p.organ === 'CARDIAC' ? 'heart' : 'lungs'" :size="108" :label="p.organ === 'CARDIAC' ? 'Heart' : 'Lungs'" />
+            <div class="min-w-0 flex-1">
+              <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok truncate">
+                {{ p.organ === 'CARDIAC' ? 'Digital stethoscope' : 'Pulmonary pickup' }} · {{ p.sites.find(s => s.id === p.site.value)?.pickup }}
+              </p>
+              <p class="text-[15px] font-bold mt-[10px]">
+                <template v-if="p.result.value">
+                  {{ p.organ === 'CARDIAC' ? 'Heart Rate' : 'Breathing Rate' }}:
+                  {{ p.result.value.rate_per_min ?? '—' }} {{ p.organ === 'CARDIAC' ? 'bpm' : 'rpm' }} · Signal {{ p.result.value.signal_quality_pct }}%
+                </template>
+                <template v-else>{{ p.organ === 'CARDIAC' ? 'Place the chest piece and hold still' : 'Breathe slowly through the mouth' }}</template>
+              </p>
+              <p class="text-[12px] mt-[8px]" :class="tooLoud ? 'text-cabin-text' : 'text-cabin-ice'">
+                Cabin Noise: {{ noise === null ? 'unknown' : `${Math.round(noise)} dBA` }} ({{ tooLoud ? 'above' : 'below' }} {{ noiseLimit }} dBA acoustic limit)
+              </p>
+              <div class="flex items-center gap-[12px] mt-[12px]">
+                <span class="label-caps !text-[9px]">{{ p.organ === 'CARDIAC' ? 'Input gain' : 'Airflow gain' }}</span>
+                <UiProgressBar
+class="flex-1" thick :pct="p.recorder.inputDb.value === null ? 0 : Math.max(0, 100 + p.recorder.inputDb.value * 1.6)"
+                               :tone="p.organ === 'CARDIAC' ? 'ok' : 'watch'" />
+                <span class="mono text-[10px] w-[52px] text-right" :class="p.organ === 'CARDIAC' ? 'text-cabin-ok' : ''">
+                  {{ p.recorder.inputDb.value === null ? '—' : `${p.recorder.inputDb.value} dB` }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tile relative flex-1 mt-[16px] min-h-0">
+            <p
+class="absolute top-[14px] left-[18px] mono text-[10.5px] z-10"
+               :class="p.recorder.state.value === 'recording' ? '' : p.recorder.state.value === 'captured' || p.recorder.state.value === 'saved' ? 'text-cabin-ok' : 'text-cabin-ice'">
+              {{ statusLine(p) }}
+            </p>
+            <p v-if="p.result.value" class="absolute top-[14px] right-[18px] mono text-[10.5px] text-cabin-ok z-10 uppercase">{{ p.result.value.rhythm_label }}</p>
+            <ClientOnly>
+              <VChart
+v-if="liveChart(p)" :option="liveChart(p)!" theme="spacescan-hud" autoresize class="absolute inset-x-0 top-[34px] bottom-[22px]"
+                      :aria-label="`${p.organ.toLowerCase()} sound level`" />
+            </ClientOnly>
+            <p v-if="!liveChart(p)" class="absolute inset-0 flex items-center justify-center text-[12px] text-cabin-ice px-8 text-center">
+              The live sound trace appears here while recording.
+            </p>
+            <div class="absolute left-[18px] right-[18px] bottom-[12px]">
+              <UiProgressBar :pct="(p.recorder.seconds.value / RECORD_SECONDS) * 100" thick />
+            </div>
+          </div>
+
+          <div class="tile h-[74px] shrink-0 mt-[14px] px-[18px] flex flex-col justify-center">
+            <p class="label-caps">{{ p.organ === 'CARDIAC' ? 'Cardiac' : 'Pulmonary' }} recording progress</p>
+            <p class="text-[11.5px] font-semibold mt-[9px] truncate">{{ progressLine(p) }}</p>
+          </div>
+          <p
+v-if="p.recorder.message.value || p.error.value || (tooLoud && p.recorder.state.value === 'idle')"
+             class="text-[11px] mt-[8px] flex items-center gap-[6px]" role="alert">
+            <Icon name="spacescan:alert" class="w-[12px] h-[12px] text-cabin-crit shrink-0" />
+            {{ p.error.value ?? p.recorder.message.value ?? `The cabin is too loud for a clinical recording. Wait until it is below ${noiseLimit} dBA.` }}
+          </p>
+          <div class="grid grid-cols-2 gap-[16px] mt-[14px]">
+            <button
+type="button" class="hud-button relative"
+                    :disabled="tooLoud || noise === null || p.recorder.busyElsewhere.value || p.recorder.state.value === 'saving'"
+                    @click="toggle(p)">
+              <Icon name="spacescan:mic" class="w-[17px] h-[17px] absolute left-[20px]" />
+              {{ p.recorder.state.value === 'recording' || p.recorder.state.value === 'starting' ? 'Stop Recording' : p.organ === 'CARDIAC' ? 'Record / Stop Heart Audio' : 'Record Pulmonary Audio' }}
             </button>
-
-            <button
-              type="button"
-              :disabled="cardiacSaving || !isNoiseSafe"
-              class="h-10 px-4 rounded-[5px] text-[11.5px] font-bold tracking-[0.02em] text-cabin-text transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed menu-item-active"
-              @click="saveRecording('CARDIAC')"
-            >
-              {{ cardiacSaving ? 'Saving Sample...' : 'Save Cardiac Recording' }}
-            </button>
-          </div>
-        </div>
-      </ShellHudWindow>
-
-      <ShellHudWindow
-        title="Pulmonary Audio Recording"
-        subtitle="Place pickup on lung zone · Follow guided breath cadence"
-        icon="mic"
-        tag-text="LUNGS · 30S"
-        :tag-tone="isNoiseSafe ? 'reference' : 'critical'"
-      >
-        <div class="flex flex-col justify-between gap-3.5 h-full">
-          <div class="flex flex-col gap-1.5">
-            <span class="text-[10px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-              Select Bilateral Lung Zone
-            </span>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button
-                v-for="zone in pulmonarySites"
-                :key="zone.key"
-                type="button"
-                class="h-8 px-2.5 rounded-[4px] text-[10.8px] border transition-colors cursor-pointer truncate"
-                :class="
-                  selectedPulmonarySite === zone.key
-                    ? 'menu-item-active font-bold text-cabin-text'
-                    : 'bg-cabin-inset border-cabin-card/60 text-cabin-muted hover:text-cabin-text font-semibold'
-                "
-                @click="selectedPulmonarySite = zone.key"
-              >
-                {{ zone.label }}
-              </button>
-            </div>
-          </div>
-
-          <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3.5 flex items-center gap-3.5">
-            <div
-              class="w-[92px] h-[102px] shrink-0 rounded-[4px] bg-cabin-bg/80 border border-cabin-card/60 flex items-center justify-center relative overflow-hidden hologram-scanline"
-            >
-              <svg
-                viewBox="0 0 88 90"
-                class="w-[70px] h-[74px] hologram-shell select-none"
-                role="img"
-                aria-label="Pulmonary bilateral pickup placement"
-              >
-                <line
-                  x1="44"
-                  y1="14"
-                  x2="44"
-                  y2="37"
-                  stroke="var(--color-text-primary)"
-                  stroke-width="2.2"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M44 33 L32 42 M44 33 L56 42"
-                  fill="none"
-                  stroke="var(--color-text-primary)"
-                  stroke-width="1.7"
-                />
-                <path
-                  d="M39 26 C24 26, 16 41, 17 62 C18 72, 33 72, 39 63 Z"
-                  fill="rgba(41, 148, 166, 0.22)"
-                  stroke="var(--color-status-ok)"
-                  stroke-width="1.8"
-                />
-                <path
-                  d="M49 26 C64 26, 72 41, 71 62 C70 72, 55 72, 49 63 Z"
-                  fill="rgba(41, 148, 166, 0.22)"
-                  stroke="var(--color-status-ok)"
-                  stroke-width="1.8"
-                />
-                <circle cx="59" cy="43" r="4.5" fill="var(--color-status-ok)" />
-              </svg>
-            </div>
-
-            <div class="flex-1 min-w-0 flex flex-col gap-1.5">
-              <div class="text-[11px] font-bold tracking-[0.04em] uppercase text-cabin-text truncate">
-                {{ activePulmonaryPlacementTitle }}
-              </div>
-              <div class="text-[11px] font-semibold text-cabin-ok">
-                Guided Breath: Inhale 2.0s · Exhale 2.2s ({{ (results?.respiratory_rate_rpm ?? 14.2).toFixed(1) }} rpm)
-              </div>
-              <div class="text-[10.5px] text-cabin-muted">
-                Airflow Clarity: 98% · Zero friction artifacts
-              </div>
-              <div class="pt-0.5 flex items-center gap-2.5">
-                <span class="font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] text-cabin-muted">
-                  Airflow Gain
-                </span>
-                <div class="flex-1 h-1.5 rounded-full bg-cabin-navy/65 overflow-hidden">
-                  <div class="h-full w-[82%] rounded-full bg-cabin-ok" />
-                </div>
-                <span class="font-mono text-[10px] font-bold text-cabin-text">
-                  -9 dB
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3 flex flex-col gap-2">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <span class="font-mono text-[10px] font-bold uppercase tracking-[0.04em] text-cabin-text">
-                {{ pulmonaryHeaderLabel }}
-              </span>
-              <span class="font-mono text-[10px] font-bold uppercase text-cabin-ok">
-                VESICULAR CLEAR
-              </span>
-            </div>
-
-            <div class="h-[112px] w-full">
-              <ClientOnly>
-                <VChart
-                  class="w-full h-full"
-                  :option="pulmonaryLiveOption"
-                  theme="spacescan-hud"
-                  autoresize
-                />
-              </ClientOnly>
-            </div>
-
-            <div class="h-1.5 rounded-full bg-cabin-navy/65 overflow-hidden">
-              <div
-                class="h-full rounded-full bg-cabin-ok transition-all"
-                :style="{ width: pulmonaryProgressPct }"
-              />
-            </div>
-          </div>
-
-          <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/60 px-3.5 py-2.5 flex flex-col gap-1">
-            <span class="text-[9.8px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-              Pulmonary Recording Progress
-            </span>
-            <span class="font-mono text-[10.8px] text-cabin-ice">
-              {{ results?.pulmonary_progress_summary ?? 'Upper Left: Ready (30s) · Upper Right: Ready (30s) · Lower Left: Ready (30s) · Lower Right: Ready (30s)' }}
-            </span>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              class="h-10 px-4 rounded-[5px] border text-[11.5px] font-bold tracking-[0.02em] transition-colors cursor-pointer"
-              :class="
-                isPulmonaryRecording
-                  ? 'bg-cabin-crit/28 border-cabin-crit text-cabin-text'
-                  : 'bg-cabin-inset border-cabin-card/80 text-cabin-text hover:border-cabin-ice/70'
-              "
-              @click="startRecording('PULMONARY')"
-            >
-              {{ isPulmonaryRecording ? 'Stop Pulmonary Audio' : 'Record Pulmonary Audio' }}
-            </button>
-
-            <button
-              type="button"
-              :disabled="pulmonarySaving || !isNoiseSafe"
-              class="h-10 px-4 rounded-[5px] text-[11.5px] font-bold tracking-[0.02em] text-cabin-text transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed menu-item-active"
-              @click="saveRecording('PULMONARY')"
-            >
-              {{ pulmonarySaving ? 'Saving Sample...' : 'Save Lung Recording' }}
+            <button type="button" class="hud-button relative" :disabled="p.recorder.state.value !== 'captured'" @click="save(p)">
+              <Icon name="spacescan:play" class="w-[15px] h-[15px] absolute left-[20px]" />
+              {{ p.recorder.state.value === 'saving' ? 'Saving…' : p.organ === 'CARDIAC' ? 'Save Cardiac Recording' : 'Save Lung Recording' }}
             </button>
           </div>
         </div>

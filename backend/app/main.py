@@ -1,11 +1,16 @@
 """FastAPI entrypoint serving API, SSE telemetry, and static SPA on one port."""
 
+import os
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import AUDIO_STORAGE_DIR, STATIC_SPA_DIR
 from app.db import init_db
@@ -27,6 +32,7 @@ from app.routers import (
 )
 from app.services.comms_service import run_outbox_scheduler_tick
 from app.services.scheduled_checks import run_scheduled_checks_tick
+from app.services.sensor_simulator import run_sensor_tick_job
 
 
 @asynccontextmanager
@@ -38,7 +44,15 @@ async def lifespan(_app: FastAPI):
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(run_outbox_scheduler_tick, "interval", seconds=15, id="ground_outbox_sync")
     scheduler.add_job(run_scheduled_checks_tick, "interval", minutes=5, id="scheduled_checks")
-    scheduler.add_job(diagnosis.run_anomaly_scan_tick, "interval", hours=6, id="anomaly_scan")
+    # First pattern scan shortly after start-up, then every 6 hours (runs in the background).
+    scheduler.add_job(
+        diagnosis.run_anomaly_scan_tick,
+        "interval",
+        hours=6,
+        id="anomaly_scan",
+        next_run_time=datetime.now(UTC) + timedelta(seconds=20),
+    )
+    scheduler.add_job(run_sensor_tick_job, "interval", minutes=5, id="sensor_feed")
     scheduler.start()
     try:
         yield
@@ -53,9 +67,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+def parse_cors_origins(raw: str | None = None) -> list[str]:
+    source = os.environ.get("SPACESCAN_CORS_ORIGINS", "") if raw is None else raw
+    origins: list[str] = []
+    for item in source.split(","):
+        cleaned = item.strip().rstrip("/")
+        if not cleaned:
+            continue
+        parts = urlsplit(cleaned)
+        origin = f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else cleaned
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+LOCAL_ORIGIN_REGEX = (
+    r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$"
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$",
+    allow_origins=parse_cors_origins(),
+    allow_origin_regex=LOCAL_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,5 +109,23 @@ app.include_router(mind.router)
 app.include_router(guide.router)
 app.include_router(diagnosis.router)
 
+class SpaStaticFiles(StaticFiles):
+    """Serves the cockpit build; unknown screen paths load the app shell (deep links work)."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        if path.replace("\\", "/").lstrip("/").startswith("api/"):
+            raise StarletteHTTPException(status_code=404, detail="Not found.")
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            response = None
+        if response is None or response.status_code == 404:
+            fallback = "200.html" if (Path(self.directory) / "200.html").exists() else "index.html"
+            return await super().get_response(fallback, scope)
+        return response
+
+
 if STATIC_SPA_DIR.exists():
-    app.mount("/", StaticFiles(directory=STATIC_SPA_DIR, html=True), name="spa")
+    app.mount("/", SpaStaticFiles(directory=STATIC_SPA_DIR, html=True), name="spa")

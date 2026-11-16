@@ -1,77 +1,77 @@
 <script setup lang="ts">
+// Level 2 (after PIN): seven modules on a symmetric trapezoid with Profile raised at the centre.
 const route = useRoute()
-const router = useRouter()
-const { activeCrew, signOut } = useSession()
+const { crew, logout } = useSession()
+const { t } = useI18n()
 
-const dockModules = [
-  { to: '/vision', match: '/vision', labelKey: 'nav.dock.vision', icon: 'sans', center: false },
-  { to: '/sleep', match: '/sleep', labelKey: 'nav.dock.sleep', icon: 'moon', center: false },
-  { to: '/auscultation', match: '/auscultation', labelKey: 'nav.dock.auscultation', icon: 'stethoscope', center: false },
-  { to: '/profile/personal', match: '/profile', labelKey: 'nav.dock.profile', icon: 'profile', center: true },
-  { to: '/capture/auscultation', match: '/capture', labelKey: 'nav.dock.capture', icon: 'capture', center: false },
-  { to: '/guide', match: '/guide', labelKey: 'nav.dock.guide', icon: 'wiki', center: false },
-  { to: '/comms', match: '/comms', labelKey: 'nav.dock.comms', icon: 'earth', center: false },
+const slots = [
+  { to: '/vision', match: '/vision', icon: 'sans', label: 'nav.vision' },
+  { to: '/sleep', match: '/sleep', icon: 'moon', label: 'nav.sleep' },
+  { to: '/auscultation', match: '/auscultation', icon: 'stethoscope', label: 'nav.auscultation' },
+  { to: '/profile/personal', match: '/profile', icon: 'profile', label: 'nav.profile', main: true },
+  { to: '/capture/auscultation', match: '/capture', icon: 'capture', label: 'nav.capture' },
+  { to: '/guide', match: '/guide', icon: 'wiki', label: 'nav.guide' },
+  { to: '/comms', match: '/comms', icon: 'earth', label: 'nav.comms' },
 ]
+const isActive = (match: string) => route.path.startsWith(match)
 
-function isActive(matchPrefix: string): boolean {
-  return route.path === matchPrefix || route.path.startsWith(`${matchPrefix}/`)
-}
-
-async function handleSignOut() {
-  signOut()
-  await router.push('/login')
+async function signOut() {
+  logout()
+  await navigateTo('/login')
 }
 </script>
 
 <template>
-  <nav
-    aria-label="Authenticated cockpit dock"
-    class="h-[72px] px-7 bg-cabin-bg/90 border-t border-cabin-card/60 flex items-center justify-between gap-4 shrink-0"
-  >
-    <!-- Active crew badge (left) -->
-    <div class="h-11 px-3.5 rounded-[6px] bg-cabin-inset border border-cabin-card/70 flex items-center gap-2.5 min-w-[175px]">
-      <span class="w-2 h-2 rounded-full bg-cabin-ok shrink-0" />
-      <div class="leading-tight">
-        <div class="font-mono text-[10.5px] font-bold text-cabin-muted">
-          {{ activeCrew?.code ?? 'ID·01' }}
-        </div>
-        <div class="text-[11.5px] font-bold tracking-[0.03em] text-cabin-text truncate">
-          {{ activeCrew?.shortName ?? 'E. VARGAS' }}
-        </div>
-      </div>
+  <nav class="absolute bottom-0 left-0 right-0 h-[74px]" :aria-label="t('nav.cockpitLabel')">
+    <div class="absolute left-[24px] bottom-[12px] w-[211px] h-[46px] tile-hi flex items-center px-[20px] gap-[14px]">
+      <Icon name="spacescan:profile" class="w-[16px] h-[16px] shrink-0" />
+      <span class="flex-1 text-center text-[10.5px] font-bold tracking-[0.03em] truncate">
+        {{ crew?.code }} · {{ crew?.short_name }}
+      </span>
     </div>
 
-    <!-- Symmetrical 7-module trapezoid with Profile elevated at slot 4 -->
-    <div class="flex items-end gap-2">
+    <div class="dock-trapezoid absolute left-[232px] right-[232px] bottom-0 h-[74px]" />
+    <div class="absolute left-[256px] right-[256px] bottom-0 h-[74px] flex items-end justify-between">
       <NuxtLink
-        v-for="mod in dockModules"
-        :key="mod.to"
-        :to="mod.to"
-        class="rounded-t-[8px] rounded-b-[4px] border flex flex-col items-center justify-center gap-1 transition-all"
+        v-for="slot in slots"
+        :key="slot.to"
+        :to="slot.to"
+        class="focus-ring relative rounded-[4px] flex flex-col items-center justify-center border-[1.3px]"
         :class="[
-          mod.center ? 'w-[192px] h-[56px] -translate-y-[8px]' : 'w-[138px] h-[48px]',
-          isActive(mod.match)
-            ? 'menu-item-active text-cabin-text'
-            : 'bg-cabin-card/28 border-cabin-card/70 text-cabin-muted hover:text-cabin-text hover:bg-cabin-card/42',
+          slot.main
+            ? 'w-[172px] h-[76px] -translate-y-[6px] gap-[6px] text-[12.5px] font-bold'
+            : 'w-[124px] h-[62px] mb-[6px] gap-[7px] text-[10.5px]',
+          isActive(slot.match)
+            ? 'menu-item-active font-bold text-cabin-text'
+            : slot.main
+              ? 'bg-[var(--color-card-head)] border-cabin-text/45 text-cabin-text'
+              : 'border-transparent text-cabin-ice/85 hover:text-cabin-text',
         ]"
+        :aria-current="isActive(slot.match) ? 'page' : undefined"
       >
-        <Icon :name="`spacescan:${mod.icon}`" :class="mod.center ? 'w-4 h-4' : 'w-3.5 h-3.5'" />
+        <Icon :name="`spacescan:${slot.icon}`" :class="slot.main ? 'w-[22px] h-[22px]' : 'w-[18px] h-[18px]'" />
+        {{ t(slot.label) }}
         <span
-          class="font-bold tracking-[0.04em] uppercase"
-          :class="mod.center ? 'text-[11.5px]' : 'text-[10.5px]'"
-        >
-          {{ $t(mod.labelKey) }}
-        </span>
+          v-if="isActive(slot.match)"
+          class="absolute bottom-[1px] left-[24px] right-[24px] h-[2.5px] rounded-full bg-cabin-text/85"
+        />
       </NuxtLink>
     </div>
 
-    <!-- Sign Out button (right) -->
     <button
       type="button"
-      class="h-10 px-5 rounded-[6px] bg-cabin-card hover:bg-cabin-card/85 border border-cabin-text/20 text-[11.5px] font-bold tracking-[0.04em] uppercase text-cabin-text transition-colors min-w-[130px] cursor-pointer"
-      @click="handleSignOut"
+      class="hud-button absolute right-[25px] bottom-[12px] !w-[210px] !h-[46px] !text-[11.5px]"
+      @click="signOut"
     >
-      {{ $t('nav.dock.signOut') }}
+      <Icon name="spacescan:lock" class="w-[15px] h-[15px] absolute left-[24px]" />
+      {{ t('nav.signOut') }}
     </button>
   </nav>
 </template>
+
+<style scoped>
+.dock-trapezoid {
+  background: linear-gradient(180deg, var(--color-card-head) 0%, var(--color-card-fill) 100%);
+  clip-path: polygon(2.6% 0, 97.4% 0, 100% 100%, 0 100%);
+}
+</style>

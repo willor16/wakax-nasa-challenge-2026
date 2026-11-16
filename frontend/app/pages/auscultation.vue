@@ -1,374 +1,158 @@
 <script setup lang="ts">
+// 09 · Cardiac & Pulmonary Auscultation (read-only). Recording lives in Capture.
 import VChart from 'vue-echarts'
-import type { AuscultationStageFilter } from '~/composables/useAuscultationRecorder'
-import {
-  auscultationMetricColorVar,
-  auscultationToneColorVar,
-  buildCabinCo2TrendOption,
-  buildPhonocardiogramOption,
-  buildPulmonaryEnvelopeOption,
-} from '~/utils/auscultationCharts'
-import type { AuscultationHudTone, AuscultationMetricTone } from '~/utils/auscultationCharts'
+import type { MetricView } from '~/composables/useProfile'
+import { co2TrendOption, envelopeOption } from '~/utils/charts'
+import { dayText, formatNumber, formatTime, toneOf } from '~/utils/format'
 
-const {
-  results,
-  selectedStage,
-  isLoading,
-  errorMessage,
-  loadAuscultationResults,
-} = useAuscultation()
-
-const stageFilters: Array<{ value: AuscultationStageFilter, label: string }> = [
-  { value: 'ALL', label: 'ACTIVE' },
-  { value: 'LAUNCH', label: 'LAUNCH' },
-  { value: 'MISSION', label: 'MISSION' },
-  { value: 'RETURN', label: 'RETURN' },
-]
-
-const phonocardiogramOption = computed(() =>
-  buildPhonocardiogramOption(
-    results.value?.phonocardiogram_samples ?? [],
-    results.value?.cardiac_summary.tone ?? 'reference',
-  ),
-)
-
-const pulmonaryEnvelopeOption = computed(() =>
-  buildPulmonaryEnvelopeOption(
-    results.value?.pulmonary_envelope_samples ?? [],
-    results.value?.pulmonary_summary.tone ?? 'reference',
-  ),
-)
-
-const co2TrendOption = computed(() =>
-  buildCabinCo2TrendOption({
-    points: results.value?.co2_trend ?? [],
-    targetMaxMmhg: results.value?.co2_target_max_mmhg ?? 3.2,
-    alertLimitMmhg: results.value?.co2_alert_limit_mmhg ?? 4.0,
-    tone: results.value?.co2_tone ?? 'reference',
-  }),
-)
-
-function pillBadgeClass(tone: AuscultationHudTone): string {
-  if (tone === 'critical') {
-    return 'bg-cabin-crit/25 border-cabin-crit/85 text-cabin-text'
-  }
-  if (tone === 'warn') {
-    return 'bg-cabin-navy/60 border-cabin-navy-edge/95 text-cabin-text'
-  }
-  return 'bg-cabin-navy/42 border-cabin-navy-edge/70 text-cabin-text'
+interface OrganSummary {
+  rate_per_min: number | null
+  rhythm_text: string
+  regular: boolean
+  sites_recorded: number
+  sites_regular: number
+  sites_total: number
+  signal_quality_pct: number
+  cabin_noise_dba: number
+  recorded_at_utc: string
+  day_label: string
+  waveform_site: string
+  envelope: number[]
+  needs_physician_review: boolean
+}
+interface Results {
+  status: string
+  header_text: string
+  signal_quality_pct: number | null
+  cardiac: OrganSummary | null
+  pulmonary: OrganSummary | null
+  spo2_pct: number | null
+  fitness: MetricView[]
+  co2: { current_mmhg: number | null, status: string, limits_mmhg: { target: number, alert: number }
+    trend: { recorded_at_utc: string, co2_mmhg: number }[] }
 }
 
-function metricFillStyle(fillPct: number, tone: AuscultationMetricTone) {
-  return {
-    width: `${Math.max(8, Math.min(100, fillPct))}%`,
-    backgroundColor: auscultationMetricColorVar(tone),
-  }
-}
+const { crew } = useSession()
+const { api } = useApi()
+const { data, loading, error, refresh } = useResource(() => api<Results>(`/auscultation/${crew.value!.id}`), 60_000)
 
-onMounted(() => {
-  void loadAuscultationResults()
-})
+usePageHeader(() => ({
+  title: 'Cardiac & Pulmonary Auscultation',
+  status: data.value ? { text: data.value.header_text, tone: data.value.status === 'WARNING' ? 'critical' : 'ok' } : null,
+}))
+
+const SITE_NAMES: Record<string, string> = {
+  aortic: 'Aortic', pulmonic: 'Pulmonic', tricuspid: 'Tricuspid', mitral: 'Mitral',
+  upper_left: 'Upper Left', upper_right: 'Upper Right', lower_left: 'Lower Left', lower_right: 'Lower Right',
+}
+const cardiacChart = computed(() => (data.value?.cardiac?.envelope.length ? envelopeOption(data.value.cardiac.envelope.slice(0, 150), 'cardiac') : null))
+const lungChart = computed(() => (data.value?.pulmonary?.envelope.length ? envelopeOption(data.value.pulmonary.envelope, 'pulmonary') : null))
+const co2Chart = computed(() => (data.value?.co2.trend.length ? co2TrendOption(data.value.co2.trend, data.value.co2.limits_mmhg) : null))
+
+function fitnessRef(view: MetricView): string {
+  if (view.metric_key === 'vo2_max_ml_kg_min') {
+    return view.baseline_mean != null ? `Keep ≥ 80% of pre-flight (${formatNumber(view.baseline_mean * 0.8, 1)} mL/kg/min)` : 'No pre-flight value'
+  }
+  if (view.metric_key === 'orthostatic_hr_delta_bpm') return `Allowed rise: < +${view.nominal_max} bpm`
+  return view.baseline_low != null ? `Baseline: ${formatNumber(view.baseline_low)}–${formatNumber(view.baseline_high)}` : `Usual: ${view.nominal_min}–${view.nominal_max}`
+}
+function fitnessValue(view: MetricView): string {
+  if (view.value === null) return '—'
+  if (view.metric_key === 'orthostatic_hr_delta_bpm') return `+${formatNumber(view.value)}`
+  return formatNumber(view.value, view.metric_key === 'vo2_max_ml_kg_min' ? 1 : 0)
+}
+const fitnessLabel: Record<string, string> = {
+  vo2_max_ml_kg_min: 'Aerobic Capacity (VO₂ Max)', orthostatic_hr_delta_bpm: 'Orthostatic Response',
+  cardiorespiratory_index: 'Cardiorespiratory Index',
+}
+const fitnessUnit: Record<string, string> = { vo2_max_ml_kg_min: 'mL/kg', orthostatic_hr_delta_bpm: 'bpm', cardiorespiratory_index: 'pts' }
+const fitnessScale: Record<string, [number, number]> = {
+  vo2_max_ml_kg_min: [20, 70], orthostatic_hr_delta_bpm: [-5, 40], cardiorespiratory_index: [40, 100],
+}
 </script>
 
 <template>
-  <div class="flex flex-col gap-[18px] flex-1">
-    <div class="flex flex-wrap items-center justify-between gap-3 min-h-[36px]">
-      <div
-        class="h-9 p-1 rounded-[4px] bg-cabin-inset border border-cabin-card/65 inline-flex items-center gap-1"
-        role="group"
-        aria-label="Read-only auscultation stage filter"
-      >
-        <span class="px-2.5 text-[9.5px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-          Stage Filter
-        </span>
-        <button
-          v-for="filter in stageFilters"
-          :key="filter.value"
-          type="button"
-          class="h-7 px-3 rounded-[3px] font-mono text-[10.5px] tracking-[0.05em] uppercase transition-colors cursor-pointer"
-          :class="
-            selectedStage === filter.value
-              ? 'menu-item-active font-bold text-cabin-text'
-              : 'text-cabin-muted hover:text-cabin-text font-semibold border border-transparent'
-          "
-          @click="selectedStage = filter.value"
-        >
-          {{ filter.label }}
-        </button>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          v-if="results"
-          class="px-3 h-7 rounded-full bg-cabin-inset border border-cabin-card/65 font-mono text-[10px] font-semibold tracking-[0.04em] text-cabin-ice inline-flex items-center gap-1.5"
-        >
-          <span
-            class="w-1.5 h-1.5 rounded-full"
-            :style="{ backgroundColor: auscultationToneColorVar(results.overall_tone) }"
-          />
-          {{ results.crew_code }} · {{ results.full_name.toUpperCase() }} · NOISE {{ results.cabin_noise_dba.toFixed(1) }} dBA
-        </span>
-
-        <span
-          class="px-3.5 h-7 rounded-full bg-cabin-navy/42 border border-cabin-navy-edge/75 text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-text inline-flex items-center"
-        >
-          READ-ONLY CLINICAL RESULTS · RECORD AUDIO IN CAPTURE
-        </span>
-      </div>
-    </div>
-
-    <div
-      v-if="errorMessage"
-      class="rounded-[5px] bg-cabin-crit/18 border border-cabin-crit/75 px-4 py-3 text-[11.5px] text-cabin-text"
-    >
-      {{ errorMessage }}
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-[18px] flex-1">
+  <div class="page">
+    <UiStateNote v-if="!data" :loading="loading" :error="error" @retry="refresh()" />
+    <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-        class="lg:col-span-5"
-        title="Cardiac & Pulmonary Audio Results"
-        subtitle="Summary of 30-second recorded stethoscope samples"
-        icon="stethoscope"
-        :tag-text="results?.results_badge ?? 'NOMINAL'"
-        :tag-tone="results?.overall_tone ?? 'reference'"
-      >
-        <div v-if="isLoading && !results" class="h-full flex items-center justify-center py-12">
-          <span class="font-mono text-[11px] uppercase tracking-[0.06em] text-cabin-muted">
-            Loading cardiopulmonary acoustic findings...
-          </span>
-        </div>
-
-        <div v-else-if="results" class="flex flex-col justify-between gap-4 h-full">
-          <div class="flex flex-col gap-3">
-            <article
-              class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3.5 flex items-center gap-3.5"
-            >
-              <div
-                class="w-[84px] h-[88px] shrink-0 rounded-[4px] bg-cabin-bg/75 border border-cabin-card/60 flex items-center justify-center relative overflow-hidden hologram-scanline"
-              >
-                <svg
-                  viewBox="0 0 80 84"
-                  class="w-[62px] h-[66px] hologram-shell select-none"
-                  role="img"
-                  aria-label="Cardiac anatomical hologram"
-                >
-                  <circle cx="40" cy="44" r="30" fill="none" stroke="rgba(255, 236, 209, 0.16)" stroke-width="1" />
-                  <path
-                    d="M34 14 L34 26 M44 12 L44 25 M26 20 L33 28"
-                    fill="none"
-                    :stroke="auscultationToneColorVar(results.cardiac_summary.tone)"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                  />
-                  <path
-                    d="M40 31 C34 23, 21 26, 22 38 C23 50, 38 61, 40 65 C42 61, 57 50, 58 38 C59 26, 46 23, 40 31 Z"
-                    fill="rgba(42, 239, 75, 0.18)"
-                    :stroke="auscultationToneColorVar(results.cardiac_summary.tone)"
-                    stroke-width="1.8"
-                  />
-                  <polyline
-                    points="25,44 33,44 36,36 40,51 44,40 47,44 55,44"
-                    fill="none"
-                    stroke="var(--color-text-primary)"
-                    stroke-width="1.35"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </div>
-
-              <div class="flex-1 min-w-0 flex flex-col gap-1">
-                <span class="text-[10px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-                  {{ results.cardiac_summary.title }}
-                </span>
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-mono text-[22px] font-extrabold text-cabin-text leading-none">
-                    {{ results.cardiac_summary.primary_metric }}
-                  </span>
-                  <span
-                    class="px-2.5 h-5 rounded-full text-[9.5px] font-semibold border inline-flex items-center"
-                    :class="pillBadgeClass(results.cardiac_summary.tone)"
-                  >
-                    {{ results.cardiac_summary.secondary_badge }}
-                  </span>
-                </div>
-                <span class="text-[11px] font-medium text-cabin-ice truncate">
-                  {{ results.cardiac_summary.sites_summary }}
-                </span>
-                <span class="font-mono text-[10px] text-cabin-muted">
-                  {{ results.cardiac_summary.detail_line }}
-                </span>
-              </div>
-            </article>
-
-            <article
-              class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3.5 flex items-center gap-3.5"
-            >
-              <div
-                class="w-[84px] h-[88px] shrink-0 rounded-[4px] bg-cabin-bg/75 border border-cabin-card/60 flex items-center justify-center relative overflow-hidden hologram-scanline"
-              >
-                <svg
-                  viewBox="0 0 84 84"
-                  class="w-[66px] h-[66px] hologram-shell select-none"
-                  role="img"
-                  aria-label="Pulmonary bilateral lung hologram"
-                >
-                  <line
-                    x1="42"
-                    y1="12"
-                    x2="42"
-                    y2="34"
-                    stroke="var(--color-text-primary)"
-                    stroke-width="2.1"
-                    stroke-linecap="round"
-                  />
-                  <path
-                    d="M42 30 L31 39 M42 30 L53 39"
-                    fill="none"
-                    stroke="var(--color-text-primary)"
-                    stroke-width="1.6"
-                  />
-                  <path
-                    d="M37 24 C23 24, 15 38, 16 58 C17 67, 31 67, 37 59 Z"
-                    fill="rgba(41, 148, 166, 0.22)"
-                    :stroke="auscultationToneColorVar(results.pulmonary_summary.tone)"
-                    stroke-width="1.75"
-                  />
-                  <path
-                    d="M47 24 C61 24, 69 38, 68 58 C67 67, 53 67, 47 59 Z"
-                    fill="rgba(41, 148, 166, 0.22)"
-                    :stroke="auscultationToneColorVar(results.pulmonary_summary.tone)"
-                    stroke-width="1.75"
-                  />
-                </svg>
-              </div>
-
-              <div class="flex-1 min-w-0 flex flex-col gap-1">
-                <span class="text-[10px] font-bold tracking-[0.06em] uppercase text-cabin-muted">
-                  {{ results.pulmonary_summary.title }}
-                </span>
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-mono text-[22px] font-extrabold text-cabin-text leading-none">
-                    {{ results.pulmonary_summary.primary_metric }}
-                  </span>
-                  <span
-                    class="px-2.5 h-5 rounded-full text-[9.5px] font-semibold border inline-flex items-center"
-                    :class="pillBadgeClass(results.pulmonary_summary.tone)"
-                  >
-                    {{ results.pulmonary_summary.secondary_badge }}
-                  </span>
-                </div>
-                <span class="text-[11px] font-medium text-cabin-ice truncate">
-                  {{ results.pulmonary_summary.sites_summary }}
-                </span>
-                <span class="font-mono text-[10px] text-cabin-muted">
-                  {{ results.pulmonary_summary.detail_line }}
-                </span>
-              </div>
-            </article>
-          </div>
-
-          <div class="flex flex-col gap-2.5">
-            <div
-              v-for="bar in results.clinical_bars"
-              :key="bar.key"
-              class="rounded-[5px] bg-cabin-inset border border-cabin-card/60 px-3.5 py-2.5 flex flex-col gap-1.5"
-            >
-              <div class="flex items-baseline justify-between gap-2">
-                <div>
-                  <div class="text-[11.5px] font-semibold text-cabin-text">
-                    {{ bar.label }}
-                  </div>
-                  <div class="text-[9.8px] text-cabin-muted">
-                    {{ bar.target_label }}
-                  </div>
-                </div>
-                <span class="font-mono text-[14px] font-extrabold text-cabin-text">
-                  {{ bar.display_value }}
-                </span>
-              </div>
-
-              <div class="h-1.5 rounded-full bg-cabin-navy/65 overflow-hidden">
-                <div
-                  class="h-full rounded-full transition-all"
-                  :style="metricFillStyle(bar.fill_pct, bar.tone)"
-                />
-              </div>
+class="w-[456px]" title="Cardiac & Pulmonary Audio Results" icon="stethoscope" flush
+                      :tag-text="data.status === 'NO_DATA' ? 'NO DATA' : data.status === 'NOMINAL' ? 'NOMINAL' : 'REVIEW'"
+                      :tag-tone="data.status === 'WARNING' ? 'critical' : 'reference'">
+        <div class="flex-1 flex flex-col px-[19px] pt-[17px] pb-[14px]">
+          <div
+v-for="organ in ([['cardiac', 'heart'], ['pulmonary', 'lungs']] as const)" :key="organ[0]"
+               class="tile h-[148px] shrink-0 mb-[16px] flex items-center px-[22px] gap-[22px]">
+            <UiHoloFigure :figure="organ[1]" :size="98" :label="organ[0] === 'cardiac' ? 'Heart' : 'Lungs'" />
+            <div v-if="data[organ[0]]" class="min-w-0">
+              <p class="text-[10px] font-bold tracking-[0.04em] uppercase text-cabin-ok">{{ organ[0] }} audio · 30s sample</p>
+              <p class="mt-[8px] flex items-baseline gap-[12px]">
+                <span class="text-[26px] font-bold">{{ data[organ[0]]!.rate_per_min === null ? '—' : formatNumber(data[organ[0]]!.rate_per_min, organ[0] === 'cardiac' ? 0 : 1) }}
+                  {{ organ[0] === 'cardiac' ? 'bpm' : 'rpm' }}</span>
+                <span v-if="organ[0] === 'cardiac'" class="text-[13px] font-bold" :class="data.cardiac!.regular ? 'text-cabin-ok' : 'text-cabin-text'">{{ data.cardiac!.rhythm_text }}</span>
+                <span v-else-if="data.spo2_pct !== null" class="text-[13px] font-bold text-cabin-ok">SpO₂ {{ formatNumber(data.spo2_pct) }}%</span>
+              </p>
+              <p class="text-[11.5px] mt-[8px]">
+                {{ data[organ[0]]!.sites_regular }} / {{ data[organ[0]]!.sites_total }}
+                {{ organ[0] === 'cardiac' ? 'valve sites steady' : 'zones steady' }}
+                <template v-if="data[organ[0]]!.sites_recorded < 4"> · {{ data[organ[0]]!.sites_recorded }} recorded</template>
+              </p>
+              <p class="text-[11px] text-cabin-ice mt-[8px]">
+                <template v-if="data[organ[0]]!.needs_physician_review">Physician listening review advised</template>
+                <template v-else>Recorded {{ dayText(data[organ[0]]!.day_label) }} · {{ formatTime(data[organ[0]]!.recorded_at_utc) }} UTC</template>
+              </p>
             </div>
+            <p v-else class="text-[12px] text-cabin-ice">No {{ organ[0] }} recording yet. Record in Capture · Auscultation Audio.</p>
+          </div>
+          <div class="flex-1 flex flex-col justify-around">
+            <UiBandRow
+v-for="view in data.fitness" :key="view.metric_key" :label="fitnessLabel[view.metric_key] ?? view.label"
+                       :reference="fitnessRef(view)" :value-text="fitnessValue(view)" :unit="fitnessUnit[view.metric_key]"
+                       :status="view.status" :status-text="view.status_text" :value="view.value"
+                       :scale-min="fitnessScale[view.metric_key]?.[0]" :scale-max="fitnessScale[view.metric_key]?.[1]"
+                       :band-low="view.baseline_low ?? view.nominal_min" :band-high="view.baseline_high ?? view.nominal_max" />
           </div>
         </div>
       </ShellHudWindow>
 
-      <div class="lg:col-span-7 flex flex-col gap-[18px]">
+      <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
         <ShellHudWindow
-          title="Recorded Cardiac & Pulmonary Acoustic Waveforms"
-          subtitle="Filtered signal trace from digital stethoscope pickup"
-          icon="mic"
-          :tag-text="results?.signal_badge ?? 'SIGNAL 99%'"
-          tag-tone="reference"
-        >
-          <div class="flex flex-col gap-3">
-            <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3 flex flex-col gap-1.5">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-text">
-                  Channel 1 · Cardiac Phonocardiogram (Mitral S1 / S2)
-                </span>
-                <span class="font-mono text-[10px] font-bold uppercase text-cabin-ok">
-                  {{ results?.cardiac_channel_subtitle ?? '64 BPM · CLEAN ACOUSTIC SPECTRUM' }}
-                </span>
-              </div>
-              <div class="h-[108px] w-full">
-                <ClientOnly>
-                  <VChart
-                    class="w-full h-full"
-                    :option="phonocardiogramOption"
-                    theme="spacescan-hud"
-                    autoresize
-                  />
-                </ClientOnly>
-              </div>
-            </div>
-
-            <div class="rounded-[5px] bg-cabin-inset border border-cabin-card/65 p-3 flex flex-col gap-1.5">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <span class="text-[10px] font-bold tracking-[0.05em] uppercase text-cabin-text">
-                  Channel 2 · Pulmonary Breath Envelope (Bilateral)
-                </span>
-                <span class="font-mono text-[10px] font-semibold uppercase text-cabin-ice">
-                  {{ results?.pulmonary_channel_subtitle ?? '14.2 RPM · CABIN NOISE 48.0 dBA' }}
-                </span>
-              </div>
-              <div class="h-[108px] w-full">
-                <ClientOnly>
-                  <VChart
-                    class="w-full h-full"
-                    :option="pulmonaryEnvelopeOption"
-                    theme="spacescan-hud"
-                    autoresize
-                  />
-                </ClientOnly>
-              </div>
+class="h-[438px] shrink-0" title="Recorded Cardiac & Pulmonary Acoustic Waveforms" icon="mic" flush
+                        :tag-text="data.signal_quality_pct === null ? undefined : `SIGNAL ${data.signal_quality_pct}%`">
+          <div class="flex-1 flex flex-col gap-[16px] p-[20px]">
+            <div
+v-for="channel in ([
+              ['cardiac', cardiacChart, `Channel 1 · Cardiac phonocardiogram (${SITE_NAMES[data.cardiac?.waveform_site ?? 'mitral']} S1 / S2)`],
+              ['pulmonary', lungChart, 'Channel 2 · Pulmonary breath envelope (bilateral)'],
+            ] as const)" :key="channel[0]" class="tile relative flex-1">
+              <span class="absolute top-[12px] left-[16px] mono text-[9.5px] z-10 uppercase" :class="channel[0] === 'cardiac' ? 'text-cabin-ok' : ''">{{ channel[2] }}</span>
+              <span v-if="data[channel[0]]" class="absolute top-[12px] right-[16px] mono text-[9.5px] z-10 uppercase">
+                {{ formatNumber(data[channel[0]]!.rate_per_min, channel[0] === 'cardiac' ? 0 : 1) }} {{ channel[0] === 'cardiac' ? 'BPM' : 'RPM' }}
+                · {{ channel[0] === 'cardiac' ? `Signal ${data.cardiac!.signal_quality_pct}%` : `Cabin noise ${Math.round(data.pulmonary!.cabin_noise_dba)} dBA` }}
+              </span>
+              <ClientOnly>
+                <VChart
+v-if="channel[1]" :option="channel[1]" theme="spacescan-hud" autoresize class="absolute inset-0 top-[26px]"
+                        :aria-label="`${channel[0]} recording waveform`" />
+              </ClientOnly>
+              <p v-if="!channel[1]" class="absolute inset-0 flex items-center justify-center text-[12px] text-cabin-ice">No recording yet.</p>
             </div>
           </div>
         </ShellHudWindow>
 
         <ShellHudWindow
-          class="flex-1"
-          title="24-Hour Cabin CO2 Trend (mmHg)"
-          subtitle="Atmospheric scrubber performance vs respiratory load"
-          icon="reticle"
-          :tag-text="results?.co2_badge ?? '2.8 mmHg · NOMINAL'"
-          :tag-tone="results?.co2_tone ?? 'reference'"
-        >
-          <div class="h-[188px] w-full">
-            <ClientOnly>
-              <VChart
-                class="w-full h-full"
-                :option="co2TrendOption"
-                theme="spacescan-hud"
-                autoresize
-              />
-            </ClientOnly>
+class="flex-1" title="24-Hour Cabin CO₂ Trend (mmHg)" icon="rocket" flush
+                        :tag-text="data.co2.current_mmhg === null ? undefined : `${data.co2.current_mmhg.toFixed(1)} mmHg · ${data.co2.status === 'NOMINAL' ? 'NOMINAL' : 'HIGH'}`"
+                        :tag-tone="toneOf(data.co2.status) === 'critical' ? 'critical' : 'reference'">
+          <div class="flex-1 relative m-[18px] tile">
+            <template v-if="co2Chart">
+              <span class="absolute top-[8px] right-[26px] z-10 text-[10px] font-bold">ALERT LIMIT ({{ data.co2.limits_mmhg.alert.toFixed(1) }} mmHg)</span>
+              <span class="absolute bottom-[54px] left-[56px] z-10 text-[10px] font-bold">TARGET ZONE (&lt; {{ data.co2.limits_mmhg.target.toFixed(1) }} mmHg)</span>
+              <ClientOnly>
+                <VChart :option="co2Chart" theme="spacescan-hud" autoresize class="absolute inset-0" aria-label="Cabin carbon dioxide over 24 hours" />
+              </ClientOnly>
+            </template>
+            <UiStateNote v-else class="h-full" empty="No cabin readings in the last 24 hours." />
           </div>
         </ShellHudWindow>
       </div>

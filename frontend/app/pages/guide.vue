@@ -1,335 +1,201 @@
 <script setup lang="ts">
-import type { EmergencyItem, GuideArticle, GuideSearchResponse, KitDrawer } from '~/utils/guide'
-import {
-  activeDrawer,
-  displayText,
-  isPoweredStatus,
-  physicianSuffix,
-  stepNumber,
-} from '~/utils/guide'
+// 14 · Medical Guide & Kit Locator: protocol search by symptom or topic, kit drawers.
+import { apiErrorMessage } from '~/composables/useApi'
+
+interface Step { title_en: string, detail_en: string }
+interface Article { id: string, category_en: string, title_en: string, drawer_code: string, steps: Step[]
+  escalation_en: string, source_en: string | null }
+interface Drawer { code: string, name_en: string, items: { slot_code: string, name_en: string, status_en: string }[] }
+interface EmergencyItem { id: string, title_en: string, drawer_code: string, escalation_en: string }
 
 const route = useRoute()
+const { api } = useApi()
 
-const query = ref('')
+const query = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const category = ref<string | null>(null)
 const categories = ref<string[]>([])
-const results = ref<GuideArticle[]>([])
-const article = ref<GuideArticle | null>(null)
-const drawers = ref<KitDrawer[]>([])
+const results = ref<Article[]>([])
+const article = ref<Article | null>(null)
+const drawers = ref<Drawer[]>([])
 const emergency = ref<EmergencyItem[] | null>(null)
-const physicianName = ref<string | null>(null)
-const searched = ref(false)
-const loadFailed = ref(false)
-const lightOn = ref(false)
+const physician = ref<string>('the crew physician')
+const error = ref<string | null>(null)
+const busy = ref(false)
+const lit = ref(false)
 let lightTimer: ReturnType<typeof setTimeout> | null = null
 
-const drawerCode = computed(() => activeDrawer(article.value, drawers.value))
-const openDrawer = computed(() => drawers.value.find(d => d.code === drawerCode.value) ?? null)
-const otherMatches = computed(() =>
-  query.value.trim() || category.value ? results.value.filter(r => r.id !== article.value?.id) : [],
-)
-const escalateTitle = computed(() => physicianSuffix(physicianName.value))
+usePageHeader(() => ({ title: 'Medical Guide & Kit Locator', status: { text: 'Ready', tone: 'ok' } }))
 
-async function search() {
+async function search(open = true) {
+  busy.value = true
+  error.value = null
   emergency.value = null
-  loadFailed.value = false
   try {
-    const res = await $fetch<GuideSearchResponse>('/api/v1/wiki/search', {
-      query: { q: query.value, ...(category.value ? { category: category.value } : {}) },
+    const found = await api<{ results: Article[], categories: string[] }>('/wiki/search', {
+      query: { q: query.value, category: category.value ?? undefined },
     })
-    categories.value = res.categories
-    results.value = res.results
-    article.value = res.results[0] ?? null
-    searched.value = true
+    categories.value = found.categories
+    results.value = found.results
+    if (open) article.value = found.results[0] ?? null
   }
-  catch {
-    loadFailed.value = true
+  catch (reason) {
+    error.value = apiErrorMessage(reason)
+  }
+  finally {
+    busy.value = false
   }
 }
-
-function pickCategory(topic: string) {
-  category.value = category.value === topic ? null : topic
+async function openArticle(id: string) {
+  try {
+    article.value = await api<Article>(`/wiki/articles/${id}`)
+    emergency.value = null
+  }
+  catch (reason) {
+    error.value = apiErrorMessage(reason, 'That protocol could not be opened.')
+  }
+}
+async function showEmergency() {
+  try {
+    emergency.value = (await api<{ items: EmergencyItem[] }>('/wiki/emergency-index')).items
+  }
+  catch (reason) {
+    error.value = apiErrorMessage(reason)
+  }
+}
+function pickCategory(name: string) {
+  category.value = category.value === name ? null : name
   void search()
 }
-
-async function openEmergencyIndex() {
-  loadFailed.value = false
-  try {
-    emergency.value = (await $fetch<{ items: EmergencyItem[] }>('/api/v1/wiki/emergency-index')).items
-  }
-  catch {
-    loadFailed.value = true
-  }
-}
-
-async function openArticle(id: string) {
-  emergency.value = null
-  try {
-    article.value = await $fetch<GuideArticle>(`/api/v1/wiki/articles/${encodeURIComponent(id)}`)
-    searched.value = true
-  }
-  catch {
-    loadFailed.value = true
-  }
-}
-
-function illuminate() {
-  lightOn.value = true
-  if (lightTimer) clearTimeout(lightTimer)
-  lightTimer = setTimeout(() => {
-    lightOn.value = false
-  }, 10000)
-}
-
 onMounted(async () => {
-  const [kit, crew] = await Promise.all([
-    $fetch<{ drawers: KitDrawer[] }>('/api/v1/kit/drawers').catch(() => null),
-    $fetch<{ full_name: string, role: string }[]>('/api/v1/crew/profiles').catch(() => []),
-  ])
-  drawers.value = kit?.drawers ?? []
-  physicianName.value = crew.find(c => c.role === 'PHYSICIAN')?.full_name ?? null
-  const requested = typeof route.query.article === 'string' ? route.query.article : null
-  await search()
-  if (requested) await openArticle(requested)
+  try {
+    const [kit, profiles] = await Promise.all([
+      api<{ drawers: Drawer[] }>('/kit/drawers'),
+      api<{ full_name: string, title_en: string, id: string }[]>('/crew/profiles'),
+    ])
+    drawers.value = kit.drawers
+    const doctor = profiles.find(p => p.title_en === 'Medical Officer')
+    if (doctor) physician.value = `Medical Officer (Dr. ${doctor.full_name.split(' ').at(-1)})`
+  }
+  catch (reason) {
+    error.value = apiErrorMessage(reason)
+  }
+  if (typeof route.query.article === 'string') {
+    await search(false)
+    await openArticle(route.query.article)
+  }
+  else {
+    await search(Boolean(query.value))
+  }
 })
-
-onUnmounted(() => {
+onBeforeUnmount(() => {
   if (lightTimer) clearTimeout(lightTimer)
 })
+
+const activeDrawer = computed(() => drawers.value.find(d => d.code === article.value?.drawer_code) ?? null)
+function illuminate() {
+  lit.value = true
+  if (lightTimer) clearTimeout(lightTimer)
+  lightTimer = setTimeout(() => { lit.value = false }, 30_000)
+}
+const drawerShort = (code: string) => code.replace('DRAWER ', '')
+const subscript = (text: string) => text.replace(/CO2/g, 'CO₂')
 </script>
 
 <template>
-  <div class="flex flex-col gap-[18px] flex-1">
-    <section
-      class="relative rounded-[6px] bg-cabin-card/28 border p-4 flex flex-col gap-3"
-      :style="{ borderColor: 'var(--window-frame-stroke)' }"
-    >
-      <form
-        class="flex gap-3"
-        role="search"
-        @submit.prevent="search"
-      >
-        <label class="flex-1 h-11 rounded-[4px] border border-cabin-card bg-cabin-inset px-3 flex items-center gap-2.5">
-          <Icon
-            name="spacescan:reticle"
-            class="w-4 h-4 text-cabin-muted"
-          />
-          <input
-            v-model="query"
-            type="search"
-            maxlength="200"
-            :placeholder="$t('guide.searchPlaceholder')"
-            :aria-label="$t('guide.search')"
-            class="flex-1 bg-transparent text-[13px] text-cabin-text placeholder:text-cabin-muted outline-none"
-          >
-        </label>
-        <button
-          type="submit"
-          class="h-11 px-10 rounded-[4px] border border-cabin-text/50 bg-cabin-card/70 text-[12.5px] font-semibold text-cabin-text inline-flex items-center gap-2 hover:bg-cabin-card"
-        >
-          <Icon
-            name="spacescan:reticle"
-            class="w-4 h-4"
-          />
-          {{ $t('guide.search') }}
-        </button>
-        <button
-          type="button"
-          class="h-11 px-10 rounded-[4px] border border-cabin-crit bg-cabin-crit/25 text-[12.5px] font-semibold text-cabin-text inline-flex items-center gap-2 hover:bg-cabin-crit/40"
-          @click="openEmergencyIndex"
-        >
-          <Icon
-            name="spacescan:shield"
-            class="w-4 h-4"
-          />
-          {{ $t('guide.emergency') }}
-        </button>
+  <div class="page">
+    <ShellHudWindow class="h-[148px] shrink-0" flush>
+      <form class="flex-1 flex flex-col px-[19px] pt-[18px]" role="search" @submit.prevent="search()">
+        <div class="flex gap-[14px]">
+          <label class="hud-field flex-1 !h-[48px] !bg-cabin-tile">
+            <Icon name="spacescan:search" class="w-[17px] h-[17px] text-cabin-ice" />
+            <span class="sr-only">Search the medical guide by symptom</span>
+            <input v-model="query" class="!font-sans !text-[14px]" placeholder="Search by symptom, e.g. headache, cut, eye pressure">
+          </label>
+          <button type="submit" class="hud-button relative !w-[174px] !h-[48px]" :disabled="busy">
+            <Icon name="spacescan:search" class="w-[16px] h-[16px] absolute left-[18px]" />Search Guide
+          </button>
+          <button type="button" class="hud-button hud-button-critical relative !w-[168px] !h-[48px]" @click="showEmergency">
+            <Icon name="spacescan:alert" class="w-[16px] h-[16px] absolute left-[18px]" />Emergency Index
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-[10px] mt-[14px]" role="group" aria-label="Topics">
+          <button
+v-for="name in categories" :key="name" type="button"
+                  class="focus-ring h-[30px] px-[22px] rounded-full text-[10.5px] font-bold border-[1.2px]"
+                  :class="category === name ? 'bg-cabin-card border-cabin-text/70' : 'bg-[var(--color-pill-fill)] border-[var(--color-pill-edge)]'"
+                  :aria-pressed="category === name" @click="pickCategory(name)">{{ subscript(name) }}</button>
+        </div>
       </form>
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="topic in categories"
-          :key="topic"
-          type="button"
-          class="h-7 px-5 rounded-full border text-[10.5px] font-semibold"
-          :class="category === topic ? 'bg-cabin-navy/55 border-cabin-text/70 text-cabin-text' : 'bg-cabin-navy/42 border-cabin-navy-edge/70 text-cabin-text hover:border-cabin-text/50'"
-          :aria-pressed="category === topic"
-          @click="pickCategory(topic)"
-        >
-          {{ displayText(topic) }}
-        </button>
-      </div>
-      <div
-        v-if="otherMatches.length && !emergency"
-        class="flex flex-wrap items-center gap-2"
-      >
-        <span class="text-[9.8px] font-bold tracking-[0.06em] text-cabin-muted">{{ $t('guide.otherMatches') }}</span>
-        <button
-          v-for="match in otherMatches"
-          :key="match.id"
-          type="button"
-          class="h-7 px-3 rounded-[4px] border border-cabin-card/60 bg-cabin-inset text-[10.5px] text-cabin-text hover:bg-cabin-card/30"
-          @click="article = match"
-        >
-          {{ displayText(match.title_en) }}
-        </button>
-      </div>
-    </section>
+    </ShellHudWindow>
 
-    <p
-      v-if="loadFailed"
-      class="rounded-[4px] border border-cabin-crit bg-cabin-inset px-4 py-3 text-[12px]"
-    >
-      {{ $t('guide.loadError') }}
-    </p>
-
-    <div class="grid grid-cols-1 lg:grid-cols-[1.75fr_1fr] gap-[18px] flex-1">
+    <UiStateNote v-if="error" :error="error" @retry="search()" />
+    <div v-else class="flex-1 min-h-0 flex gap-[18px]">
       <ShellHudWindow
-        v-if="emergency"
-        :title="$t('guide.emergencyTitle')"
-        icon="shield"
-        :tag-text="$t('guide.emergencyTag')"
-        tag-tone="critical"
-      >
-        <ul class="flex flex-col gap-3">
-          <li
-            v-for="item in emergency"
-            :key="item.id"
-          >
-            <button
-              type="button"
-              class="w-full text-left rounded-[4px] border border-cabin-crit/70 bg-cabin-crit/12 px-4 py-3 flex flex-col gap-1 hover:bg-cabin-crit/20"
-              @click="openArticle(item.id)"
-            >
-              <span class="text-[10px] font-bold tracking-[0.05em] text-cabin-muted">
-                {{ displayText(item.category_en).toUpperCase() }} · {{ item.drawer_code }}
-              </span>
-              <span class="text-[12.5px] font-bold text-cabin-text">{{ displayText(item.title_en) }}</span>
-              <span class="text-[11.5px] text-cabin-text">{{ displayText(item.escalation_en) }}</span>
-            </button>
-          </li>
-        </ul>
+v-if="emergency" class="w-[786px]" title="Emergency Index · When to Call the Physician" icon="alert"
+                      tag-text="ALL PROTOCOLS" tag-tone="critical" flush>
+        <div class="flex-1 hud-scroll px-[19px] py-[16px] flex flex-col gap-[10px]">
+          <button v-for="item in emergency" :key="item.id" type="button" class="tile focus-ring text-left px-[18px] py-[12px]" @click="openArticle(item.id)">
+            <p class="text-[12.5px] font-bold">{{ subscript(item.title_en) }} <span class="mono text-[10px] text-cabin-ice ml-2">{{ item.drawer_code }}</span></p>
+            <p class="text-[11.5px] text-cabin-ice mt-[6px]">{{ subscript(item.escalation_en) }}</p>
+          </button>
+        </div>
       </ShellHudWindow>
-
       <ShellHudWindow
-        v-else
-        :title="article ? $t('guide.protocol', { title: displayText(article.title_en) }) : $t('guide.protocol', { title: '' })"
-        icon="wiki"
-        :tag-text="$t('guide.quickGuide')"
-      >
-        <p
-          v-if="!article"
-          class="text-[12.5px] text-cabin-muted"
-        >
-          {{ searched ? $t('guide.noResults') : $t('guide.pick') }}
-        </p>
-        <div
-          v-else
-          class="flex flex-col gap-3"
-        >
-          <ol class="flex flex-col gap-3">
-            <li
-              v-for="(step, index) in article.steps"
-              :key="index"
-              class="rounded-[4px] border border-cabin-card/55 bg-cabin-inset px-4 py-3 flex items-start gap-4"
-            >
+v-else class="w-[786px]" flush icon="wiki"
+                      :title="article ? `Care Protocol · ${subscript(article.title_en)}` : 'Care Protocol'"
+                      :tag-text="article ? 'QUICK GUIDE' : undefined">
+        <UiStateNote v-if="!article" :loading="busy" :empty="query || category ? 'No protocol matches that search. Try another word or a topic.' : 'Search by symptom or choose a topic to open a protocol.'" />
+        <div v-else class="flex-1 min-h-0 flex flex-col px-[19px] pt-[18px] pb-[20px]">
+          <div class="flex-1 min-h-0 hud-scroll flex flex-col gap-[14px] pr-[2px]">
+            <div v-for="(step, index) in article.steps" :key="index" class="tile min-h-[98px] px-[20px] py-[18px] flex gap-[22px]">
               <span
-                class="w-9 h-9 shrink-0 rounded-[4px] border font-mono text-[13px] font-bold inline-flex items-center justify-center"
-                :class="index < article.steps.length - 1 ? 'border-cabin-ok bg-cabin-ok/12 text-cabin-text' : 'border-cabin-navy-edge bg-cabin-navy/55 text-cabin-text'"
-              >
-                {{ stepNumber(index) }}
+class="w-[37px] h-[37px] shrink-0 rounded-[4px] mono text-[15px] font-bold flex items-center justify-center border-[1.3px]"
+                    :class="index < 2 ? 'border-cabin-ok/80 bg-cabin-ok/10 text-cabin-text' : 'border-cabin-navy-edge bg-cabin-navy/50'">
+                {{ String(index + 1).padStart(2, '0') }}
               </span>
-              <span class="flex flex-col gap-1">
-                <span class="text-[12.5px] font-bold uppercase tracking-[0.02em] text-cabin-text">{{ displayText(step.title_en) }}</span>
-                <span
-                  v-if="step.detail_en"
-                  class="text-[11.5px] text-cabin-muted"
-                >{{ displayText(step.detail_en) }}</span>
-              </span>
-            </li>
-          </ol>
-
-          <div class="rounded-[4px] border border-cabin-crit bg-cabin-crit/15 px-4 py-3 flex flex-col gap-1">
-            <span class="text-[11.5px] font-bold tracking-[0.03em] text-cabin-text inline-flex items-center gap-2">
-              <Icon
-                name="spacescan:shield"
-                class="w-4 h-4 text-cabin-crit"
-              />
-              {{ $t('guide.escalate', { name: escalateTitle }) }}
-            </span>
-            <span class="text-[11.5px] text-cabin-text">{{ displayText(article.escalation_en) }}</span>
+              <div>
+                <p class="text-[13px] font-bold uppercase tracking-[0.02em]">{{ subscript(step.title_en) }}</p>
+                <p class="text-[12px] text-cabin-ice mt-[10px] leading-[1.75]">{{ subscript(step.detail_en) }}</p>
+              </div>
+            </div>
           </div>
-          <p
-            v-if="article.source_en"
-            class="text-[10px] text-cabin-muted"
-          >
-            {{ $t('guide.source', { source: article.source_en }) }}
-          </p>
+          <div class="mt-[16px] h-[90px] shrink-0 rounded-[5px] border-[1.4px] border-cabin-crit/85 bg-[var(--color-crit-soft)] px-[22px] flex flex-col justify-center" role="note">
+            <p class="text-[11.5px] font-bold uppercase flex items-center gap-[10px]">
+              <Icon name="spacescan:alert" class="w-[15px] h-[15px] text-cabin-crit" />Escalate immediately to {{ physician }}
+            </p>
+            <p class="text-[12px] mt-[10px] pl-[25px]">{{ subscript(article.escalation_en) }}</p>
+          </div>
         </div>
       </ShellHudWindow>
 
-      <ShellHudWindow
-        :title="$t('guide.kit')"
-        icon="kit"
-        :tag-text="drawerCode ?? ''"
-      >
-        <div class="flex flex-col gap-3 h-full">
-          <div class="grid grid-cols-2 gap-3">
+      <ShellHudWindow class="flex-1" title="Medical Kit Locator" icon="kit" :tag-text="activeDrawer?.code" flush>
+        <div class="flex-1 flex flex-col px-[19px] pt-[18px] pb-[20px]">
+          <div class="grid grid-cols-2 gap-[11px]">
             <div
-              v-for="drawer in drawers"
-              :key="drawer.code"
-              class="rounded-[4px] border px-4 py-3 flex flex-col gap-1 transition-shadow"
-              :class="[
-                drawer.code === drawerCode ? 'border-cabin-ok bg-cabin-ok/10' : 'border-cabin-card/60 bg-cabin-inset',
-                drawer.code === drawerCode && lightOn ? 'ring-2 ring-cabin-ok animate-pulse' : '',
-              ]"
-            >
-              <span
-                class="font-mono text-[10px] font-bold tracking-[0.05em]"
-                :class="drawer.code === drawerCode ? 'text-cabin-ok' : 'text-cabin-muted'"
-              >
-                {{ drawer.code === drawerCode ? $t('guide.active', { code: drawer.code }) : drawer.code }}
-              </span>
-              <span class="text-[12px] font-bold text-cabin-text">{{ drawer.name_en }}</span>
+v-for="drawer in drawers" :key="drawer.code" class="h-[87px] rounded-[5px] px-[16px] flex flex-col justify-center border-[1.3px]"
+                 :class="drawer.code === activeDrawer?.code ? 'border-cabin-ok bg-[var(--color-card-head)]' : 'border-cabin-line bg-cabin-tile'">
+              <p class="mono text-[10px] tracking-[0.06em]" :class="drawer.code === activeDrawer?.code ? 'text-cabin-ok' : 'text-cabin-ice'">
+                {{ drawer.code }}<template v-if="drawer.code === activeDrawer?.code"> · ACTIVE</template>
+              </p>
+              <p class="text-[13px] font-bold mt-[10px]">{{ drawer.name_en }}</p>
             </div>
           </div>
-
-          <template v-if="openDrawer">
-            <span class="text-[9.8px] font-bold tracking-[0.06em] text-cabin-muted">
-              {{ $t('guide.contents', { code: openDrawer.code }) }}
-            </span>
-            <ul class="flex flex-col gap-2">
-              <li
-                v-for="item in openDrawer.items"
-                :key="item.slot_code"
-                class="rounded-[4px] border border-cabin-card/55 bg-cabin-inset px-4 py-2.5 flex flex-col"
-              >
-                <span class="text-[12px] font-bold text-cabin-text">{{ item.name_en }}</span>
-                <span
-                  class="font-mono text-[10px]"
-                  :class="isPoweredStatus(item.status_en) ? 'text-cabin-ok' : 'text-cabin-muted'"
-                >{{ item.slot_code }} · {{ item.status_en }}</span>
-              </li>
-            </ul>
+          <template v-if="activeDrawer">
+            <p class="label-caps mt-[20px]">Contents in {{ activeDrawer.code }}</p>
+            <div class="flex-1 min-h-0 hud-scroll flex flex-col gap-[10px] mt-[10px]">
+              <div v-for="item in activeDrawer.items" :key="item.slot_code" class="tile h-[62px] shrink-0 px-[16px] flex flex-col justify-center">
+                <p class="text-[13px] font-bold">{{ item.name_en }}</p>
+                <p class="mono text-[10.5px] mt-[6px]" :class="/charged|100%/i.test(item.status_en) ? 'text-cabin-ok' : 'text-cabin-ice'">
+                  {{ item.slot_code }} · {{ item.status_en }}
+                </p>
+              </div>
+            </div>
+            <button type="button" class="hud-button relative mt-[14px] !h-[50px]" :class="lit ? '!border-cabin-ok' : ''" :aria-pressed="lit" @click="illuminate">
+              <Icon name="spacescan:bolt" class="w-[16px] h-[16px] absolute left-[20px]" />
+              {{ lit ? `Drawer ${drawerShort(activeDrawer.code)} light on · 30 s` : `Illuminate Drawer ${drawerShort(activeDrawer.code)} Light` }}
+            </button>
           </template>
-
-          <p
-            v-if="lightOn && drawerCode"
-            class="text-[11px] text-cabin-ok"
-          >
-            {{ $t('guide.lightOn', { code: drawerCode }) }}
-          </p>
-          <button
-            v-if="drawerCode"
-            type="button"
-            class="mt-auto h-11 rounded-[4px] border border-cabin-text/60 bg-cabin-card/40 text-[12px] font-semibold text-cabin-text inline-flex items-center justify-center gap-2 hover:bg-cabin-card/70"
-            @click="illuminate"
-          >
-            <Icon
-              name="spacescan:flame"
-              class="w-4 h-4"
-            />
-            {{ $t('guide.illuminate', { code: drawerCode.replace('DRAWER', 'Drawer') }) }}
-          </button>
+          <UiStateNote v-else empty="Open a protocol to see which drawer holds its supplies." />
         </div>
       </ShellHudWindow>
     </div>
