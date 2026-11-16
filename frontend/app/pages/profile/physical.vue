@@ -70,7 +70,7 @@ const ecgPins = useChartPins((click: ChartClick) => {
 const ecg = computed(() => profile.value?.ecg ?? null)
 const isLive = computed(() => live.state.value === 'live' && live.samples.value.length > 0)
 const ecgChart = computed(() => {
-  if (isLive.value) return ecgLiveOption(live.samples.value, live.sampleRate.value)
+  if (isLive.value) return ecgLiveOption(live.samples.value, live.sampleRate.value, 6, live.total.value)
   return ecg.value ? ecgOption(ecg.value.samples, ecg.value.sample_rate_hz, ecgPins.marks()) : null
 })
 const trace = computed(() => {

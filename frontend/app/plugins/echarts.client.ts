@@ -1,4 +1,4 @@
-import { BarChart, CustomChart, GaugeChart, LineChart } from 'echarts/charts'
+import { BarChart, CustomChart, EffectScatterChart, GaugeChart, LineChart, ScatterChart } from 'echarts/charts'
 import {
   DataZoomInsideComponent,
   DataZoomSliderComponent,
@@ -20,6 +20,9 @@ export default defineNuxtPlugin(() => {
     BarChart,
     GaugeChart,
     CustomChart,
+    // Monitor-style glowing head on live traces (plain scatter when motion is reduced).
+    EffectScatterChart,
+    ScatterChart,
     GridComponent,
     TooltipComponent,
     MarkLineComponent,

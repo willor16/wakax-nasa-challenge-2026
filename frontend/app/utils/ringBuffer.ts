@@ -3,12 +3,15 @@ export class RingBuffer {
   private readonly data: Float32Array
   private start = 0
   private size = 0
+  /** Every sample ever pushed (gives each sample its fixed place in a monitor sweep). */
+  total = 0
 
   constructor(readonly capacity: number) {
     this.data = new Float32Array(capacity)
   }
 
   push(values: readonly number[]): void {
+    this.total += values.length
     for (const value of values) {
       const end = (this.start + this.size) % this.capacity
       this.data[end] = value
@@ -31,5 +34,6 @@ export class RingBuffer {
   clear(): void {
     this.start = 0
     this.size = 0
+    this.total = 0
   }
 }

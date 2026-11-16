@@ -31,6 +31,7 @@ export function palette() {
     guide: token('--color-guide-line'),
     band: token('--color-band-fill'),
     okSoft: token('--color-ok-soft'),
+    okGlow: token('--color-ok-glow'),
     envelope: token('--color-envelope-fill'),
     inset: token('--color-inset-solid'),
     edge: token('--color-border-hi'),
@@ -38,6 +39,48 @@ export function palette() {
 }
 
 const MONO = '\'JetBrains Mono\', monospace'
+
+// -- Medical-monitor motion -------------------------------------------------------------
+/** False when the crew member asked the system for reduced motion. */
+export function motionAllowed(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return true
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/** Entrance animation for trend charts: lines draw left to right, bars grow from the axis. */
+export function trendMotion() {
+  const on = motionAllowed()
+  return {
+    animation: on,
+    animationDuration: 1100,
+    animationEasing: 'cubicOut' as const,
+    animationDurationUpdate: 350,
+    animationEasingUpdate: 'cubicOut' as const,
+  }
+}
+
+/** Glowing "head" of a trace with a pulsing ring, like the bright point of a bedside monitor. */
+export function headDot(point: [number, number] | null, color: string) {
+  const on = motionAllowed()
+  return {
+    type: on ? 'effectScatter' as const : 'scatter' as const,
+    data: point ? [point] : [],
+    symbolSize: 7,
+    showEffectOn: 'render' as const,
+    rippleEffect: { scale: 3.2, brushType: 'stroke' as const, period: 1.4, number: on ? 2 : 0 },
+    itemStyle: { color, shadowBlur: 14, shadowColor: color },
+    silent: true,
+    animation: false,
+    z: 6,
+    tooltip: { show: false },
+  }
+}
+
+/** Horizontal fade: faint where the trace is oldest (left), full colour at the newest point. */
+function fadeToward(colorFaint: string, color: string) {
+  return { type: 'linear' as const, x: 0, y: 0, x2: 1, y2: 0,
+    colorStops: [{ offset: 0, color: colorFaint }, { offset: 0.55, color }, { offset: 1, color }] }
+}
 
 export type GaugeTone = 'ok' | 'watch' | 'critical' | 'neutral'
 
@@ -93,7 +136,7 @@ export function moodTrendOption(points: { day_label: string, mood: number, calmn
   const decor = thresholdMarks(thresholds, '/ 5', 1)
   return {
     backgroundColor: 'transparent',
-    animation: false,
+    ...trendMotion(),
     grid: baseGrid(40, 20, 46, GRID_BOTTOM_WITH_ZOOM),
     dataZoom: dataZoomFor(),
     tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(1)} / 5` },
@@ -107,7 +150,7 @@ export function moodTrendOption(points: { day_label: string, mood: number, calmn
         data: alertColoured(points.map(p => p.mood), thresholds),
         symbol: 'circle',
         symbolSize: 6,
-        lineStyle: { color: c.ok, width: 2.4 },
+        lineStyle: { color: c.ok, width: 2.4, shadowBlur: 6, shadowColor: c.okGlow },
         itemStyle: { color: c.ok },
         markArea: decor.markArea,
         markLine: decor.markLine,
@@ -158,7 +201,9 @@ export function ecgOption(samples: number[], sampleRateHz: number, pins: PinMark
  * drawn without animation so four updates a second stay smooth. Wheel zoom stays where the
  * crew member left it; max / min marks follow the visible beats.
  */
-export function ecgLiveOption(samples: number[], sampleRateHz: number, windowSeconds = 6): EChartsOption {
+export function ecgLiveOption(samples: number[], sampleRateHz: number, windowSeconds = 6,
+  totalSamples?: number): EChartsOption {
+  if (totalSamples !== undefined) return ecgSweepOption(samples, sampleRateHz, windowSeconds, totalSamples)
   const c = palette()
   const offset = windowSeconds - samples.length / sampleRateHz
   return {
@@ -185,15 +230,84 @@ export function ecgLiveOption(samples: number[], sampleRateHz: number, windowSec
   }
 }
 
+/** Gap (seconds) the sweep erases ahead of the newest sample, as on a bedside monitor. */
+export const SWEEP_GAP_S = 0.25
+
+/**
+ * Bedside-monitor sweep: each sample has a fixed place in the window (its index modulo the
+ * window), the trace is redrawn left to right over the previous pass, and a short gap ahead
+ * of the newest sample erases the old one. Returns the current pass, the fading previous
+ * pass and the head point.
+ */
+export function sweepSegments(samples: number[], rate: number, windowSeconds: number, total: number) {
+  const width = Math.round(rate * windowSeconds)
+  const gap = Math.round(rate * SWEEP_GAP_S)
+  const head = total % width
+  const firstIndex = total - samples.length
+  const current: [number, number][] = []
+  const previous: [number, number][] = []
+  samples.forEach((value, i) => {
+    const absolute = firstIndex + i
+    const slot = absolute % width
+    const point: [number, number] = [slot / rate, value]
+    if (absolute >= total - head) current.push(point)
+    else if (slot >= head + gap) previous.push(point)
+  })
+  return { current, previous, head: current.at(-1) ?? null }
+}
+
+function ecgSweepOption(samples: number[], rate: number, windowSeconds: number, total: number): EChartsOption {
+  const c = palette()
+  const { current, previous, head } = sweepSegments(samples, rate, windowSeconds, total)
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    grid: { left: 34, right: 34, top: 34, bottom: GRID_BOTTOM_WITH_ZOOM - 14 },
+    dataZoom: dataZoomFor('none'),
+    tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(2)} mV` },
+    xAxis: { type: 'value', min: 0, max: windowSeconds, show: false },
+    yAxis: { type: 'value', min: -0.8, max: 1.6, interval: 0.6, axisLabel: { show: false },
+      axisLine: { show: false }, axisTick: { show: false },
+      splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } } },
+    series: [
+      {
+        name: 'ECG previous pass',
+        type: 'line',
+        data: previous,
+        showSymbol: false,
+        silent: true,
+        lineStyle: { color: c.ok, width: 1.6, opacity: 0.28 },
+        tooltip: { show: false },
+      },
+      {
+        name: 'ECG',
+        type: 'line',
+        data: current,
+        showSymbol: false,
+        lineStyle: { color: fadeToward(c.okSoft, c.ok), width: 2.2, shadowBlur: 8, shadowColor: c.okGlow },
+        areaStyle: { color: c.okSoft, origin: -0.8, opacity: 0.6 },
+        markPoint: markPointsFor('mV', 2),
+      },
+      headDot(head, c.ok),
+    ],
+  }
+}
+
 /** Sound envelope of a recording: heart bursts (green) or breathing (cream fill), interactive. */
 export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary', pins: PinMark[] = [],
   pointsPerSecond = 20, cursorSeconds: number | null = null): EChartsOption {
   const c = palette()
   const cardiac = kind === 'cardiac'
   // Heart sounds are drawn as a mirrored trace around the centre line, like a phonocardiogram.
-  const data = cardiac
+  const data: [number, number][] = cardiac
     ? envelope.map((value, index) => [index / pointsPerSecond, index % 2 === 0 ? value : -value * 0.8])
     : envelope.map((value, index) => [index / pointsPerSecond, value])
+  const color = cardiac ? c.ok : c.text
+  const listening = cursorSeconds !== null
+  // While listening, the part already heard lights up, the rest stays faint and a pulsing
+  // point rides the trace at the current position (the monitor sweep of the recording).
+  const heard = listening ? data.filter(([t]) => t <= cursorSeconds) : []
+  const at = listening && heard.length ? heard[heard.length - 1]! : null
   return {
     backgroundColor: 'transparent',
     animation: false,
@@ -205,25 +319,76 @@ export function envelopeOption(envelope: number[], kind: 'cardiac' | 'pulmonary'
     yAxis: { type: 'value', min: cardiac ? -1.1 : 0, max: 1.1, interval: cardiac ? 0.55 : 0.37,
       axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
       splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } } },
-    series: [{
-      name: cardiac ? 'Heart sound' : 'Breath sound',
-      type: 'line',
-      data,
-      showSymbol: false,
-      sampling: 'lttb',
-      smooth: !cardiac,
-      lineStyle: { color: cardiac ? c.ok : c.text, width: cardiac ? 1.8 : 2 },
-      areaStyle: cardiac ? undefined : { color: c.envelope },
-      markPoint: markPointsFor('', 2, pins),
-      // Playback cursor: follows the recording while it is being listened to.
-      markLine: cursorSeconds === null ? undefined : {
-        silent: true, symbol: 'none', animation: false,
-        lineStyle: { color: c.text, width: 1.5, type: 'solid' },
-        label: { show: true, position: 'insideEndTop', color: c.text, fontSize: 9, fontFamily: MONO,
-          formatter: `${cursorSeconds.toFixed(1)} s` },
-        data: [{ xAxis: cursorSeconds }],
+    series: [
+      {
+        name: cardiac ? 'Heart sound' : 'Breath sound',
+        type: 'line',
+        data,
+        showSymbol: false,
+        sampling: 'lttb',
+        smooth: !cardiac,
+        lineStyle: { color, width: cardiac ? 1.8 : 2, opacity: listening ? 0.3 : 1 },
+        areaStyle: cardiac ? undefined : { color: c.envelope, opacity: listening ? 0.35 : 1 },
+        markPoint: markPointsFor('', 2, pins),
       },
-    }],
+      ...(listening
+        ? [
+            {
+              type: 'line' as const,
+              data: heard,
+              showSymbol: false,
+              silent: true,
+              smooth: !cardiac,
+              lineStyle: { color, width: cardiac ? 2.2 : 2.4, shadowBlur: 10, shadowColor: cardiac ? c.okGlow : c.edge },
+              areaStyle: cardiac ? undefined : { color: c.envelope },
+              tooltip: { show: false },
+              markPoint: at
+                ? {
+                    silent: true, animation: false, symbol: 'roundRect', symbolSize: [44, 16],
+                    symbolOffset: [0, -16], itemStyle: { color: c.inset, borderColor: c.edge, borderWidth: 0.6 },
+                    label: { color: c.text, fontSize: 9, fontFamily: MONO, formatter: `${cursorSeconds.toFixed(1)} s` },
+                    data: [{ coord: at }],
+                  }
+                : undefined,
+            },
+            headDot(at, color),
+          ]
+        : []),
+    ],
+  }
+}
+
+/**
+ * Sound trace while recording: a fixed window that fills from the right, fading toward
+ * the oldest sound, with a pulsing head on the newest point.
+ */
+export function captureTraceOption(envelope: number[], kind: 'cardiac' | 'pulmonary', capacity: number): EChartsOption {
+  const c = palette()
+  const cardiac = kind === 'cardiac'
+  const color = cardiac ? c.ok : c.text
+  const start = capacity - envelope.length
+  const data: [number, number][] = envelope.map((value, i) => [start + i,
+    cardiac ? (i % 2 === 0 ? value : -value * 0.8) : value])
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    grid: { left: 10, right: 16, top: 12, bottom: 10 },
+    xAxis: { type: 'value', min: 0, max: capacity - 1, show: false },
+    yAxis: { type: 'value', min: cardiac ? -1.1 : 0, max: 1.1, show: false,
+      splitLine: { show: true, lineStyle: { color: c.guide, width: 1 } } },
+    series: [
+      {
+        type: 'line',
+        data,
+        showSymbol: false,
+        silent: true,
+        smooth: !cardiac,
+        lineStyle: { color: fadeToward(cardiac ? c.okSoft : c.envelope, color), width: 2,
+          shadowBlur: 8, shadowColor: cardiac ? c.okGlow : c.edge },
+        areaStyle: cardiac ? undefined : { color: c.envelope },
+      },
+      headDot(data.at(-1) ?? null, color),
+    ],
   }
 }
 
@@ -238,7 +403,7 @@ export function co2TrendOption(points: { recorded_at_utc: string, co2_mmhg: numb
   const decor = thresholdMarks(thresholds, 'mmHg', 1)
   return {
     backgroundColor: 'transparent',
-    animation: false,
+    ...trendMotion(),
     grid: baseGrid(40, 22, 14, GRID_BOTTOM_WITH_ZOOM),
     dataZoom: dataZoomFor(),
     tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(2)} mmHg` },
@@ -257,12 +422,13 @@ export function co2TrendOption(points: { recorded_at_utc: string, co2_mmhg: numb
       symbol: 'circle',
       symbolSize: 5,
       showAllSymbol: false,
-      lineStyle: { color: c.ok, width: 2.2 },
+      lineStyle: { color: c.ok, width: 2.2, shadowBlur: 6, shadowColor: c.okGlow },
       itemStyle: { color: c.ok },
       markArea: decor.markArea,
       markLine: decor.markLine,
       markPoint: markPointsFor('mmHg', 2, pins),
-    }],
+    },
+    headDot(points.length ? [points[points.length - 1]!.recorded_at_utc as unknown as number, values[values.length - 1]!] : null, c.ok)],
   }
 }
 
@@ -307,7 +473,7 @@ export function ocularTrendOption(points: OcularPoint[], thresholds: Thresholds,
   })
   return {
     backgroundColor: 'transparent',
-    animation: false,
+    ...trendMotion(),
     grid: baseGrid(44, 36, 18, GRID_BOTTOM_WITH_ZOOM),
     dataZoom: dataZoomFor('none'),
     tooltip: { trigger: 'axis', valueFormatter: value => (value == null ? '—' : `${Number(value).toFixed(2)} mm`) },
@@ -348,7 +514,7 @@ export function sleepRibbonOption(bouts: SleepBout[], pins: PinMark[] = []): ECh
   })
   return {
     backgroundColor: 'transparent',
-    animation: false,
+    ...trendMotion(),
     grid: { left: 62, right: 24, top: 14, bottom: GRID_BOTTOM_WITH_ZOOM },
     dataZoom: dataZoomFor('weakFilter'),
     tooltip: {
@@ -409,6 +575,7 @@ export function sleepHistoryOption(nights: { day_label: string, deep_min: number
     type: 'bar' as const,
     stack: 'night',
     barMaxWidth: 26,
+    animationDelay: (index: number) => index * 35,
     itemStyle: { color },
     data: nights.map(n => +(n[key] / 60).toFixed(2)),
   })
@@ -416,7 +583,7 @@ export function sleepHistoryOption(nights: { day_label: string, deep_min: number
   const decor = thresholdMarks(thresholds, 'h', 1)
   return {
     backgroundColor: 'transparent',
-    animation: false,
+    ...trendMotion(),
     grid: baseGrid(40, 22, 16, GRID_BOTTOM_WITH_ZOOM),
     dataZoom: dataZoomFor(),
     tooltip: { trigger: 'axis', valueFormatter: value => `${Number(value).toFixed(1)} h` },

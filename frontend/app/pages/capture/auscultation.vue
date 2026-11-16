@@ -2,7 +2,8 @@
 // 10 · Data Capture · Auscultation Audio: 30-second heart and lung recordings.
 import VChart from 'vue-echarts'
 import { apiErrorMessage } from '~/composables/useApi'
-import { envelopeOption } from '~/utils/charts'
+import { ENVELOPE_POINTS } from '~/composables/useAuscultationRecorder'
+import { captureTraceOption } from '~/utils/charts'
 import { RECORD_SECONDS, gzipWav } from '~/utils/audio'
 
 const { api } = useApi()
@@ -113,8 +114,9 @@ function progressLine(p: Panel): string {
     return `${name}: ${done.includes(site.id) ? `Saved (${RECORD_SECONDS}s)` : p.site.value === site.id ? 'Ready' : 'Queued'}`
   }).join(' · ')
 }
+// Monitor-style trace while recording: fills from the right with a pulsing head.
 const liveChart = (p: Panel) => (p.recorder.envelope.value.length > 4
-  ? envelopeOption(p.recorder.envelope.value, p.organ === 'CARDIAC' ? 'cardiac' : 'pulmonary') : null)
+  ? captureTraceOption(p.recorder.envelope.value, p.organ === 'CARDIAC' ? 'cardiac' : 'pulmonary', ENVELOPE_POINTS) : null)
 </script>
 
 <template>

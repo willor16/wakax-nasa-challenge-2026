@@ -35,6 +35,7 @@ export function useLiveVitalsStream() {
   const latest = shallowRef<EcgFrame | null>(null)
   const sampleRate = ref(125)
   const frames = ref(0)
+  const total = ref(0)
 
   let buffer = new RingBuffer(sampleRate.value * LIVE_WINDOW_SECONDS)
   let source: EventSource | null = null
@@ -52,6 +53,7 @@ export function useLiveVitalsStream() {
       }
       buffer.push(frame.samples)
       samples.value = buffer.toArray()
+      total.value = buffer.total
       latest.value = frame
       frames.value += 1
       lastFrameAt = Date.now()
@@ -101,5 +103,5 @@ export function useLiveVitalsStream() {
     if (watchdog) clearInterval(watchdog)
   })
 
-  return { state, samples, latest, sampleRate, frames }
+  return { state, samples, latest, sampleRate, frames, total }
 }

@@ -6,7 +6,7 @@ import { RECORD_SECONDS, downsample, encodeWav, levelDb, sha256Hex } from '~/uti
 
 export type RecorderState = 'idle' | 'starting' | 'recording' | 'captured' | 'saving' | 'saved' | 'error'
 
-const ENVELOPE_POINTS = 150
+export const ENVELOPE_POINTS = 150
 
 const activeOrgan = ref<string | null>(null) // one stethoscope: one recording at a time
 
