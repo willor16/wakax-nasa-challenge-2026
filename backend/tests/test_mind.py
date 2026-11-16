@@ -16,6 +16,7 @@ from app.services.mind import (
     psych_profile,
     save_checkin,
     save_reaction_session,
+    score_behavioral_matrix,
     score_reaction_test,
     stability_pct,
     stress_index,
@@ -100,8 +101,8 @@ def test_old_databases_get_the_new_columns() -> None:
     ensure_mind_columns(old)  # idempotent
     psych = {r["name"] for r in old.execute("PRAGMA table_info(psych_tests)")}
     cog = {r["name"] for r in old.execute("PRAGMA table_info(cognitive_tests)")}
-    assert {"mood_state", "sleep_onset_utc", "wake_utc"} <= psych
-    assert {"trials_total", "valid_responses", "false_starts", "lapses"} <= cog
+    assert {"mood_state", "sleep_onset_utc", "wake_utc", "assessment_type", "payload_json"} <= psych
+    assert {"trials_total", "valid_responses", "false_starts", "lapses", "payload_json"} <= cog
 
 
 def test_profile_builds_trend_scales_and_reaction(conn) -> None:
@@ -225,3 +226,184 @@ def test_api_round_trip_for_signed_in_member(temp_db_path: Path) -> None:
             " ORDER BY id DESC LIMIT 1"
         ).fetchone()
     assert (row["sleep_onset_utc"], row["wake_utc"]) == ("22:18", "05:54")
+
+
+def test_behavioral_matrix_scoring_and_critical_alert(temp_db_path: Path) -> None:
+    report = score_behavioral_matrix([3] * 16 + [2] * 4)
+    assert report["total_load_score"] == 56
+    assert report["readiness_status"] == "RESTRICTED DUTY"
+    assert report["subscales"]["T"]["score"] == 12
+    assert report["subscales"]["S"]["score"] == 8
+    assert report["apa_crosswalk"]["stage2_triggered"] is True
+
+    seed_database(db_path=temp_db_path, schema_path=SCHEMA_PATH, snapshot_path=SEED_SNAPSHOT_PATH)
+    with TestClient(fastapi_app) as client:
+        headers = _headers(client, "ID-01")
+        saved = client.post(
+            "/api/v1/psych/checkins",
+            headers=headers,
+            json={
+                "assessment_type": "BEHAVIORAL_MATRIX_20",
+                "item_responses": [3] * 16 + [2] * 4,
+            },
+        )
+        assert saved.status_code == 201, saved.text
+        data = saved.json()
+        assert data["alert_id"] is not None
+        assert data["matrix_report"]["total_load_score"] == 56
+
+        profile = client.get("/api/v1/psych/profile", headers=headers).json()
+        assert profile["behavioral_matrix"] is not None
+        assert profile["behavioral_matrix"]["total_load_score"] == 56
+        assert profile["behavioral_matrix"]["readiness_status"] == "RESTRICTED DUTY"
+
+    with open_connection(temp_db_path) as db:
+        alert = db.execute(
+            "SELECT severity, category FROM alerts WHERE id = ?", (data["alert_id"],)
+        ).fetchone()
+    assert alert["severity"] == "CRITICAL"
+    assert alert["category"] == "PSYCHOSOCIAL"
+
+
+def test_astrocow_session_and_pilot_alert_escalation(temp_db_path: Path) -> None:
+    seed_database(db_path=temp_db_path, schema_path=SCHEMA_PATH, snapshot_path=SEED_SNAPSHOT_PATH)
+    with TestClient(fastapi_app) as client:
+        pilot_headers = _headers(client, "ID-01")
+        bad_session = client.post(
+            "/api/v1/cognitive/sessions",
+            headers=pilot_headers,
+            json={
+                "test_type": "ASTROCOW_SIM",
+                "astrocow": {
+                    "score": 14,
+                    "high_score": 14,
+                    "difficulty_level": 3,
+                    "duration_sec": 72,
+                    "errors_after_change": 4,
+                    "omitted_responses": 2,
+                    "collisions": 3,
+                    "reticle_hits": 4,
+                    "reticle_total": 8,
+                    "reaction_times_ms": [440, 480, 520, 460],
+                    "recovery_times_sec": [2.1, 2.5, 2.3],
+                    "performance_by_minute": [
+                        {"minute": 1, "accuracyPct": 50, "targetsHit": 4, "targetsTotal": 8}
+                    ],
+                },
+            },
+        )
+        assert bad_session.status_code == 201, bad_session.text
+        body = bad_session.json()
+        assert body["alert_id"] is not None
+        assert body["astrocow"]["mean_reaction_ms"] == 475.0
+        assert body["astrocow"]["precision_pct"] == 50.0
+        assert body["astrocow"]["recovery_time_sec"] == 2.3
+
+        profile = client.get("/api/v1/psych/profile", headers=pilot_headers).json()
+        assert profile["crew_role"] == "PILOT"
+        assert profile["astrocow"] is not None
+        assert profile["astrocow"]["rt_variability_ms"] > 0
+        assert len(profile["astrocow_trend"]) >= 1
+
+    with open_connection(temp_db_path) as db:
+        alert = db.execute(
+            "SELECT severity, message_en FROM alerts WHERE id = ?",
+            (body["alert_id"],),
+        ).fetchone()
+    assert alert["severity"] == "CRITICAL"
+    assert "PILOT" in alert["message_en"]
+
+
+def test_neurofit_session_and_profile_trends(temp_db_path: Path) -> None:
+    seed_database(db_path=temp_db_path, schema_path=SCHEMA_PATH, snapshot_path=SEED_SNAPSHOT_PATH)
+    with TestClient(fastapi_app) as client:
+        headers = _headers(client, "ID-01")
+        reaction = client.post(
+            "/api/v1/cognitive/sessions",
+            headers=headers,
+            json={"reaction_times_ms": [245.0] * 12, "false_starts": 0},
+        )
+        assert reaction.status_code == 201
+
+        nf = client.post(
+            "/api/v1/cognitive/sessions",
+            headers=headers,
+            json={
+                "test_type": "NEUROFIT_LAB",
+                "neurofit": {
+                    "copilot_id": "tamalito",
+                    "duration_sec": 95,
+                    "total_score": 410,
+                    "ecg_index": 520,
+                    "stages": [
+                        {
+                            "key": "sequence",
+                            "title": "1. Sequence Factory",
+                            "cabCode": "CAB-ME",
+                            "cabName": "Working Memory",
+                            "score": 120,
+                            "accuracy": 90,
+                            "correct_attempts": 9,
+                            "error_attempts": 1,
+                            "total_attempts": 10,
+                            "avg_reaction_ms": 620,
+                            "level_reached": 4,
+                            "duration_sec": 30,
+                        },
+                        {
+                            "key": "bee",
+                            "title": "2. Color Squad",
+                            "cabCode": "CAB-AT",
+                            "cabName": "Focused Attention & Inhibition",
+                            "score": 110,
+                            "accuracy": 80,
+                            "correct_attempts": 8,
+                            "error_attempts": 2,
+                            "total_attempts": 10,
+                            "avg_reaction_ms": 740,
+                            "level_reached": 3,
+                            "duration_sec": 30,
+                        },
+                        {
+                            "key": "explorer",
+                            "title": "3. Space Explorer",
+                            "cabCode": "CAB-RS",
+                            "cabName": "Spatial Reasoning & Planning",
+                            "score": 90,
+                            "accuracy": 100,
+                            "correct_attempts": 2,
+                            "error_attempts": 0,
+                            "total_attempts": 2,
+                            "avg_reaction_ms": 1800,
+                            "level_reached": 3,
+                            "duration_sec": 15,
+                        },
+                        {
+                            "key": "scan",
+                            "title": "4. Rapid Scan",
+                            "cabCode": "CAB-PC",
+                            "cabName": "Visual Perception & Processing Speed",
+                            "score": 90,
+                            "accuracy": 90,
+                            "correct_attempts": 9,
+                            "error_attempts": 1,
+                            "total_attempts": 10,
+                            "avg_reaction_ms": 840,
+                            "level_reached": 3,
+                            "duration_sec": 30,
+                        },
+                    ],
+                },
+            },
+        )
+        assert nf.status_code == 201, nf.text
+        res = nf.json()
+        assert res["neurofit"]["retention_pct"] == 90.0
+        assert res["neurofit"]["sustained_attention_pct"] == 85.0
+        assert res["neurofit"]["focus_index_score"] >= 85.0
+
+        profile = client.get("/api/v1/psych/profile", headers=headers).json()
+        assert profile["reaction"]["reaction_ms"] == 245.0
+        assert profile["neurofit"] is not None
+        assert profile["neurofit"]["retention_pct"] == 90.0
+        assert len(profile["neurofit_trend"]) >= 1

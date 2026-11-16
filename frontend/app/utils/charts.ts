@@ -170,6 +170,53 @@ export function moodTrendOption(points: { day_label: string, mood: number, calmn
   }
 }
 
+export function cognitiveTrendOption(
+  labels: string[],
+  primaryName: string,
+  primaryData: number[],
+  secondaryName: string,
+  secondaryData: number[],
+  unit = '%',
+): EChartsOption {
+  const c = palette()
+  return {
+    backgroundColor: 'transparent',
+    ...trendMotion(),
+    grid: baseGrid(40, 20, 44, GRID_BOTTOM_WITH_ZOOM),
+    dataZoom: dataZoomFor(),
+    tooltip: { trigger: 'axis', valueFormatter: value => `${Math.round(Number(value))}${unit}` },
+    xAxis: { type: 'category', data: labels, boundaryGap: false, ...axisStyle() },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 100,
+      interval: 25,
+      ...axisStyle(),
+      axisLabel: { color: c.muted, fontSize: 9.5, fontFamily: MONO, formatter: `{value}${unit}` },
+    },
+    series: [
+      {
+        name: primaryName,
+        type: 'line',
+        data: primaryData,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { color: c.ok, width: 2.4, shadowBlur: 6, shadowColor: c.okGlow },
+        itemStyle: { color: c.ok },
+      },
+      {
+        name: secondaryName,
+        type: 'line',
+        data: secondaryData,
+        symbol: 'circle',
+        symbolSize: 5,
+        lineStyle: { color: c.rem, width: 1.8 },
+        itemStyle: { color: c.rem },
+      },
+    ],
+  }
+}
+
 /** Stored Lead II strip (screen 06): zoom, max / min in mV and pinned samples. */
 export function ecgOption(samples: number[], sampleRateHz: number, pins: PinMark[] = []): EChartsOption {
   const c = palette()
