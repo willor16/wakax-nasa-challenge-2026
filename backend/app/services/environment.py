@@ -219,16 +219,10 @@ def record_reading(conn: sqlite3.Connection, reading: dict[str, Any]) -> dict[st
     return {"recorded_at_utc": recorded, "alerts_created": alerts}
 
 
-# Cabin alert mode (the whole cockpit turns red) is reserved for emergencies that need
-# everyone's attention now: a life-threatening vital sign or a dangerous cabin reading.
-EMERGENCY_CATEGORIES = ("VITALS", "RESPIRATORY", "ENVIRONMENT")
-
-
 def cabin_mode(conn: sqlite3.Connection) -> str:
-    marks = ",".join("?" for _ in EMERGENCY_CATEGORIES)
+    """Cabin alert mode: the whole cockpit turns red while any CRITICAL advisory (of any kind,
+    day or night) is still unacknowledged, and returns to nominal once all are acknowledged."""
     urgent = conn.execute(
-        f"""SELECT COUNT(*) FROM alerts WHERE acknowledged_at_utc IS NULL
-            AND severity = 'CRITICAL' AND category IN ({marks})""",
-        EMERGENCY_CATEGORIES,
+        "SELECT COUNT(*) FROM alerts WHERE acknowledged_at_utc IS NULL AND severity = 'CRITICAL'"
     ).fetchone()[0]
     return "critical" if urgent else "nominal"

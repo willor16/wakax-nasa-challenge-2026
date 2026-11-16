@@ -232,7 +232,7 @@ def _promote_to_guide(conn: sqlite3.Connection, diagnosis: dict, stamp: str) -> 
             diagnosis["id"],
             stamp,
             stamp,
-            f"Case validated by the crew physician on {stamp[:10]}.",
+            "Mission-validated clinical case (Physician approved)",
         ),
     )
     return article_id

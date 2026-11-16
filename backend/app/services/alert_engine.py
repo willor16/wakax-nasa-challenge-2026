@@ -13,11 +13,13 @@ from datetime import UTC, datetime, timedelta
 
 from app.services import reference_ranges
 from app.services.alert_rules import (
+    TREND_READINGS,
     AlertDecision,
     Baseline,
     MetricThresholds,
     QuietHours,
     Severity,
+    adverse_trend,
     build_alert_texts,
     decide,
     format_amount,
@@ -374,6 +376,39 @@ def _evaluate_habit(conn: sqlite3.Connection, row: sqlite3.Row, quiet: QuietHour
     return _insert_alert(conn, row, severity, title, message, group, deferred)
 
 
+def _evaluate_trend(
+    conn: sqlite3.Connection, row: sqlite3.Row, reference: dict, quiet: QuietHours
+) -> list[int]:
+    """INFO advisory when the last three logged readings move steadily the harmful way
+    (see ``adverse_trend``)."""
+    readings = conn.execute(
+        """SELECT value_num FROM measurements WHERE crew_id = ? AND metric_key = ?
+           AND source_type = 'MANUAL' AND value_num IS NOT NULL AND recorded_at_utc <= ?
+           ORDER BY recorded_at_utc DESC, id DESC LIMIT ?""",
+        (row["crew_id"], row["metric_key"], row["recorded_at_utc"], TREND_READINGS),
+    ).fetchall()
+    values = [float(r["value_num"]) for r in reversed(readings)]
+    baseline = None
+    if row["mean_val"] is not None:
+        baseline = Baseline(mean_val=row["mean_val"], std_dev=row["std_dev"],
+                            sample_count=row["sample_count"])
+    way = adverse_trend(values, reference.get("drift", "none"),
+                        float(reference.get("drift_sd_floor") or 0.0), baseline)
+    if way is None or _has_open_alert(
+        conn, row["crew_id"], row["metric_key"], Severity.INFO, row["recorded_at_utc"]
+    ):
+        return []
+    first, last = values[0], values[-1]
+    title = (f"{row['display_name_en']} {'rising' if way == 'up' else 'falling'} steadily "
+             f"({format_amount(last, row['unit'])})")
+    message = (f"{'Up' if way == 'up' else 'Down'} over the last {TREND_READINGS} readings, "
+               f"from {format_amount(first, row['unit'])}. Still inside the usual range; "
+               "review preventive care on the right.")
+    deferred = should_defer(Severity.INFO, parse_utc(row["recorded_at_utc"]), quiet)
+    group = care_group(row["metric_key"], row["category"])
+    return _insert_alert(conn, row, Severity.INFO, title, message, group, deferred)
+
+
 def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[int]:
     """Evaluate a stored measurement and insert at most one alert. Returns new alert ids.
 
@@ -443,7 +478,9 @@ def evaluate_measurement(conn: sqlite3.Connection, measurement_id: int) -> list[
             is_quiet_deferred=should_defer(relative, parse_utc(row["recorded_at_utc"]), quiet),
         )
     if decision is None:
-        return []
+        # Inside the limits and the personal range, a steady move in the harmful direction
+        # over the last readings is still worth a quiet note.
+        return _evaluate_trend(conn, row, reference, quiet)
     if _has_open_alert(
         conn, row["crew_id"], row["metric_key"], decision.severity, row["recorded_at_utc"]
     ):
