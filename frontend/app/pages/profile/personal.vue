@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 04 · Astronaut Profile · Personal Data (read-only).
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import type { MetricView } from '~/composables/useProfile'
-import { dayText, digitsFor, formatDuration, formatNumber, litres, scalePct, sexText, toneOf } from '~/utils/format'
+import { dayText, digitsFor, formatDuration, formatNumber, litres, scalePct, sexText, titleCase, toneOf } from '~/utils/format'
 
 const { data: profile, loading, error, refresh } = useProfile()
 
@@ -65,6 +66,25 @@ const dials = computed(() => {
 })
 const { clockText } = useMission()
 const hydration = computed(() => profile.value?.scan)
+
+const scanTab = ref<'scan' | 'profile'>('scan')
+const scanTabs = [
+  { id: 'scan', label: 'Biometric Scan' },
+  { id: 'profile', label: 'Crew Profile' },
+] as const
+
+const profileDetails = computed(() => {
+  const crew = profile.value?.crew
+  if (!crew) return []
+  return [
+    { label: 'Crew ID', value: crew.code },
+    { label: 'System Role', value: titleCase(crew.role) },
+    { label: 'Age', value: crew.age !== null ? `${crew.age} yrs` : '—' },
+    { label: 'Sex', value: sexText(crew.sex) },
+    { label: 'Blood Type', value: crew.blood_type ?? '—' },
+    { label: 'Reference Ranges', value: profile.value!.reference_profile_en, helpKey: 'sex_reference' },
+  ]
+})
 </script>
 
 <template>
@@ -74,18 +94,7 @@ const hydration = computed(() => profile.value?.scan)
   <div v-else class="flex-1 min-h-0 flex gap-[18px]">
     <ShellHudWindow class="w-[33.2%] shrink-0" title="Personal Biometrics" icon="profile" :tag-text="profile.crew.code" flush>
       <div class="flex-1 flex flex-col px-[19px] pt-[17px] pb-[16px]">
-        <div class="tile-hi h-[80px] px-[18px] flex flex-col justify-center">
-          <div class="flex items-center justify-between">
-            <span class="text-[17px] font-bold">{{ profile.crew.full_name }}</span>
-            <UiStatusPill>{{ profile.crew.title_en.toUpperCase() }}</UiStatusPill>
-          </div>
-          <p class="text-[12px] text-cabin-ice mt-[8px] flex items-center gap-[6px] min-w-0">
-            <span class="truncate">Age: {{ profile.crew.age ?? '—' }} yrs · Sex: {{ sexText(profile.crew.sex) }} · Blood Type: {{ profile.crew.blood_type ?? '—' }}</span>
-            <span class="shrink-0 ml-auto h-[18px] px-[8px] rounded-full border border-cabin-navy-edge/80 bg-[var(--color-pill-fill)] text-[9px] font-bold uppercase tracking-[0.04em] text-cabin-text flex items-center">{{ profile.reference_profile_en }}</span>
-            <UiParamHelp metric-key="sex_reference" />
-          </p>
-        </div>
-        <div class="grid grid-cols-2 gap-x-[14px] gap-y-[clamp(10px,1.9dvh,18px)] mt-[clamp(12px,2.6dvh,24px)] flex-1 min-h-0">
+        <div class="grid grid-cols-2 gap-x-[14px] gap-y-[clamp(10px,1.9dvh,18px)] flex-1 min-h-0">
           <div v-for="card in profile.biometrics" :key="card.metric_key" class="tile relative overflow-hidden px-[18px] flex flex-col justify-center">
             <span class="absolute top-0 left-0 right-0 h-[3px]" :class="barClass(card)" />
             <p class="label-caps flex items-center gap-[6px]">{{ cardTitle[card.metric_key] }}<UiParamHelp :metric-key="card.metric_key" /></p>
@@ -99,25 +108,64 @@ const hydration = computed(() => profile.value?.scan)
     <ShellHudWindow
 class="w-[30.8%] shrink-0" title="Biometric Scan" icon="vitruvian"
                     :tag-text="profile.status.toUpperCase()" :tag-tone="profile.status === 'Attention' ? 'critical' : 'reference'" flush>
-      <div class="flex-1 flex flex-col items-center px-[19px] pb-[19px]">
-        <UiHoloFigure
-figure="body-scan" :sex="profile.crew.sex" size="min(clamp(220px, 50dvh, 760px), calc(30.8vw - 60px))" class="mt-[clamp(10px,3.6dvh,34px)]"
-                      :label="`Biometric scan of ${profile.crew.full_name}: ${profile.status}`" />
-        <div class="mt-auto w-full grid grid-cols-2 gap-[12px]">
-          <div class="tile h-[clamp(60px,7.7dvh,84px)] px-[16px] flex flex-col justify-center">
-            <p class="label-caps flex items-center gap-[6px]">Core temp<UiParamHelp metric-key="body_temp_c" /></p>
-            <p class="text-[17px] font-bold mt-[8px]">
-              {{ profile.scan.core_temp.value === null ? '—' : `${profile.scan.core_temp.value.toFixed(1)} °C` }}
+      <TabsRoot v-model="scanTab" class="flex-1 min-h-0 flex flex-col px-[19px] pt-[14px] pb-[19px]">
+        <TabsList class="grid grid-cols-2 gap-[8px] shrink-0" aria-label="Biometric scan view">
+          <TabsTrigger
+            v-for="tab in scanTabs"
+            :key="tab.id"
+            :value="tab.id"
+            class="focus-ring relative h-[34px] rounded-[4px] text-[11px] font-semibold border-[1.3px] cursor-pointer flex items-center justify-center"
+            :class="scanTab === tab.id
+              ? 'menu-item-active font-bold text-cabin-text'
+              : 'bg-cabin-tile border-cabin-line text-cabin-ice/90 hover:text-cabin-text'"
+          >
+            {{ tab.label }}
+            <span v-if="scanTab === tab.id" class="absolute bottom-[1px] left-[22px] right-[22px] h-[2px] rounded-full bg-cabin-text/85" />
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="scan" class="flex-1 min-h-0 flex flex-col items-center data-[state=inactive]:!hidden">
+          <div class="flex-1 min-h-0 flex flex-col items-center justify-center">
+            <UiHoloFigure
+figure="body-scan" :sex="profile.crew.sex" size="min(clamp(180px, 41dvh, 680px), calc(30.8vw - 60px))"
+                          :label="`Biometric scan of ${profile.crew.full_name}: ${profile.status}`" />
+            <p class="mt-[clamp(6px,1.2dvh,12px)] flex items-center justify-center gap-[8px] text-[11px] font-bold tracking-[0.06em] text-cabin-ice">
+              <Icon name="spacescan:profile" class="w-[14px] h-[14px] shrink-0" />
+              <span>{{ profile.crew.code }} · {{ profile.crew.short_name }}</span>
             </p>
           </div>
-          <div class="tile h-[clamp(60px,7.7dvh,84px)] px-[16px] flex flex-col justify-center">
-            <p class="label-caps flex items-center gap-[6px]">Hydration · {{ profile.habits_day_label }}<UiParamHelp metric-key="hydration_ml" /></p>
-            <p class="text-[17px] font-bold mt-[8px]">
-              {{ litres(hydration?.hydration_ml) }} / {{ litres(hydration?.hydration_target_ml) }} L
-            </p>
+          <div class="mt-auto w-full grid grid-cols-2 gap-[12px]">
+            <div class="tile h-[clamp(60px,7.7dvh,84px)] px-[16px] flex flex-col justify-center">
+              <p class="label-caps flex items-center gap-[6px]">Core temp<UiParamHelp metric-key="body_temp_c" /></p>
+              <p class="text-[17px] font-bold mt-[8px]">
+                {{ profile.scan.core_temp.value === null ? '—' : `${profile.scan.core_temp.value.toFixed(1)} °C` }}
+              </p>
+            </div>
+            <div class="tile h-[clamp(60px,7.7dvh,84px)] px-[16px] flex flex-col justify-center">
+              <p class="label-caps flex items-center gap-[6px]">Hydration · {{ profile.habits_day_label }}<UiParamHelp metric-key="hydration_ml" /></p>
+              <p class="text-[17px] font-bold mt-[8px]">
+                {{ litres(hydration?.hydration_ml) }} / {{ litres(hydration?.hydration_target_ml) }} L
+              </p>
+            </div>
           </div>
-        </div>
-      </div>
+        </TabsContent>
+
+        <TabsContent value="profile" class="flex-1 min-h-0 flex flex-col pt-[14px] gap-[12px] data-[state=inactive]:!hidden">
+          <div class="tile-hi min-h-[64px] shrink-0 px-[18px] py-[14px] flex items-center justify-between gap-[8px]">
+            <span class="text-[17px] font-bold truncate">{{ profile.crew.full_name }}</span>
+            <UiStatusPill>{{ profile.crew.title_en.toUpperCase() }}</UiStatusPill>
+          </div>
+          <div class="grid grid-cols-2 gap-[12px] flex-1 min-h-0">
+            <div v-for="item in profileDetails" :key="item.label" class="tile px-[16px] flex flex-col justify-center">
+              <p class="label-caps flex items-center gap-[6px]">
+                {{ item.label }}
+                <UiParamHelp v-if="item.helpKey" :metric-key="item.helpKey" />
+              </p>
+              <p class="text-[16px] font-bold mt-[8px] truncate">{{ item.value }}</p>
+            </div>
+          </div>
+        </TabsContent>
+      </TabsRoot>
     </ShellHudWindow>
 
     <ShellHudWindow

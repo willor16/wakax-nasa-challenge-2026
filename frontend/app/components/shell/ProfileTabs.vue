@@ -13,7 +13,7 @@ const onAdmin = computed(() => route.path === '/crew-management')
 </script>
 
 <template>
-  <ShellSubnavTabs v-model="active" :tabs="tabs" :label="t('profileTabs.label')">
+  <ShellSubnavTabs v-model="active" :tabs="tabs" :label="t('profileTabs.label')" centered>
     <NuxtLink
 v-if="isOperator" to="/crew-management"
               class="focus-ring h-[37px] px-[26px] rounded-[4px] text-[11.5px] font-semibold border-[1.3px] flex items-center gap-[8px]"
