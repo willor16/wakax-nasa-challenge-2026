@@ -89,7 +89,7 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USER || 'ubuntu' }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/id_ec2 "${EC2_USER}@${EC2_HOST}" \
+          printf '%s' "$GHCR_TOKEN" | ssh -T -i ~/.ssh/id_ec2 "${EC2_USER}@${EC2_HOST}" \
             "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
 
       - name: Pull latest image and restart stack on EC2
@@ -97,7 +97,7 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER || 'ubuntu' }}
         run: |
-          ssh -i ~/.ssh/id_ec2 "${EC2_USER}@${EC2_HOST}" << 'EOF'
+          ssh -T -i ~/.ssh/id_ec2 "${EC2_USER}@${EC2_HOST}" "bash -s" << 'EOF'
           set -euo pipefail
           cd ~/spacescan
           git fetch origin main
@@ -107,7 +107,7 @@ jobs:
           docker compose -f docker-compose.ec2.yml up -d --no-build
           docker image prune -f
           for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/api/v1/health; then
+            if curl -fs http://127.0.0.1:8080/api/v1/health; then
               echo ""
               exit 0
             fi
