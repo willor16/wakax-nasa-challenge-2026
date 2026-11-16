@@ -265,3 +265,1405 @@ body,
   flex-direction: column;
   gap: 12px;
 }
+
+/* Integrated Visual & Macular Assessment Battery overlay (M6) */
+.sandra-battery-overlay {
+  --color-bg-base-rgb: 0, 21, 36;
+  --color-surface-card-rgb: 21, 97, 109;
+  --color-text-primary-rgb: 255, 236, 209;
+  --color-status-ok-rgb: 42, 239, 75;
+  --color-menu-select-rgb: 0, 12, 92;
+  --color-status-critica-rgb: 213, 17, 11;
+  --color-menu-select-solid: var(--color-navy-accent);
+  --color-menu-select: rgba(0, 12, 92, 0.45);
+  --color-status-critica: var(--color-status-critical);
+  --color-bg-overlay: rgba(0, 21, 36, 0.90);
+  --color-bg-card-glass: rgba(21, 97, 109, 0.22);
+  --color-bg-card-hover: rgba(21, 97, 109, 0.38);
+  --color-border-subtle: rgba(21, 97, 109, 0.38);
+  --color-menu-active-bg: rgba(0, 12, 92, 0.48);
+  --color-menu-active-border: rgba(38, 59, 176, 0.85);
+  --color-pill-warn: rgba(0, 12, 92, 0.42);
+  --color-status-ok-bg: rgba(42, 239, 75, 0.16);
+  --color-status-ok-border: rgba(42, 239, 75, 0.55);
+  --color-status-ok-glow: rgba(42, 239, 75, 0.35);
+  --color-status-warn-bg: rgba(0, 12, 92, 0.38);
+  --color-status-warn-border: rgba(38, 59, 176, 0.90);
+  --color-status-critica-bg: rgba(213, 17, 11, 0.18);
+  --color-status-critica-border: rgba(213, 17, 11, 0.65);
+  --color-status-critica-glow: rgba(213, 17, 11, 0.40);
+  --shadow-card-smoked: 0 8px 32px 0 rgba(0, 21, 36, 0.65);
+  --shadow-button-glow: 0 0 16px rgba(21, 97, 109, 0.45);
+  --color-clinical-bg: var(--color-text-primary);
+  --color-clinical-symbol: var(--color-bg-base);
+  --color-clinical-grid-line: rgba(0, 21, 36, 0.78);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  --transition-smooth: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--color-bg-base);
+  background-image:
+    radial-gradient(66% 52% at 50% 86%, var(--horizon-glow-core) 0%, var(--horizon-glow-mid) 38%, rgba(3, 31, 47, 0.28) 74%, transparent 100%),
+    radial-gradient(55% 32% at 50% 12%, var(--upper-glow) 0%, transparent 100%),
+    linear-gradient(180deg, var(--color-bg-top) 0%, var(--color-bg-base) 52%, var(--color-bg-bottom) 100%);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.sandra-battery-overlay .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
+  background-color: var(--color-header-bg);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--color-border-card);
+  padding: 0.75rem 1.5rem;
+}
+
+.sandra-battery-overlay .header-container {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .brand-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sandra-battery-overlay .brand-icon {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-card);
+  border: 1px solid var(--color-status-ok-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-status-ok);
+  box-shadow: 0 0 12px var(--color-status-ok-glow);
+  flex-shrink: 0;
+}
+
+.sandra-battery-overlay .header-metrics {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .hud-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.sandra-battery-overlay .hud-label {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sandra-battery-overlay .hud-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .hud-value.status-ok { color: var(--color-status-ok); }
+.sandra-battery-overlay .hud-value.status-warn { color: var(--color-text-primary); }
+.sandra-battery-overlay .hud-value.status-critica { color: var(--color-status-critica); }
+
+.sandra-battery-overlay .sandra-main-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem 2.5rem;
+}
+
+.sandra-battery-overlay .main-viewport {
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.sandra-battery-overlay .glass-card {
+  background-color: var(--color-bg-card-glass);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-card-smoked);
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+  transition: var(--transition-smooth);
+}
+
+.sandra-battery-overlay .glass-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-surface-card), transparent);
+}
+
+.sandra-battery-overlay .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  flex-wrap: wrap;
+  gap: 0.85rem;
+}
+
+.sandra-battery-overlay .card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sandra-battery-overlay .card-title-group h2,
+.sandra-battery-overlay .card-title-group h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .card-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-pill-warn);
+  border: 1px solid var(--color-border-card);
+  color: var(--color-text-primary);
+  margin-top: 0.2rem;
+}
+
+.sandra-battery-overlay .header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.05rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-card);
+  background-color: var(--color-surface-card);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  box-shadow: var(--shadow-button-glow);
+}
+
+.sandra-battery-overlay .btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+.sandra-battery-overlay .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sandra-battery-overlay .btn-primary {
+  background-color: var(--color-surface-card);
+  border-color: var(--color-status-ok-border);
+}
+
+.sandra-battery-overlay .btn-ok {
+  background-color: var(--color-status-ok-bg);
+  border-color: var(--color-status-ok-border);
+  color: var(--color-status-ok);
+}
+
+.sandra-battery-overlay .btn-ok:hover:not(:disabled) {
+  background-color: var(--color-status-ok);
+  color: var(--color-bg-base);
+}
+
+.sandra-battery-overlay .btn-critica {
+  background-color: var(--color-status-critica-bg);
+  border-color: var(--color-status-critica-border);
+  color: var(--color-status-critica);
+}
+
+.sandra-battery-overlay .btn-critica:hover:not(:disabled) {
+  background-color: var(--color-status-critica);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .btn-ghost {
+  background-color: transparent;
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  box-shadow: none;
+}
+
+.sandra-battery-overlay .btn-ghost:hover:not(:disabled) {
+  background-color: var(--color-bg-card-hover);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sandra-battery-overlay .badge-status.ok {
+  background-color: var(--color-status-ok-bg);
+  border: 1px solid var(--color-status-ok-border);
+  color: var(--color-status-ok);
+}
+
+.sandra-battery-overlay .badge-status.warn {
+  background-color: var(--color-status-warn-bg);
+  border: 1px solid var(--color-status-warn-border);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .badge-status.critica {
+  background-color: var(--color-status-critica-bg);
+  border: 1px solid var(--color-status-critica-border);
+  color: var(--color-status-critica);
+  animation: pulseCritica 2s infinite ease-in-out;
+}
+
+@keyframes pulseCritica {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(213, 17, 11, 0.35); }
+  50% { box-shadow: 0 0 12px 2px rgba(213, 17, 11, 0.6); }
+}
+
+.sandra-battery-overlay .sound-toggle-btn {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.42rem 0.75rem;
+}
+
+.sandra-battery-overlay .modules-menu-view {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 440px;
+  padding: 1.5rem 0;
+}
+
+.sandra-battery-overlay .menu-selection-card {
+  width: 100%;
+  max-width: 680px;
+  padding: 2rem;
+}
+
+.sandra-battery-overlay .menu-selection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.05rem;
+}
+
+.sandra-battery-overlay .menu-module-item {
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+  padding: 1.15rem 1.5rem;
+  background-color: rgba(21, 97, 109, 0.28);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  text-align: left;
+  width: 100%;
+}
+
+.sandra-battery-overlay .menu-module-item:hover {
+  background-color: var(--color-menu-active-bg);
+  border-color: var(--color-menu-active-border);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(21, 97, 109, 0.4);
+}
+
+.sandra-battery-overlay .module-item-indicator {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-card);
+  color: var(--color-text-primary);
+  flex-shrink: 0;
+  transition: var(--transition-smooth);
+}
+
+.sandra-battery-overlay .menu-module-item:hover .module-item-indicator {
+  background-color: var(--color-status-ok);
+  color: var(--color-bg-base);
+}
+
+.sandra-battery-overlay .module-item-title {
+  flex: 1;
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .module-item-chevron {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+
+.sandra-battery-overlay .instruction-box {
+  background-color: var(--color-bg-card-glass);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 1.1rem;
+  margin-bottom: 1.25rem;
+}
+
+.sandra-battery-overlay .instruction-box h3 {
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+
+.sandra-battery-overlay .instruction-box p {
+  color: var(--color-text-secondary);
+  font-size: 0.88rem;
+  margin-bottom: 0.65rem;
+}
+
+.sandra-battery-overlay .setup-checklist {
+  list-style: none;
+  font-size: 0.84rem;
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sandra-battery-overlay .setup-checklist li::before {
+  content: "▹ ";
+  color: var(--color-status-ok);
+}
+
+.sandra-battery-overlay .selector-label {
+  display: block;
+  font-size: 0.82rem;
+  font-family: var(--font-family-mono);
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+}
+
+.sandra-battery-overlay .eye-buttons {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .eye-btn {
+  flex: 1;
+  min-width: 180px;
+  padding: 0.8rem;
+  font-size: 0.85rem;
+}
+
+.sandra-battery-overlay .eye-btn.active {
+  background-color: var(--color-menu-active-bg);
+  border-color: var(--color-status-ok-border);
+  color: var(--color-text-primary);
+  box-shadow: 0 0 12px rgba(21, 97, 109, 0.5);
+}
+
+.sandra-battery-overlay .eye-tag {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-card);
+  color: var(--color-text-primary);
+  margin-right: 0.35rem;
+}
+
+.sandra-battery-overlay .start-action-row {
+  text-align: center;
+  padding: 1.25rem 0;
+}
+
+.sandra-battery-overlay .start-test-btn {
+  font-size: 0.98rem;
+  padding: 0.9rem 2rem;
+}
+
+.sandra-battery-overlay .game-hud {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.sandra-battery-overlay .hud-box {
+  background-color: rgba(0, 21, 36, 0.6);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 0.6rem;
+  text-align: center;
+}
+
+.sandra-battery-overlay .hud-caption {
+  display: block;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.sandra-battery-overlay .timer-bar-container {
+  height: 4px;
+  background-color: rgba(21, 97, 109, 0.3);
+  border-radius: var(--radius-full);
+  margin-bottom: 1.15rem;
+  overflow: hidden;
+}
+
+.sandra-battery-overlay .timer-bar {
+  height: 100%;
+  background-color: var(--color-status-ok);
+  transition: width 0.1s linear;
+}
+
+.sandra-battery-overlay .optotype-stage {
+  height: 220px;
+  background-color: var(--color-clinical-bg);
+  border: 2px solid var(--color-border-card);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  box-shadow: 0 4px 20px rgba(0, 21, 36, 0.5);
+  transition: var(--transition-smooth);
+}
+
+.sandra-battery-overlay .optotype-stage.flash-success {
+  border-color: var(--color-status-ok);
+  box-shadow: 0 0 25px var(--color-status-ok-glow);
+}
+
+.sandra-battery-overlay .optotype-stage.flash-error {
+  border-color: var(--color-status-critica);
+  box-shadow: 0 0 25px var(--color-status-critica-glow);
+}
+
+.sandra-battery-overlay .landolt-ring {
+  background-color: transparent;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: var(--color-clinical-symbol);
+  border-right-color: transparent !important;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.sandra-battery-overlay .optotype-instruction {
+  text-align: center;
+  font-size: 0.84rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.85rem;
+}
+
+.sandra-battery-overlay .dpad-controller {
+  max-width: 320px;
+  margin: 0 auto 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sandra-battery-overlay .dpad-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.sandra-battery-overlay .dpad-horizontal { align-items: center; }
+
+.sandra-battery-overlay .dpad-btn {
+  width: 90px;
+  height: 60px;
+  background-color: var(--color-surface-card);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  transition: var(--transition-smooth);
+}
+
+.sandra-battery-overlay .dpad-btn:hover {
+  background-color: var(--color-menu-active-bg);
+  border-color: var(--color-status-ok-border);
+  transform: scale(1.05);
+}
+
+.sandra-battery-overlay .btn-subtext {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .dpad-center-hub {
+  width: 70px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.sandra-battery-overlay .test-footer-actions { text-align: center; }
+
+.sandra-battery-overlay .result-summary-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-card);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+  background-color: var(--color-bg-card-glass);
+}
+
+.sandra-battery-overlay .result-summary-card.ok {
+  border-color: var(--color-status-ok-border);
+  background-color: var(--color-status-ok-bg);
+}
+
+.sandra-battery-overlay .result-summary-card.warn {
+  border-color: var(--color-status-warn-border);
+  background-color: var(--color-status-warn-bg);
+}
+
+.sandra-battery-overlay .result-summary-card.critica {
+  border-color: var(--color-status-critica-border);
+  background-color: var(--color-status-critica-bg);
+}
+
+.sandra-battery-overlay .result-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.sandra-battery-overlay .eye-examined-tag {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.sandra-battery-overlay .result-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.sandra-battery-overlay .result-metric {
+  background-color: rgba(0, 21, 36, 0.5);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.sandra-battery-overlay .metric-label {
+  display: block;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  margin-bottom: 0.2rem;
+}
+
+.sandra-battery-overlay .metric-huge {
+  font-size: 1.65rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .metric-val {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .result-diagnostic-text p {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.sandra-battery-overlay .eyes-summary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.sandra-battery-overlay .eye-record-card {
+  background-color: rgba(0, 21, 36, 0.45);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 0.9rem;
+}
+
+.sandra-battery-overlay .eye-record-card h4 {
+  font-size: 0.85rem;
+  margin-bottom: 0.45rem;
+}
+
+.sandra-battery-overlay .recorded-val {
+  font-size: 0.84rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sandra-battery-overlay .unrecorded-val {
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+  font-style: italic;
+}
+
+.sandra-battery-overlay .result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .amsler-controls-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  background-color: rgba(0, 21, 36, 0.6);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  margin-bottom: 1.25rem;
+}
+
+.sandra-battery-overlay .control-group {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .control-label {
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.sandra-battery-overlay .eye-toggle-btn-group,
+.sandra-battery-overlay .tool-btn-group {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .btn-toggle {
+  background-color: var(--color-surface-card);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  padding: 0.42rem 0.8rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.sandra-battery-overlay .btn-toggle.active {
+  background-color: var(--color-menu-active-bg);
+  border-color: var(--color-status-ok-border);
+  box-shadow: 0 0 10px rgba(21, 97, 109, 0.5);
+}
+
+.sandra-battery-overlay .tool-btn {
+  background-color: rgba(0, 21, 36, 0.7);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  padding: 0.42rem 0.72rem;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.sandra-battery-overlay .tool-btn.active {
+  background-color: var(--color-surface-card);
+  border-color: var(--color-text-primary);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .tool-btn.active-warn {
+  background-color: var(--color-status-warn-bg);
+  border-color: var(--color-status-warn-border);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .tool-btn.active-critica {
+  background-color: var(--color-status-critica-bg);
+  border-color: var(--color-status-critica-border);
+  color: var(--color-status-critica);
+}
+
+.sandra-battery-overlay .tool-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.sandra-battery-overlay .tool-dot.warn {
+  background-color: var(--color-navy-edge);
+  border: 1px solid var(--color-surface-card);
+}
+
+.sandra-battery-overlay .tool-dot.critica {
+  background-color: var(--color-status-critica);
+}
+
+.sandra-battery-overlay .amsler-workspace-layout {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.sandra-battery-overlay .grid-canvas-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sandra-battery-overlay .grid-helper-text {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  margin-bottom: 0.65rem;
+  line-height: 1.4;
+}
+
+.sandra-battery-overlay .amsler-timer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  background: var(--color-bg-card-glass);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.45rem;
+  width: 100%;
+  max-width: 380px;
+  transition: all 0.3s ease;
+}
+
+.sandra-battery-overlay .amsler-timer-bar.timer-state-green {
+  background: rgba(42, 239, 75, 0.18);
+  border-color: var(--color-status-ok);
+  box-shadow: 0 0 18px rgba(42, 239, 75, 0.45);
+}
+
+.sandra-battery-overlay .amsler-timer-bar.timer-state-red {
+  background: rgba(213, 17, 11, 0.22);
+  border-color: var(--color-status-critica);
+  box-shadow: 0 0 22px rgba(213, 17, 11, 0.55);
+  animation: pulseCritica 1.5s infinite ease-in-out;
+}
+
+.sandra-battery-overlay .timer-display-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.sandra-battery-overlay .timer-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sandra-battery-overlay .timer-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .timer-status-text {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sandra-battery-overlay .timer-status-text.running { color: var(--color-status-ok); font-weight: 600; }
+.sandra-battery-overlay .timer-status-text.alert { color: var(--color-status-critica); font-weight: 600; }
+
+.sandra-battery-overlay .timer-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.sandra-battery-overlay .timer-countdown-badge {
+  font-size: 1.05rem;
+  font-weight: 800;
+  padding: 0.18rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 97, 109, 0.4);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-subtle);
+  min-width: 42px;
+  text-align: center;
+}
+
+.sandra-battery-overlay .timer-countdown-badge.countdown-running {
+  background: var(--color-status-ok);
+  border-color: var(--color-status-ok);
+  color: var(--color-bg-base);
+}
+
+.sandra-battery-overlay .timer-countdown-badge.countdown-finished {
+  background: var(--color-status-critica);
+  border-color: var(--color-status-critica);
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .timer-btn {
+  font-size: 0.72rem;
+  padding: 0.32rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.sandra-battery-overlay .timer-progress-track {
+  width: 100%;
+  max-width: 380px;
+  height: 4px;
+  background: rgba(21, 97, 109, 0.3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 0.6rem;
+}
+
+.sandra-battery-overlay .timer-progress-fill {
+  height: 100%;
+  transition: width 1s linear, background-color 0.3s ease;
+}
+
+.sandra-battery-overlay .timer-progress-fill.bg-ok { background-color: var(--color-status-ok); }
+.sandra-battery-overlay .timer-progress-fill.bg-critica { background-color: var(--color-status-critica); }
+
+.sandra-battery-overlay .amsler-frame {
+  width: 380px;
+  height: 380px;
+  background-color: var(--color-clinical-bg);
+  border: 2px solid var(--color-surface-card);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 25px rgba(0, 21, 36, 0.9);
+  overflow: hidden;
+  cursor: crosshair;
+  position: relative;
+  touch-action: none;
+}
+
+.sandra-battery-overlay .amsler-svg { width: 100%; height: 100%; display: block; }
+.sandra-battery-overlay .svg-bg { fill: var(--color-clinical-bg); }
+.sandra-battery-overlay .svg-grid-line { stroke: var(--color-clinical-grid-line); stroke-width: 0.8; }
+
+.sandra-battery-overlay .amsler-frame.simulated-sans .warped-lines {
+  animation: amslerWarp 6s ease-in-out infinite alternate;
+}
+
+@keyframes amslerWarp {
+  0% { transform: scale(1); filter: blur(0px); }
+  50% { transform: scale(1.02) skewX(2deg); filter: drop-shadow(0 0 2px var(--color-status-critica)); }
+  100% { transform: scale(0.98) skewY(-2deg); }
+}
+
+.sandra-battery-overlay .mapped-rect.metamorphopsia {
+  fill: var(--color-menu-select);
+  stroke: var(--color-surface-card);
+  stroke-width: 1;
+}
+
+.sandra-battery-overlay .mapped-rect.scotoma {
+  fill: var(--color-status-critica);
+  fill-opacity: 0.85;
+  stroke: var(--color-status-critica);
+}
+
+.sandra-battery-overlay .center-fixation-dot { fill: var(--color-clinical-symbol); }
+.sandra-battery-overlay .center-inner-dot { fill: var(--color-clinical-bg); }
+
+.sandra-battery-overlay .amsler-legend {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.85rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.sandra-battery-overlay .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+.sandra-battery-overlay .legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
+
+.sandra-battery-overlay .legend-swatch.ok {
+  border: 1px solid var(--color-clinical-symbol);
+  background-color: var(--color-clinical-bg);
+}
+
+.sandra-battery-overlay .legend-swatch.warn {
+  background-color: var(--color-menu-select);
+  border: 1px solid var(--color-surface-card);
+}
+
+.sandra-battery-overlay .legend-swatch.critica { background-color: var(--color-status-critica); }
+
+.sandra-battery-overlay .questions-card {
+  background-color: rgba(0, 21, 36, 0.45);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+}
+
+.sandra-battery-overlay .questions-card h3 { font-size: 1rem; text-transform: uppercase; margin-bottom: 0.25rem; }
+.sandra-battery-overlay .questions-subtitle { font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; }
+
+.sandra-battery-overlay .question-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.72rem 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.sandra-battery-overlay .q-num {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--color-surface-card);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sandra-battery-overlay .q-content { flex: 1; }
+.sandra-battery-overlay .q-title { font-size: 0.84rem; margin-bottom: 0.45rem; color: var(--color-text-primary); }
+.sandra-battery-overlay .q-options { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.sandra-battery-overlay .btn-choice {
+  background-color: rgba(0, 21, 36, 0.7);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  padding: 0.38rem 0.8rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.sandra-battery-overlay .btn-choice.selected-ok {
+  background-color: var(--color-status-ok-bg);
+  border-color: var(--color-status-ok-border);
+  color: var(--color-status-ok);
+  font-weight: 700;
+}
+
+.sandra-battery-overlay .btn-choice.selected-warn {
+  background-color: var(--color-status-warn-bg);
+  border-color: var(--color-status-warn-border);
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+.sandra-battery-overlay .btn-choice.selected-critica {
+  background-color: var(--color-status-critica-bg);
+  border-color: var(--color-status-critica-border);
+  color: var(--color-status-critica);
+  font-weight: 700;
+}
+
+.sandra-battery-overlay .amsler-score-box {
+  margin: 1rem 0;
+  padding: 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-card);
+  background-color: rgba(0, 21, 36, 0.6);
+}
+
+.sandra-battery-overlay .amsler-score-box.ok { border-color: var(--color-status-ok-border); background-color: var(--color-status-ok-bg); }
+.sandra-battery-overlay .amsler-score-box.warn { border-color: var(--color-status-warn-border); background-color: var(--color-status-warn-bg); }
+.sandra-battery-overlay .amsler-score-box.critica { border-color: var(--color-status-critica-border); background-color: var(--color-status-critica-bg); }
+
+.sandra-battery-overlay .score-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.5rem; }
+.sandra-battery-overlay .score-title { font-size: 0.74rem; font-family: var(--font-mono); color: var(--color-text-primary); }
+.sandra-battery-overlay .score-stats { display: flex; gap: 1rem; font-size: 0.78rem; font-family: var(--font-mono); color: var(--color-text-secondary); margin-bottom: 0.4rem; flex-wrap: wrap; }
+.sandra-battery-overlay .score-desc { font-size: 0.78rem; color: var(--color-text-secondary); line-height: 1.4; }
+.sandra-battery-overlay .amsler-actions { display: flex; justify-content: flex-end; gap: 0.85rem; margin-top: 1rem; flex-wrap: wrap; }
+
+.sandra-battery-overlay .progress-pill {
+  font-family: var(--font-mono);
+  background-color: var(--color-menu-active-bg);
+  border: 1px solid var(--color-border-card);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+}
+
+.sandra-battery-overlay .pill-number { font-size: 0.8rem; color: var(--color-status-ok); font-weight: 700; }
+
+.sandra-battery-overlay .blocks-navigation {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+}
+
+.sandra-battery-overlay .block-nav-btn {
+  background-color: rgba(0, 21, 36, 0.6);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  text-align: left;
+  color: var(--color-text-primary);
+}
+
+.sandra-battery-overlay .block-nav-btn.active {
+  background-color: var(--color-menu-active-bg);
+  border-color: var(--color-status-ok-border);
+  box-shadow: 0 0 10px rgba(21, 97, 109, 0.4);
+}
+
+.sandra-battery-overlay .block-idx {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 800;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--color-surface-card);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sandra-battery-overlay .block-nav-btn.active .block-idx { background-color: var(--color-status-ok); color: var(--color-bg-base); }
+.sandra-battery-overlay .block-btn-content { display: flex; flex-direction: column; }
+.sandra-battery-overlay .block-btn-title { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); }
+.sandra-battery-overlay .block-btn-status { font-size: 0.65rem; font-family: var(--font-mono); }
+.sandra-battery-overlay .block-btn-status.complete { color: var(--color-status-ok); }
+.sandra-battery-overlay .block-btn-status.partial { color: var(--color-text-muted); }
+.sandra-battery-overlay .block-btn-status.empty { color: var(--color-text-dim); }
+
+.sandra-battery-overlay .active-block-container {
+  background-color: rgba(0, 21, 36, 0.45);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+}
+
+.sandra-battery-overlay .question-stepper-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  background-color: rgba(21, 97, 109, 0.18);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.sandra-battery-overlay .stepper-info { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.sandra-battery-overlay .stepper-tag { font-family: var(--font-mono); font-size: 0.74rem; font-weight: 700; color: var(--color-text-primary); letter-spacing: 0.04em; text-transform: uppercase; }
+.sandra-battery-overlay .stepper-progress { font-size: 0.74rem; color: var(--color-text-muted); }
+.sandra-battery-overlay .stepper-pills { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+
+.sandra-battery-overlay .stepper-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(0, 21, 36, 0.7);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-sm);
+  padding: 0.28rem 0.6rem;
+  color: var(--color-text-secondary);
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.sandra-battery-overlay .stepper-pill-btn.active { background: var(--color-menu-select); border-color: var(--color-status-ok-border); color: var(--color-text-primary); font-weight: 700; }
+.sandra-battery-overlay .stepper-pill-btn.answered { border-color: var(--color-status-ok-border); }
+.sandra-battery-overlay .stepper-pill-btn .pill-check { color: var(--color-status-ok); font-weight: 800; }
+
+.sandra-battery-overlay .active-question-card {
+  background-color: rgba(0, 21, 36, 0.75);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1rem;
+  min-height: 230px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.sandra-battery-overlay .active-question-card.fade-transition { opacity: 0.25; transform: translateY(4px); }
+.sandra-battery-overlay .q-header { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.9rem; }
+.sandra-battery-overlay .q-badge { font-family: var(--font-mono); font-size: 0.75rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); background-color: var(--color-surface-card); color: var(--color-text-primary); white-space: nowrap; }
+.sandra-battery-overlay .q-header h4 { font-size: 0.92rem; font-weight: 600; line-height: 1.4; }
+.sandra-battery-overlay .boolean-toggle { display: flex; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+
+.sandra-battery-overlay .choice-btn {
+  flex: 1;
+  min-width: 170px;
+  max-width: 240px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  background-color: rgba(0, 21, 36, 0.7);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.sandra-battery-overlay .choice-btn.selected-ok { background-color: var(--color-status-ok-bg); border-color: var(--color-status-ok-border); color: var(--color-status-ok); font-weight: 700; }
+.sandra-battery-overlay .choice-btn.selected-warn { background-color: var(--color-status-warn-bg); border-color: var(--color-status-warn-border); color: var(--color-text-primary); font-weight: 700; }
+.sandra-battery-overlay .choice-btn.selected-critica { background-color: var(--color-status-critica-bg); border-color: var(--color-status-critica-border); color: var(--color-status-critica); font-weight: 700; }
+
+.sandra-battery-overlay .sub-parameters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin: 0.85rem 0;
+  padding: 0.85rem 0 0.4rem;
+  border-top: 1px dashed var(--color-border-subtle);
+}
+
+.sandra-battery-overlay .param-box { display: flex; flex-direction: column; gap: 0.45rem; }
+.sandra-battery-overlay .param-box.full-width { grid-column: 1 / -1; }
+.sandra-battery-overlay .param-box label { font-size: 0.78rem; font-family: var(--font-mono); color: var(--color-text-secondary); }
+.sandra-battery-overlay .param-box label strong { color: var(--color-text-primary); background-color: var(--color-surface-card); padding: 0.12rem 0.45rem; border-radius: var(--radius-sm); margin-left: 0.35rem; }
+.sandra-battery-overlay .mini-choice-row { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+
+.sandra-battery-overlay .mini-btn {
+  background-color: rgba(0, 21, 36, 0.8);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  padding: 0.38rem 0.75rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.sandra-battery-overlay .mini-btn.active { background-color: var(--color-surface-card); border-color: var(--color-status-ok-border); color: var(--color-text-primary); font-weight: 700; }
+.sandra-battery-overlay .mini-btn.active-critica { background-color: var(--color-status-critica-bg); border-color: var(--color-status-critica-border); color: var(--color-status-critica); font-weight: 700; }
+
+.sandra-battery-overlay input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: var(--color-border-card);
+  border-radius: var(--radius-full);
+}
+
+.sandra-battery-overlay input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  border: 2px solid var(--color-surface-card);
+  cursor: pointer;
+}
+
+.sandra-battery-overlay .sub-confirm-bar { display: flex; justify-content: flex-end; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid rgba(21, 97, 109, 0.45); }
+.sandra-battery-overlay .btn-advance { background-color: var(--color-surface-card); color: var(--color-text-primary); border: 1px solid var(--color-status-ok-border); font-weight: 700; padding: 0.65rem 1.35rem; border-radius: var(--radius-sm); cursor: pointer; }
+.sandra-battery-overlay .btn-advance:hover { background-color: var(--color-status-ok); color: var(--color-bg-base); }
+.sandra-battery-overlay .question-inblock-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border-card); }
+.sandra-battery-overlay .spacer { flex: 1; }
+
+.sandra-battery-overlay .block-completion-alert {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: rgba(42, 239, 75, 0.12);
+  border: 1px solid var(--color-status-ok-border);
+  border-radius: var(--radius-md);
+  padding: 1.1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.sandra-battery-overlay .alert-icon-ring {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--color-status-ok);
+  color: var(--color-bg-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.sandra-battery-overlay .block-footer-nav { display: flex; align-items: center; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border-card); }
+
+.sandra-battery-overlay .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background-color: var(--color-bg-overlay);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+
+.sandra-battery-overlay .modal-content {
+  background-color: var(--color-bg-base);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 20px 50px rgba(0, 21, 36, 0.9), 0 0 30px rgba(21, 97, 109, 0.3);
+  max-width: 820px;
+  width: 100%;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.sandra-battery-overlay .calibration-modal { max-width: 640px; }
+.sandra-battery-overlay .card-visual-wrapper { background-color: var(--color-bg-base); border: 1px dashed var(--color-border-card); border-radius: var(--radius-md); padding: 1.5rem 1rem; display: flex; justify-content: center; margin: 1rem 0; overflow-x: auto; }
+.sandra-battery-overlay .card-visual { height: 175px; background-color: var(--color-surface-card); border: 2px solid var(--color-status-ok-border); border-radius: var(--radius-lg); padding: 1.1rem; display: flex; flex-direction: column; justify-content: space-between; }
+.sandra-battery-overlay .card-chip { width: 38px; height: 28px; border-radius: var(--radius-sm); background-color: var(--color-menu-select); border: 1px solid var(--color-text-primary); }
+.sandra-battery-overlay .card-visual-text { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); }
+.sandra-battery-overlay .card-visual-px { font-family: var(--font-mono); font-size: 0.74rem; color: var(--color-status-ok); }
+.sandra-battery-overlay .presets-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+.sandra-battery-overlay .modal-footer { display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--color-border-subtle); padding-top: 1rem; flex-wrap: wrap; margin-top: 1rem; }
+
+.sandra-battery-overlay .triage-banner { border-radius: var(--radius-md); border: 1px solid var(--color-border-card); padding: 1rem; margin-bottom: 1.1rem; }
+.sandra-battery-overlay .triage-banner.ok { background-color: var(--color-status-ok-bg); border-color: var(--color-status-ok-border); }
+.sandra-battery-overlay .triage-banner.warn { background-color: var(--color-status-warn-bg); border-color: var(--color-status-warn-border); }
+.sandra-battery-overlay .triage-banner.critica { background-color: var(--color-status-critica-bg); border-color: var(--color-status-critica-border); }
+.sandra-battery-overlay .report-section { margin-bottom: 1rem; background-color: rgba(0, 21, 36, 0.4); border: 1px solid var(--color-border-card); border-radius: var(--radius-md); padding: 0.9rem 1.1rem; }
+.sandra-battery-overlay .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.9rem; }
+.sandra-battery-overlay .report-subcard { background-color: rgba(0, 21, 36, 0.6); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.sandra-battery-overlay .table-row { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid var(--color-border-subtle); gap: 1rem; font-size: 0.8rem; }
+.sandra-battery-overlay .medical-recommendations-list { list-style: none; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.35rem; color: var(--color-text-secondary); }
+.sandra-battery-overlay .medical-recommendations-list li::before { content: "▹ "; color: var(--color-status-ok); }
+
+@media (max-width: 900px) {
+  .sandra-battery-overlay .amsler-workspace-layout { grid-template-columns: 1fr; justify-items: center; }
+  .sandra-battery-overlay .blocks-navigation { grid-template-columns: repeat(2, 1fr); }
+}
