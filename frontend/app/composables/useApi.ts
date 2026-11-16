@@ -31,7 +31,7 @@ export function apiErrorMessage(error: unknown, fallback = 'Something went wrong
 }
 
 export function useApi() {
-  const base = useRuntimeConfig().public.apiBase
+  const base = useRuntimeConfig().public.apiBase.replace(/\/+$/, '')
   const { authHeaders, logout } = useSession()
   const { bump } = useDataSync()
 

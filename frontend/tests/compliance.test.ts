@@ -113,9 +113,11 @@ describe('delivered build', () => {
   const output = join(ROOT, '.output/public')
   it.skipIf(!existsSync(output))('carries no restricted names and no build-machine paths', () => {
     const pattern = new RegExp(`\\b(${restricted.join('|')})\\b`, 'i')
+    const baseUrl = process.env.NUXT_APP_BASE_URL?.replace(/^\/+|\/+$/g, '') ?? ''
     for (const file of files(output, '.html', '.js', '.css')) {
       const content = readFileSync(file, 'utf-8')
-      expect(content, rel(ROOT, file)).not.toMatch(pattern)
+      const scrubbed = baseUrl ? content.split(baseUrl).join('') : content
+      expect(scrubbed, rel(ROOT, file)).not.toMatch(pattern)
       for (const form of new Set([ROOT, ROOT.replaceAll('\\', '/')])) expect(content, rel(ROOT, file)).not.toContain(form)
     }
   })

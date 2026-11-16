@@ -41,7 +41,7 @@ export function useMission() {
   const offsetMs = useState('mission-clock-offset', () => 0)
   const now = useState('mission-now', () => Date.now())
   const unread = useState('mission-unread', () => 0)
-  const base = useRuntimeConfig().public.apiBase
+  const base = useRuntimeConfig().public.apiBase.replace(/\/+$/, '')
 
   const cabin = computed(() => summary.value?.cabin ?? null)
   const cabinMode = computed(() => summary.value?.cabin_mode ?? 'nominal')
@@ -83,7 +83,7 @@ export function useMissionFeed() {
   const { isAuthenticated } = useSession()
   const { api } = useApi()
   const { bump, signature } = useDataSync()
-  const base = useRuntimeConfig().public.apiBase
+  const base = useRuntimeConfig().public.apiBase.replace(/\/+$/, '')
   let stream: EventSource | null = null
   let clock: ReturnType<typeof setInterval> | null = null
   let badge: ReturnType<typeof setInterval> | null = null
