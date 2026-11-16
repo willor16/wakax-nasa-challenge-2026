@@ -26,6 +26,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 
 from app.auth_utils import hash_pin
 from app.config import AUDIO_STORAGE_DIR, DB_PATH, SCHEMA_PATH, SEED_SNAPSHOT_PATH
@@ -305,6 +306,137 @@ class Writer:
         return int(cursor.lastrowid)
 
 
+_SANDRA_CREW_PROFILES: dict[str, tuple[str, str, str, str]] = {
+    "ID-01": ("20/20", "20/20", "20/15", "1.12"),
+    "ID-02": ("20/20", "20/20", "20/20", "1.24"),
+    "ID-03": ("20/20", "20/15", "20/15", "0.94"),
+    "ID-04": ("20/20", "20/20", "20/20", "1.18"),
+}
+
+
+def _sandra_eye_metrics(snellen: str, avg_rt: str) -> dict[str, str]:
+    denom = int(snellen.split("/")[1])
+    decimal = 20.0 / denom
+    logmar = -math.log10(decimal)
+    return {
+        "snellen": snellen,
+        "decimal": f"{decimal:.2f}",
+        "logMar": f"{logmar:.2f}",
+        "avgResponseTime": avg_rt,
+        "statusClass": "ok",
+        "statusLabel": "NOMINAL",
+    }
+
+
+def _sandra_amsler_nominal() -> dict[str, Any]:
+    return {
+        "affectedCount": 0,
+        "metamorphopsiaCount": 0,
+        "scotomaCount": 0,
+        "affectedPercent": 0,
+        "hasMetamorphopsia": False,
+        "hasScotoma": False,
+        "hasPerceptualAlert": False,
+        "centralInvolved": False,
+        "status": "ok",
+        "cells": [],
+        "perceptual": {
+            "seeCenter": True,
+            "seeCorners": True,
+            "hasWavyLines": False,
+            "hasBlankSpots": False,
+        },
+    }
+
+
+def _seeded_sandra_payload(crew_id: str) -> dict[str, Any]:
+    od_s, os_s, ou_s, avg_rt = _SANDRA_CREW_PROFILES.get(
+        crew_id, ("20/20", "20/20", "20/20", "1.15")
+    )
+    return {
+        "sandra_test": {
+            "milestone": "Mission Day 30",
+            "acuity_bilateral": {
+                "OD": _sandra_eye_metrics(od_s, avg_rt),
+                "OS": _sandra_eye_metrics(os_s, avg_rt),
+                "OU": _sandra_eye_metrics(ou_s, avg_rt),
+            },
+            "amsler": {
+                "OD": _sandra_amsler_nominal(),
+                "OS": _sandra_amsler_nominal(),
+            },
+            "symptoms": {
+                "risk_score": 0,
+                "risk_level": "NOMINAL",
+                "triage_score": 0,
+                "triage_level": "NOMINAL",
+                "active_flags": [],
+                "answered_count": 13,
+                "total_questions": 13,
+                "summary_rows": [
+                    {
+                        "label": "Refractive Shift / Space Glasses",
+                        "value": "Not required",
+                        "critical": False,
+                    },
+                    {
+                        "label": "Subjective Metamorphopsia",
+                        "value": "Negative",
+                        "critical": False,
+                    },
+                    {
+                        "label": "Diplopia (Double Vision)",
+                        "value": "Not reported",
+                        "critical": False,
+                    },
+                    {
+                        "label": "Transient Vision Loss",
+                        "value": "Not reported",
+                        "critical": False,
+                    },
+                    {
+                        "label": "Retro-ocular Pressure / Headache",
+                        "value": "Negative",
+                        "critical": False,
+                    },
+                    {
+                        "label": "Cabin Ocular Surface",
+                        "value": "Nominal",
+                        "critical": False,
+                    },
+                ],
+            },
+        }
+    }
+
+
+def _ensure_seeded_sandra_batteries(
+    conn: sqlite3.Connection, launch: datetime, now: datetime
+) -> None:
+    exam_at = _clamp_to_now(_day_start(launch, 30) + timedelta(hours=11, minutes=20), now)
+    for plan in PLANS:
+        has_any = conn.execute(
+            "SELECT 1 FROM measurements WHERE crew_id = ? LIMIT 1",
+            (plan.crew_id,),
+        ).fetchone()
+        if has_any is None:
+            continue
+        has_sandra = conn.execute(
+            """SELECT 1 FROM measurements
+               WHERE crew_id = ? AND metric_key = 'visual_acuity_snellen'
+                 AND payload_json LIKE '%sandra_test%' LIMIT 1""",
+            (plan.crew_id,),
+        ).fetchone()
+        if has_sandra is not None:
+            continue
+        conn.execute(
+            """INSERT INTO measurements (crew_id, metric_key, mission_stage, source_type,
+               recorded_at_utc, value_num, payload_json)
+               VALUES (?, 'visual_acuity_snellen', 'MISSION', 'MANUAL', ?, 20.0, ?)""",
+            (plan.crew_id, _ts(exam_at), json.dumps(_seeded_sandra_payload(plan.crew_id))),
+        )
+
+
 def _clamp_to_now(moment: datetime, now: datetime) -> datetime:
     return min(moment, now - timedelta(minutes=5))
 
@@ -518,7 +650,12 @@ def _seed_crew(
                 else start + timedelta(hours=11, minutes=20)
             )
             for key, values in plan.ocular.items():
-                w.measure(crew_id, key, stage, exam_at, values[index])
+                payload = (
+                    _seeded_sandra_payload(crew_id)
+                    if day == 30 and key == "visual_acuity_snellen"
+                    else None
+                )
+                w.measure(crew_id, key, stage, exam_at, values[index], payload=payload)
 
         _seed_night(conn, plan, day, launch, rng, now)
         _seed_mind(conn, plan, day, launch, rng, now)
@@ -892,6 +1029,7 @@ def seed_database(
                     recompute_day(conn, plan.crew_id, _day_start(launch, day).date().isoformat())
         else:
             load_medical_guide(conn)
+            _ensure_seeded_sandra_batteries(conn, launch, now)
 
         return {
             table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

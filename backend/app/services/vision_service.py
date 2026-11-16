@@ -13,7 +13,7 @@ from typing import Any
 
 from app.services import reference_ranges
 from app.services.alert_engine import CARE_STEPS
-from app.services.clinical_view import baseline, crew_row, latest, metric_view
+from app.services.clinical_view import assess, baseline, crew_row, latest, metric_view, status_text
 from app.services.crew_names import physician_name
 from app.services.mission_clock import (
     current_stage,
@@ -156,7 +156,9 @@ def _is_empty_phantom_sandra(sandra: dict[str, Any]) -> bool:
     return int(symptoms.get("answered_count") or 0) <= 1
 
 
-def _sandra_functional_summary(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any] | None:
+def _sandra_summary_with_value(
+    conn: sqlite3.Connection, crew_id: str
+) -> tuple[dict[str, Any] | None, float | None]:
     rows = conn.execute(
         """SELECT value_num, payload_json, recorded_at_utc
            FROM measurements
@@ -175,10 +177,11 @@ def _sandra_functional_summary(conn: sqlite3.Connection, crew_id: str) -> dict[s
         if isinstance(sandra, dict):
             parsed.append((row, sandra))
     if not parsed:
-        return None
+        return None, None
 
     chosen = next(((r, s) for r, s in parsed if not _is_empty_phantom_sandra(s)), parsed[0])
     row, sandra = chosen
+    fell_back_over_phantom = parsed[0][0] is not row
     milestone = str(sandra.get("milestone") or "Mission Day 30")
     amsler = sandra.get("amsler") or {}
     symptoms = sandra.get("symptoms") or {}
@@ -211,7 +214,7 @@ def _sandra_functional_summary(conn: sqlite3.Connection, crew_id: str) -> dict[s
     elif severity == "NOMINAL" and (triage == "OBSERVATION" or len(flags) > 0):
         severity = "WARNING"
 
-    return {
+    summary = {
         "milestone": milestone,
         "next_milestone": _next_milestone(milestone),
         "severity": severity,
@@ -222,6 +225,16 @@ def _sandra_functional_summary(conn: sqlite3.Connection, crew_id: str) -> dict[s
         "amsler": amsler,
         "symptoms": symptoms,
     }
+    fallback_val = (
+        float(row["value_num"])
+        if fell_back_over_phantom and row["value_num"] is not None
+        else None
+    )
+    return summary, fallback_val
+
+
+def _sandra_functional_summary(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any] | None:
+    return _sandra_summary_with_value(conn, crew_id)[0]
 
 
 def _care_plan(conn: sqlite3.Connection, crew_id: str) -> list[dict[str, str]]:
@@ -258,7 +271,19 @@ def build_vision_exam(
     pressure = max(pressures.values(), key=lambda v: (_ORDER.index(v["status"]), v["value"] or 0))
     retina = metric_view(conn, crew_id, "retinal_thickness_um", nominal_text="Stable")
     acuity = metric_view(conn, crew_id, "visual_acuity_snellen")
-    functional_exam = _sandra_functional_summary(conn, crew_id)
+    functional_exam, fallback_acuity = _sandra_summary_with_value(conn, crew_id)
+    if functional_exam is not None and fallback_acuity is not None:
+        acuity["value"] = fallback_acuity
+        acuity["recorded_at_utc"] = functional_exam["recorded_at_utc"]
+        acuity["day_label"] = functional_exam["exam_day_label"]
+        st, abv = assess(
+            "visual_acuity_snellen",
+            fallback_acuity,
+            baseline(conn, crew_id, "visual_acuity_snellen"),
+        )
+        acuity["status"] = st
+        acuity["is_above"] = abv
+        acuity["status_text"] = status_text(st, abv)
     exam_at = max(
         [v["recorded_at_utc"] for v in eyes.values() if v["recorded_at_utc"]]
         + ([functional_exam["recorded_at_utc"]] if functional_exam else []),
