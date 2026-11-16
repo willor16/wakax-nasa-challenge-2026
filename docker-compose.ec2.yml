@@ -1,5 +1,6 @@
 services:
   api:
+    image: ${API_IMAGE:-ghcr.io/willor16/wakax-nasa-challenge-2026-api:latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
