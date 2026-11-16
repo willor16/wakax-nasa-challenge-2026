@@ -376,8 +376,57 @@ def test_sandra_ignores_phantom_empty_row_after_real_exam(client, login):
         [{"metric_key": "visual_acuity_snellen", "value_num": 20, "payload_json": phantom_payload}],
     )
     exam = client.get("/api/v1/vision/ID-04", headers=crew_headers).json()
+    assert exam["acuity"]["value"] == 15
     assert exam["functional_exam"]["acuity_bilateral"]["OD"]["snellen"] == "20/15"
     assert exam["functional_exam"]["amsler"]["OD"]["affectedCount"] == 3
     assert exam["functional_exam"]["symptoms"]["triage_level"] == "OBSERVATION"
+
+
+def test_seeded_crew_include_baseline_sandra_battery(client, login, tmp_path):
+    from datetime import UTC, datetime
+
+    from app.db import init_db, open_connection
+    from db.seed import _ensure_seeded_sandra_batteries, seed_database
+
+    for crew_id in ("ID-01", "ID-02", "ID-03", "ID-04"):
+        exam = client.get(f"/api/v1/vision/{crew_id}", headers=login(crew_id)).json()
+        assert exam["functional_exam"] is not None
+        assert exam["functional_exam"]["milestone"] == "Mission Day 30"
+        assert exam["functional_exam"]["acuity_bilateral"]["OD"]["snellen"] == "20/20"
+        assert exam["functional_exam"]["amsler"]["OD"]["affectedCount"] == 0
+
+    legacy_db = tmp_path / "legacy.db"
+    init_db(db_path=legacy_db)
+    now = datetime.now(UTC)
+    launch = now
+    with open_connection(legacy_db) as conn:
+        from app.services.clinical_catalog import ensure_clinical_metrics
+
+        ensure_clinical_metrics(conn)
+        conn.execute(
+            """INSERT INTO crew_members (id, code, full_name, role, pin_hash, is_active,
+               created_at_utc, updated_at_utc)
+               VALUES ('ID-02', 'ID·02', 'Marcus Vance', 'OPERATOR', 'hash', 1, ?, ?)""",
+            ("2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z"),
+        )
+        conn.execute(
+            """INSERT INTO measurements (crew_id, metric_key, mission_stage, source_type,
+               recorded_at_utc, value_num, payload_json)
+               VALUES ('ID-02', 'resting_hr_bpm', 'MISSION', 'MANUAL', '2026-10-15T10:00:00Z',
+                       68.0, '{}')"""
+        )
+        _ensure_seeded_sandra_batteries(conn, launch, now)
+        rehydrated = conn.execute(
+            """SELECT payload_json FROM measurements
+               WHERE crew_id = 'ID-02' AND metric_key = 'visual_acuity_snellen'"""
+        ).fetchone()
+    assert rehydrated is not None and "sandra_test" in rehydrated["payload_json"]
+    seed_database(db_path=legacy_db, with_audio=False)
+    with open_connection(legacy_db) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM measurements WHERE crew_id = 'ID-02' "
+            "AND payload_json LIKE '%sandra_test%'"
+        ).fetchone()[0]
+    assert count == 1
 
 

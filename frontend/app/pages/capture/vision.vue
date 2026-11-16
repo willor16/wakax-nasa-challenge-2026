@@ -178,7 +178,13 @@ const steps = [
             <UiNumberField id="acuity" v-model="form.acuity" help-key="visual_acuity_snellen" label="Visual Acuity (Auto or Manual)" hint="Populated from Landolt C or 4m chart" unit="Snellen" placeholder="20 / 20" inputmode="text" :error="errors.acuity" />
           </div>
           <div class="mt-auto pt-[10px] flex flex-col gap-[clamp(8px,1.5dvh,14px)]">
-            <UiSaveResult v-if="result" :tone="result.tone" :title="result.title" :text="result.text" />
+            <template v-if="result">
+              <UiSaveResult :tone="result.tone" :title="result.title" :text="result.text" />
+              <NuxtLink to="/vision" class="hud-button relative !h-[38px] !text-[11px]">
+                <Icon name="spacescan:reticle" class="w-[15px] h-[15px]" />
+                Open Vision Results
+              </NuxtLink>
+            </template>
             <UiSaveResult v-else-if="errors.form" tone="critical" title="Not saved" :text="errors.form" />
             <UiSaveResult v-else-if="detection" :tone="detection.tone" :title="detection.title" :text="detection.text" />
             <UiSaveResult
