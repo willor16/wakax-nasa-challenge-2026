@@ -124,23 +124,23 @@ const rows = computed(() => {
   const p = d.pressure
   const fe = d.functional_exam
   const biAcuity = fe?.acuity_bilateral
-  const acuityValue = biAcuity && (biAcuity.OD || biAcuity.OS)
-    ? `OD ${biAcuity.OD?.snellen ?? '—'} · OS ${biAcuity.OS?.snellen ?? '—'}`
-    : (d.acuity.value === null ? '—' : `20/${formatNumber(d.acuity.value)}`)
+  const biSummary = biAcuity && (biAcuity.OD || biAcuity.OS)
+    ? `OD ${biAcuity.OD?.snellen ?? '—'} · OS ${biAcuity.OS?.snellen ?? '—'}${fe?.milestone ? ` · ${fe.milestone}` : ''}`
+    : (fe?.milestone ? `${fe.milestone} · Clear central vision` : 'Clear central & peripheral vision')
   return [
     { label: 'Intraocular Pressure', help: 'iop_left_mmhg', reference: p.baseline_low != null ? `Baseline: ${formatNumber(p.baseline_low, 1)}–${formatNumber(p.baseline_high, 1)} mmHg` : `Normal ${p.nominal_min}–${p.nominal_max} mmHg`,
       value: p.value === null ? '—' : p.value.toFixed(1), unit: 'mmHg', view: p, band: [p.baseline_low ?? p.nominal_min, p.baseline_high ?? p.nominal_max], scale: [6, 30] },
     { label: 'Retinal Layer Thickness', help: 'retinal_thickness_um', reference: d.retina.baseline_low != null ? `Baseline: ${formatNumber(d.retina.baseline_low)}–${formatNumber(d.retina.baseline_high)} µm` : 'No pre-flight value',
       value: formatNumber(d.retina.value), unit: 'µm', view: d.retina, band: [d.retina.baseline_low ?? d.retina.nominal_min, d.retina.baseline_high ?? d.retina.nominal_max], scale: [60, 150] },
-    { label: 'Visual Acuity', help: 'visual_acuity_snellen', reference: fe?.milestone ? `${fe.milestone} · Clear central vision` : 'Clear central & peripheral vision',
-      value: acuityValue, unit: '', view: d.acuity, band: [10, 25], scale: [5, 80] },
+    { label: 'Visual Acuity', help: 'visual_acuity_snellen', reference: biSummary,
+      value: d.acuity.value === null ? '—' : `20/${formatNumber(d.acuity.value)}`, unit: '', view: d.acuity, band: [10, 25], scale: [5, 80] },
   ]
 })
 
 const amslerBadgeText = (eye: FunctionalAmslerEye | null | undefined) => {
   if (!eye) return 'PENDING'
   if (eye.hasScotoma) return 'SCOTOMA'
-  if (eye.hasMetamorphopsia) return 'METAMORPHOPSIA'
+  if (eye.hasMetamorphopsia) return 'DISTORTED'
   return 'NOMINAL'
 }
 
@@ -231,7 +231,7 @@ const KICKERS: Record<string, string> = {
       </ShellHudWindow>
 
       <div class="flex-1 min-w-0 flex flex-col gap-[18px]">
-        <ShellHudWindow class="flex-[1.2] min-h-0" title="Optic Nerve Sheath Trend (mm)" icon="reticle" tag-text="BILATERAL" help-key="optic_sheath_left_mm" flush>
+        <ShellHudWindow class="flex-1 min-h-0" title="Optic Nerve Sheath Trend (mm)" icon="reticle" tag-text="BILATERAL" help-key="optic_sheath_left_mm" flush>
           <div class="flex-1 min-h-0 flex flex-col m-[14px]">
             <UiInteractiveChartFrame v-model:period="period" :periods="PERIODS" :pins="pins.pins.value" :interpretation="reading" @unpin="pins.remove" @point="pins.onClick">
               <template v-if="chart">
@@ -255,19 +255,19 @@ const KICKERS: Record<string, string> = {
         </ShellHudWindow>
 
         <ShellHudWindow
-          class="flex-1 min-h-0"
+          class="flex-[1.15] min-h-0"
           :title="data.functional_exam ? 'Visual Battery Summary &amp; Preventive Care' : 'Preventive Care Plan'"
           icon="shield"
           :tag-text="data.functional_exam ? data.functional_exam.milestone.toUpperCase() : `${data.care_plan.length} STEPS`"
           flush
         >
-          <div class="flex-1 min-h-0 flex flex-col gap-[12px] p-[clamp(10px,1.8dvh,18px)] hud-scroll">
+          <div class="flex-1 min-h-0 flex flex-col gap-[10px] p-[clamp(10px,1.5dvh,16px)] hud-scroll">
             <div v-if="data.functional_exam" class="grid grid-cols-3 gap-[12px] shrink-0">
-              <div class="tile px-[14px] py-[10px]">
+              <div class="tile-hi px-[12px] py-[9px]">
                 <p class="label-caps text-cabin-ok">Amsler Grid (OD / OS)</p>
-                <div class="mt-[8px] flex items-center gap-[10px]">
-                  <div v-for="eyeKey in (['OD', 'OS'] as const)" :key="eyeKey" class="flex items-center gap-[8px] flex-1 min-w-0">
-                    <svg class="w-[44px] h-[44px] shrink-0 rounded-[4px] border border-cabin-line" viewBox="0 0 100 100" aria-hidden="true">
+                <div class="mt-[8px] flex items-center gap-[8px]">
+                  <div v-for="eyeKey in (['OD', 'OS'] as const)" :key="eyeKey" class="flex items-center gap-[6px] flex-1 min-w-0">
+                    <svg class="w-[40px] h-[40px] shrink-0 rounded-[4px] border border-cabin-line" viewBox="0 0 100 100" aria-hidden="true">
                       <rect width="100" height="100" class="fill-cabin-bg" />
                       <line v-for="n in 4" :key="'h'+n" x1="0" :y1="n * 20" x2="100" :y2="n * 20" class="stroke-cabin-line" stroke-width="1" />
                       <line v-for="n in 4" :key="'v'+n" :x1="n * 20" y1="0" :x2="n * 20" y2="100" class="stroke-cabin-line" stroke-width="1" />
@@ -292,7 +292,7 @@ const KICKERS: Record<string, string> = {
                 </div>
               </div>
 
-              <div class="tile px-[14px] py-[10px]">
+              <div class="tile-hi px-[12px] py-[9px]">
                 <p class="label-caps text-cabin-ok">Landolt C Acuity &amp; Schedule</p>
                 <div class="mt-[8px] flex items-baseline justify-between gap-[8px]">
                   <span class="mono text-[13px] font-bold">
@@ -307,7 +307,7 @@ const KICKERS: Record<string, string> = {
                 </p>
               </div>
 
-              <div class="tile px-[14px] py-[10px]">
+              <div class="tile-hi px-[12px] py-[9px]">
                 <p class="label-caps text-cabin-ok">SANS Symptoms &amp; Risk</p>
                 <div class="mt-[6px] flex items-center justify-between gap-[6px]">
                   <span class="mono text-[14px] font-bold">{{ data.functional_exam.symptoms.triage_score }} / 100</span>

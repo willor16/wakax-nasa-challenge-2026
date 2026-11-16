@@ -292,3 +292,92 @@ def test_sandra_nominal_battery_without_prior_ultrasound(client, login):
     assert exam["functional_exam"]["milestone"] == "Pre-Flight Baseline"
     assert exam["functional_exam"]["next_milestone"] == "Mission Day 30"
 
+
+def test_sandra_ignores_phantom_empty_row_after_real_exam(client, login):
+    crew_headers = login("ID-04")
+    real_payload = {
+        "sandra_test": {
+            "milestone": "Mission Day 30",
+            "acuity_bilateral": {
+                "OD": {
+                    "snellen": "20/15",
+                    "decimal": "1.33",
+                    "logMar": "-0.12",
+                    "avgResponseTime": "1.20",
+                },
+                "OS": None,
+                "OU": None,
+            },
+            "amsler": {
+                "OD": {
+                    "affectedCount": 3,
+                    "metamorphopsiaCount": 3,
+                    "scotomaCount": 0,
+                    "affectedPercent": 0.8,
+                    "hasMetamorphopsia": True,
+                    "hasScotoma": False,
+                    "hasPerceptualAlert": True,
+                    "centralInvolved": False,
+                    "status": "warn",
+                    "cells": [{"r": 1, "c": 13, "t": "metamorphopsia"}],
+                },
+                "OS": {
+                    "affectedCount": 0,
+                    "metamorphopsiaCount": 0,
+                    "scotomaCount": 0,
+                    "affectedPercent": 0.0,
+                    "hasMetamorphopsia": False,
+                    "hasScotoma": False,
+                    "hasPerceptualAlert": False,
+                    "centralInvolved": False,
+                    "status": "ok",
+                    "cells": [],
+                },
+            },
+            "symptoms": {
+                "risk_score": 15,
+                "risk_level": "OBSERVATION",
+                "triage_score": 26,
+                "triage_level": "OBSERVATION",
+                "active_flags": ["metamorphopsia"],
+                "answered_count": 13,
+                "total_questions": 13,
+                "summary_rows": [],
+            },
+        }
+    }
+    phantom_payload = {
+        "sandra_test": {
+            "milestone": "Mission Day 30",
+            "acuity_bilateral": {"OD": None, "OS": None, "OU": None},
+            "amsler": {
+                "OD": {"affectedCount": 0, "cells": []},
+                "OS": {"affectedCount": 0, "cells": []},
+            },
+            "symptoms": {
+                "risk_score": 0,
+                "risk_level": "NOMINAL",
+                "triage_score": 0,
+                "triage_level": "NOMINAL",
+                "active_flags": [],
+                "answered_count": 1,
+                "total_questions": 13,
+            },
+        }
+    }
+    _post_measurements(
+        client,
+        crew_headers,
+        [{"metric_key": "visual_acuity_snellen", "value_num": 15, "payload_json": real_payload}],
+    )
+    _post_measurements(
+        client,
+        crew_headers,
+        [{"metric_key": "visual_acuity_snellen", "value_num": 20, "payload_json": phantom_payload}],
+    )
+    exam = client.get("/api/v1/vision/ID-04", headers=crew_headers).json()
+    assert exam["functional_exam"]["acuity_bilateral"]["OD"]["snellen"] == "20/15"
+    assert exam["functional_exam"]["amsler"]["OD"]["affectedCount"] == 3
+    assert exam["functional_exam"]["symptoms"]["triage_level"] == "OBSERVATION"
+
+

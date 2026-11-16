@@ -151,9 +151,7 @@ async function save() {
 }
 
 async function saveFromModal() {
-  if (!batteryHasData.value) {
-    sandraSession.value.symptoms.q1_1_near.experienced = false
-  }
+  if (!batteryHasData.value) return
   await save()
 }
 

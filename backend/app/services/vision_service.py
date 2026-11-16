@@ -138,28 +138,62 @@ def _next_milestone(current: str | None) -> str:
     return "Mission Day 30"
 
 
+def _is_empty_phantom_sandra(sandra: dict[str, Any]) -> bool:
+    acuity_bi = sandra.get("acuity_bilateral") or {}
+    if any(acuity_bi.get(side) is not None for side in ("OD", "OS", "OU")):
+        return False
+    amsler = sandra.get("amsler") or {}
+    for eye_key in ("OD", "OS"):
+        eye = amsler.get(eye_key) or {}
+        if int(eye.get("affectedCount") or 0) > 0:
+            return False
+        perceptual = eye.get("perceptual") or {}
+        if any(perceptual.get(k) is not None for k in perceptual):
+            return False
+    symptoms = sandra.get("symptoms") or {}
+    if int(symptoms.get("risk_score") or 0) > 0 or symptoms.get("active_flags"):
+        return False
+    return int(symptoms.get("answered_count") or 0) <= 1
+
+
 def _sandra_functional_summary(conn: sqlite3.Connection, crew_id: str) -> dict[str, Any] | None:
-    row = conn.execute(
+    rows = conn.execute(
         """SELECT value_num, payload_json, recorded_at_utc
            FROM measurements
            WHERE crew_id = ? AND metric_key = 'visual_acuity_snellen'
              AND payload_json LIKE '%sandra_test%'
-           ORDER BY recorded_at_utc DESC, id DESC LIMIT 1""",
+           ORDER BY recorded_at_utc DESC, id DESC LIMIT 10""",
         (crew_id,),
-    ).fetchone()
-    if row is None:
+    ).fetchall()
+    parsed: list[tuple[Any, dict[str, Any]]] = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except (TypeError, ValueError):
+            continue
+        sandra = payload.get("sandra_test") if isinstance(payload, dict) else None
+        if isinstance(sandra, dict):
+            parsed.append((row, sandra))
+    if not parsed:
         return None
-    try:
-        payload = json.loads(row["payload_json"] or "{}")
-    except (TypeError, ValueError):
-        return None
-    sandra = payload.get("sandra_test") if isinstance(payload, dict) else None
-    if not isinstance(sandra, dict):
-        return None
+
+    chosen = next(((r, s) for r, s in parsed if not _is_empty_phantom_sandra(s)), parsed[0])
+    row, sandra = chosen
     milestone = str(sandra.get("milestone") or "Mission Day 30")
     amsler = sandra.get("amsler") or {}
     symptoms = sandra.get("symptoms") or {}
-    acuity_bi = sandra.get("acuity_bilateral") or {}
+    raw_acuity = sandra.get("acuity_bilateral") or {}
+    acuity_bi = {side: raw_acuity.get(side) for side in ("OD", "OS", "OU")}
+    exam_day = str(row["recorded_at_utc"])[:10]
+    for prev_row, prev_sandra in parsed:
+        if prev_row["recorded_at_utc"][:10] != exam_day:
+            continue
+        if str(prev_sandra.get("milestone") or milestone) != milestone:
+            continue
+        prev_acuity = prev_sandra.get("acuity_bilateral") or {}
+        for side in ("OD", "OS", "OU"):
+            if acuity_bi[side] is None and prev_acuity.get(side) is not None:
+                acuity_bi[side] = prev_acuity[side]
 
     severity = "NOMINAL"
     for eye_key in ("OD", "OS"):

@@ -9,6 +9,7 @@ import {
   computeConsolidatedSANS,
   countAnsweredSymptoms,
   EXAM_MILESTONES,
+  hasAnySandraData,
   type AcuityEyeResult,
   type AmslerCorrelation,
   type EyeSide,
@@ -43,6 +44,7 @@ const osAmslerSummary = computed(() => computeAmslerEyeSummary(session.value.ams
 const answeredSymptomCount = computed(() => countAnsweredSymptoms(session.value.symptoms))
 const overallSANS = computed(() => computeConsolidatedSANS(session.value))
 const reportPreview = computed(() => buildSandraPayload(session.value).sandra_test)
+const canSave = computed(() => hasAnySandraData(session.value))
 
 const amslerCorrelationData = computed<AmslerCorrelation>(() => {
   const od = odAmslerSummary.value
@@ -306,15 +308,18 @@ onBeforeUnmount(() => {
                 </button>
               </div>
 
-              <div class="mt-[18px] pt-[14px] border-t border-cabin-line flex flex-wrap justify-between gap-[10px]">
+              <div class="mt-[18px] pt-[14px] border-t border-cabin-line flex flex-wrap items-center justify-between gap-[10px]">
                 <button type="button" class="btn btn-ghost" @click="emit('reset')">
                   Reset Session
                 </button>
-                <div class="flex gap-[8px] flex-wrap">
+                <div class="flex items-center gap-[8px] flex-wrap">
+                  <span v-if="!canSave" class="mono text-[11px] text-cabin-muted">
+                    Complete at least one module to enable saving
+                  </span>
                   <button type="button" class="btn btn-primary" @click="showReportModal = true">
                     Review Summary &amp; Apply
                   </button>
-                  <button type="button" class="btn btn-ok" :disabled="saving" @click="emit('save-now')">
+                  <button type="button" class="btn btn-ok" :disabled="saving || !canSave" @click="emit('save-now')">
                     {{ saving ? 'Saving…' : 'Save Exam Now' }}
                   </button>
                 </div>
@@ -472,7 +477,7 @@ onBeforeUnmount(() => {
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="printReport">Print Log</button>
             <button type="button" class="btn btn-primary" @click="applyAndMinimize">Apply &amp; Minimize to Form</button>
-            <button type="button" class="btn btn-ok" :disabled="saving" @click="saveExamNow">
+            <button type="button" class="btn btn-ok" :disabled="saving || !canSave" @click="saveExamNow">
               {{ saving ? 'Saving…' : 'Save Exam Now' }}
             </button>
           </div>
