@@ -73,24 +73,26 @@ export function useResource<T>(loader: () => Promise<T>, refreshMs = 0, domains:
   const error = ref<string | null>(null)
   let timer: ReturnType<typeof setInterval> | null = null
   let alive = true
+  let request = 0
 
   async function refresh(silent = false) {
     if (!silent) loading.value = data.value === null
+    const mine = ++request
     try {
       const result = await loader()
-      if (!alive) return
+      if (!alive || mine !== request) return // a newer request (another patient) won
       data.value = result
       error.value = null
     }
     catch (failure) {
-      if (!alive) return
+      if (!alive || mine !== request) return
       if (!silent || data.value === null) {
         data.value = null
         error.value = apiErrorMessage(failure, 'This information could not be loaded.')
       }
     }
     finally {
-      if (alive) loading.value = false
+      if (alive && mine === request) loading.value = false
     }
   }
 
@@ -98,6 +100,12 @@ export function useResource<T>(loader: () => Promise<T>, refreshMs = 0, domains:
     const { signature } = useDataSync()
     watch(signature(domains), () => void refresh(true))
   }
+  // The physician switched patient: drop the previous patient's data and load the new one.
+  const { activePatientId } = useSession()
+  watch(activePatientId, () => {
+    data.value = null
+    void refresh()
+  })
 
   onMounted(() => {
     void refresh()

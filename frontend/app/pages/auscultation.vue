@@ -40,12 +40,12 @@ interface Results {
     trend: { recorded_at_utc: string, co2_mmhg: number }[] }
 }
 
-const { crew } = useSession()
+const { activePatientId } = useSession()
 const { api } = useApi()
 const CO2_PERIODS = [{ id: '24h', label: '24H' }, { id: '7d', label: '7D' }, { id: '30d', label: '30D' }]
 const co2Period = ref('24h')
 const { data, loading, error, refresh } = useResource(
-  () => api<Results>(`/auscultation/${crew.value!.id}`, { query: { co2_period: co2Period.value } }), 60_000, ['auscultation', 'alerts'])
+  () => api<Results>(`/auscultation/${activePatientId.value!}`, { query: { co2_period: co2Period.value } }), 60_000, ['auscultation', 'alerts'])
 
 usePageHeader(() => ({
   title: 'Cardiac & Pulmonary Auscultation',

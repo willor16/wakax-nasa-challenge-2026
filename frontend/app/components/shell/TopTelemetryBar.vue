@@ -8,6 +8,33 @@ const { clockText, unread, mission } = useMission()
 const route = useRoute()
 const { t } = useI18n()
 const onNotifications = computed(() => route.path === '/notifications')
+
+// The physician's patient switch: every results screen follows the chosen patient; capture
+// screens keep recording for the physician.
+const { isPhysician, activePatientId, patients, setActivePatient, crew } = useSession()
+const { api } = useApi()
+const onCapture = computed(() => route.path.startsWith('/capture'))
+async function loadPatients() {
+  if (!isPhysician.value) return
+  try {
+    patients.value = await api<PatientSummary[]>('/crew/patients')
+  }
+  catch {
+    // Keep the last list; the next refresh corrects it.
+  }
+}
+let patientTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  void loadPatients()
+  patientTimer = setInterval(() => void loadPatients(), 30_000)
+})
+onBeforeUnmount(() => {
+  if (patientTimer) clearInterval(patientTimer)
+})
+watch(isPhysician, () => void loadPatients())
+const { signature } = useDataSync()
+watch(signature(['alerts']), () => void loadPatients())
+const lastName = (p: PatientSummary) => p.full_name.split(' ').at(-1)
 </script>
 
 <template>
@@ -29,6 +56,32 @@ const onNotifications = computed(() => route.path === '/notifications')
         </p>
       </div>
     </template>
+
+    <div
+      v-if="authenticated && isPhysician && patients.length"
+      class="ml-[22px] flex items-center gap-[6px] shrink-0" role="group" aria-label="Patient view"
+    >
+      <span class="text-[8.5px] font-semibold text-cabin-muted tracking-[0.06em] mr-[4px] leading-tight">
+        {{ onCapture ? 'RECORDING' : 'PATIENT' }}<br>{{ onCapture ? 'FOR YOU' : 'VIEW' }}
+      </span>
+      <template v-if="!onCapture">
+        <button
+          v-for="p in patients" :key="p.id" type="button"
+          class="focus-ring relative h-[28px] px-[10px] rounded-[4px] text-[10px] font-bold border-[1.3px] whitespace-nowrap"
+          :class="p.id === activePatientId ? 'menu-item-active' : 'bg-cabin-tile border-cabin-line text-cabin-ice'"
+          :aria-pressed="p.id === activePatientId"
+          :aria-label="`Show ${p.full_name}${p.id === crew?.id ? ' (you)' : ''}${p.open_critical ? `, ${p.open_critical} critical advisories` : p.open_alerts ? `, ${p.open_alerts} advisories` : ''}`"
+          @click="setActivePatient(p.id)"
+        >
+          <span class="mono">{{ p.code }}</span> {{ lastName(p) }}
+          <i
+            v-if="p.open_critical || p.open_alerts"
+            class="absolute -top-[3px] -right-[3px] w-[7px] h-[7px] rounded-full"
+            :class="p.open_critical ? 'bg-cabin-crit' : 'bg-cabin-navy-edge'"
+          />
+        </button>
+      </template>
+    </div>
 
     <div class="ml-auto flex items-center">
       <div class="leading-tight" :class="header.status || authenticated ? 'pl-[16px] border-l border-cabin-text/20' : ''">

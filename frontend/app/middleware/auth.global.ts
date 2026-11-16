@@ -6,6 +6,8 @@ export default defineNuxtRouteMiddleware((to) => {
   if (path !== to.path) return navigateTo({ path, query: to.query, hash: to.hash }, { replace: true })
   const { isAuthenticated, isOperator } = useSession()
   if (PUBLIC_PATHS.has(path)) return
+  // Mission Control's ground station console opens with its own link key, not a crew PIN.
+  if (path === '/comms' && to.query.station === 'ground') return
   if (!isAuthenticated.value) return navigateTo('/login')
   if (path === '/crew-management' && !isOperator.value) return navigateTo('/profile/personal')
 })

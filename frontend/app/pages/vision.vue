@@ -27,12 +27,12 @@ interface VisionExam {
   care_plan: { title_en: string, detail_en: string }[]
 }
 
-const { crew } = useSession()
+const { activePatientId } = useSession()
 const { api } = useApi()
 const PERIODS = [{ id: '30d', label: '30D' }, { id: 'all', label: 'ALL' }]
 const period = ref('all')
 const { data, loading, error, refresh } = useResource(
-  () => api<VisionExam>(`/vision/${crew.value!.id}`, { query: { period: period.value } }), 60_000, ['vision', 'alerts'])
+  () => api<VisionExam>(`/vision/${activePatientId.value!}`, { query: { period: period.value } }), 60_000, ['vision', 'alerts'])
 
 usePageHeader(() => ({
   title: 'Vision & Ocular Exam',

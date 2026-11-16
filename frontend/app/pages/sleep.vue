@@ -23,11 +23,11 @@ interface SleepMonitor {
     light_min: number, awake_min: number }[]
 }
 
-const { crew } = useSession()
+const { activePatientId } = useSession()
 const { api } = useApi()
 const period = ref<Period>('last_night')
 const { data, loading, error, refresh } = useResource(
-  () => api<SleepMonitor>(`/sleep/${crew.value!.id}`, { query: { period: period.value } }), 60_000, ['sleep', 'psych'])
+  () => api<SleepMonitor>(`/sleep/${activePatientId.value!}`, { query: { period: period.value } }), 60_000, ['sleep', 'psych'])
 // The period tabs above (Last Night · 7 · 14 · 30 days) are this screen's time window.
 watch(period, () => {
   historyPins.clear()

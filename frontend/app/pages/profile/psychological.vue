@@ -22,8 +22,10 @@ const { api } = useApi()
 // Trend window (buttons only); changing it reloads real check-ins from the onboard server.
 const PERIODS = [{ id: '7d', label: '7D' }, { id: '14d', label: '14D' }, { id: '30d', label: '30D' }, { id: 'all', label: 'ALL' }]
 const period = ref('14d')
+const { activePatientId, activePatient } = useSession()
 const { data, loading, error, refresh } = useResource(
-  () => api<PsychProfile>('/psych/profile', { query: { period: period.value } }), 60_000, ['psych', 'sleep', 'alerts'])
+  () => api<PsychProfile>('/psych/profile', { query: { period: period.value, crew_id: activePatientId.value ?? undefined } }),
+  60_000, ['psych', 'sleep', 'alerts'])
 
 const STATES: Record<string, { title: string, detail: string }> = {
   CALM: { title: 'Calm & Focused', detail: 'Emotional stability and crew cohesion within optimal personal baseline.' },
@@ -167,8 +169,14 @@ class="flex-[1.35] min-h-0" :title="`Mood & Calmness Trend · ${periodTitle}`" i
           </div>
         </ShellHudWindow>
 
+        <!-- The pilot's role adds the stricter flight readiness assessment (includes reaction). -->
         <ShellHudWindow
-class="flex-1 min-h-0" title="Cognitive & Motor Reaction Results" icon="bolt"
+v-if="activePatient?.role === 'PILOT' && activePatientId" class="flex-[1.15] min-h-0" title="Pilot Flight & Docking Readiness" icon="rocket"
+                        tag-text="PILOT ROLE" flush>
+          <RolesPilotReadinessPanel :crew-id="activePatientId" />
+        </ShellHudWindow>
+        <ShellHudWindow
+v-else class="flex-1 min-h-0" title="Cognitive & Motor Reaction Results" icon="bolt"
                         :tag-text="data.reaction ? (reactionOk ? 'OPTIMAL' : 'BELOW TARGET') : 'NO TEST YET'"
                         :tag-tone="data.reaction && !reactionOk ? 'critical' : 'reference'" flush>
           <UiStateNote v-if="!data.reaction" empty="No reaction test yet. Run the 2-minute test in Capture." />

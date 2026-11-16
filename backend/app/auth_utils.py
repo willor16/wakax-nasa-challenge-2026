@@ -156,3 +156,37 @@ def ensure_crew_access(claims: dict[str, Any], crew_id: str) -> None:
 CurrentCrew = Annotated[dict[str, Any], Depends(get_current_crew)]
 OperatorCrew = Annotated[dict[str, Any], Depends(require_operator)]
 PhysicianCrew = Annotated[dict[str, Any], Depends(require_physician)]
+
+
+# ---- Mission Control (ground station console) ------------------------------------------
+GROUND_SCOPE = "ground"
+GROUND_SESSION_HOURS = 8
+
+
+def create_ground_token() -> str:
+    """Session of the ground station console, granted for the pre-flight link key. It never
+    works as a crew session, and crew sessions never open the console."""
+    now = datetime.now(UTC)
+    payload = {
+        "sub": "GROUND",
+        "role": "GROUND_CONTROL",
+        "scope": GROUND_SCOPE,
+        "exp": int((now + timedelta(hours=GROUND_SESSION_HOURS)).timestamp()),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def get_ground_session(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            "Open the ground station with the link key.")
+    try:
+        return decode_access_token(authorization.removeprefix("Bearer ").strip(), GROUND_SCOPE)
+    except HTTPException as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "The ground station session has ended. Enter the link key again.",
+        ) from exc
+
+
+GroundSession = Annotated[dict[str, Any], Depends(get_ground_session)]

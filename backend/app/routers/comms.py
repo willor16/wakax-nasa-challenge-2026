@@ -1,21 +1,31 @@
 """Mission Control link (screen 15): delayed messages, transmission log and solar weather."""
 
+import hmac
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from app.auth_utils import CurrentCrew
+from app.auth_utils import (
+    GROUND_SESSION_HOURS,
+    CurrentCrew,
+    GroundSession,
+    create_ground_token,
+)
+from app.config import GROUND_LINK_KEY
 from app.db import open_connection
-from app.routers.crew import verify_ground_signature
+from app.routers.crew import GroundCrewDirectiveIn, queue_crew_order, verify_ground_signature
+from app.services import habits
+from app.services.clinical_view import metric_view
 from app.services.comms_service import (
     PACKET_TITLES,
     earth_latency_min,
     enqueue_packet,
     process_ground_outbox,
 )
+from app.services.crew_metrics import evaluate_crew_readiness
 from app.services.environment import cabin_snapshot
 from app.services.mission_clock import parse_iso, to_iso, utc_now
 
@@ -177,6 +187,11 @@ async def receive_ground_directive(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "The message is incomplete or malformed.") from exc
+    return queue_directive(body)
+
+
+def queue_directive(body: InboundDirectiveIn) -> dict:
+    """Queue guidance from Mission Control; it reaches the crew after the signal delay."""
     now = utc_now()
     with open_connection() as conn:
         latency = earth_latency_min(conn)
@@ -197,3 +212,145 @@ def flush_outbound_queue(_claims: CurrentCrew) -> dict[str, int]:
     """Advance the link right now instead of waiting for the next scheduled pass."""
     with open_connection() as conn:
         return process_ground_outbox(conn)
+
+
+# ---- Ground station console (Mission Control) -------------------------------------------
+# Mission Control holds no crew PIN card: it opens the console with the pre-flight link key
+# and the server signs its orders on its behalf. Everything it receives is what the crew
+# sent down the link.
+
+
+class GroundSessionIn(BaseModel):
+    link_key: str = Field(..., min_length=8, max_length=200)
+
+
+@router.post("/ground/session")
+def open_ground_session(body: GroundSessionIn) -> dict:
+    """Exchange the pre-flight link key for an eight-hour ground station session."""
+    if not hmac.compare_digest(body.link_key.strip().encode(), GROUND_LINK_KEY.encode()):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "That link key is not valid.")
+    return {"access_token": create_ground_token(), "expires_in_hours": GROUND_SESSION_HOURS,
+            "station_en": "Mission Control"}
+
+
+def _latest(conn, crew_id: str, metric_key: str) -> float | None:
+    return metric_view(conn, crew_id, metric_key)["value"]
+
+
+def _crew_matrix(conn) -> list[dict]:
+    day = habits.current_day(conn)
+    matrix = []
+    for m in conn.execute(
+        """SELECT id, code, full_name, role, title_en, sex, age FROM crew_members
+           WHERE is_active = 1 ORDER BY code"""
+    ).fetchall():
+        readiness = evaluate_crew_readiness(conn, m["id"])
+        psych = conn.execute(
+            """SELECT mood_score, stress_score, wellbeing_index, mood_state, recorded_at_utc
+               FROM psych_tests WHERE crew_id = ? ORDER BY recorded_at_utc DESC LIMIT 1""",
+            (m["id"],),
+        ).fetchone()
+        alerts = conn.execute(
+            """SELECT SUM(severity = 'CRITICAL') AS critical, COUNT(*) AS open FROM alerts
+               WHERE crew_id = ? AND acknowledged_at_utc IS NULL""",
+            (m["id"],),
+        ).fetchone()
+        streak = habits.active_streak(habits.compliant_days(conn, m["id"]),
+                                      date.fromisoformat(day))
+        matrix.append({
+            **dict(m),
+            "status": readiness["status"],
+            "readiness_score": readiness["readiness_score"],
+            "vitals": readiness["vitals"],
+            "psych": dict(psych) if psych else None,
+            "vision": {
+                "acuity_snellen": _latest(conn, m["id"], "visual_acuity_snellen"),
+                "optic_sheath_right_mm": _latest(conn, m["id"], "optic_sheath_right_mm"),
+            },
+            "body": {
+                "weight_kg": _latest(conn, m["id"], "body_weight_kg"),
+                "muscle_mass_kg": _latest(conn, m["id"], "muscle_mass_kg"),
+            },
+            "alerts": {"open": int(alerts["open"] or 0), "critical": int(alerts["critical"] or 0)},
+            "streak_days": streak,
+        })
+    return matrix
+
+
+@router.get("/comms/ground/overview")
+def ground_overview(_ground: GroundSession) -> dict:
+    """Everything Mission Control has received: the crew matrix, every health packet that
+    reached the ground (opened) and the orders still travelling up to the ship."""
+    now = utc_now()
+    with open_connection() as conn:
+        process_ground_outbox(conn)
+        received = conn.execute(
+            """SELECT * FROM ground_outbox WHERE direction = 'OUTBOUND'
+               ORDER BY created_at_utc DESC, id DESC LIMIT 40"""
+        ).fetchall()
+        uplink = conn.execute(
+            """SELECT * FROM ground_outbox WHERE direction = 'INBOUND'
+               ORDER BY created_at_utc DESC, id DESC LIMIT 20"""
+        ).fetchall()
+        latency = earth_latency_min(conn)
+        matrix = _crew_matrix(conn)
+        roster = [dict(r) for r in conn.execute(
+            """SELECT id, code, full_name, role, title_en, age, sex, blood_type, height_cm,
+                      is_active FROM crew_members ORDER BY code"""
+        )]
+    packets = []
+    for r in received:
+        arrived = r["status"] in ("DELIVERED", "ACKNOWLEDGED")
+        packets.append({
+            "id": r["id"],
+            "packet_type": r["packet_type"],
+            "title_en": _bundle(r).get("title_en") or PACKET_TITLES.get(r["packet_type"]),
+            "state": "RECEIVED" if arrived else "IN TRANSIT",
+            "sent_at_utc": r["created_at_utc"],
+            "arrives_at_utc": r["delivered_at_utc"] or r["deliver_after_utc"],
+            # Only what actually reached the ground can be opened.
+            "bundle": _bundle(r) if arrived else None,
+        })
+    orders = []
+    for r in uplink:
+        data = _bundle(r)
+        data.pop("pin_hash", None)
+        travelling = r["status"] in ("QUEUED", "IN_TRANSIT")
+        due = parse_iso(r["deliver_after_utc"])
+        orders.append({
+            "id": r["id"],
+            "packet_type": r["packet_type"],
+            "crew_id": r["crew_id"] or data.get("crew_id"),
+            "summary_en": data.get("title_en") or (
+                f"{data.get('action', 'UPDATE').title()} crew {data.get('crew_id', '')}".strip()),
+            "state": "IN TRANSIT" if travelling else "ON BOARD",
+            "sent_at_utc": r["created_at_utc"],
+            "arrives_at_utc": r["deliver_after_utc"],
+            "seconds_left": max(0, int((due - now).total_seconds())) if travelling else 0,
+        })
+    return {"earth_latency_min": latency, "server_utc": to_iso(now), "crew": matrix,
+            "roster": roster, "packets": packets, "uplink": orders}
+
+
+@router.post("/comms/ground/crew", status_code=status.HTTP_202_ACCEPTED)
+def ground_crew_order(body: GroundCrewDirectiveIn, _ground: GroundSession) -> dict:
+    """Add, change or deactivate a crew member from the ground (applied after the delay)."""
+    return queue_crew_order(body)
+
+
+@router.post("/comms/ground/directives", status_code=status.HTTP_202_ACCEPTED)
+def ground_directive(body: InboundDirectiveIn, _ground: GroundSession) -> dict:
+    """Send guidance to one crew member or the whole crew (arrives after the delay)."""
+    return queue_directive(body)
+
+
+@router.post("/comms/ground/flush")
+def ground_orbital_pass(_ground: GroundSession) -> dict[str, int]:
+    """Complete the orbital pass now (live demonstrations): everything travelling arrives."""
+    with open_connection() as conn:
+        last = conn.execute(
+            "SELECT MAX(deliver_after_utc) FROM ground_outbox"
+            " WHERE status IN ('QUEUED', 'IN_TRANSIT')"
+        ).fetchone()[0]
+        moment = max(to_iso(utc_now()), last) if last else None
+        return process_ground_outbox(conn, moment)

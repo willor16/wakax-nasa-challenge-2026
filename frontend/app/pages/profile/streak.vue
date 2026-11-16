@@ -22,10 +22,10 @@ interface PersonalStreak {
   rules: { compliant_habits: number, shield_habits: number }
 }
 
-const { crew } = useSession()
+const { activePatientId } = useSession()
 const { api } = useApi()
 const { data, loading, error, refresh } = useResource(
-  () => api<PersonalStreak>(`/streaks/${crew.value!.id}`), 30_000, ['streaks', 'vitals', 'psych', 'sleep'])
+  () => api<PersonalStreak>(`/streaks/${activePatientId.value!}`), 30_000, ['streaks', 'vitals', 'psych', 'sleep'])
 
 usePageHeader(() => ({
   title: 'Astronaut Profile · Streak',
